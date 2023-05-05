@@ -1,0 +1,9 @@
+Test data
+
+gencode.v39.ACTB+SOX2.gff3: Human ACTB and SOX2 annotations extracted from gencode v39
+
+ACTB+SOX2.fa: mFASTA with genomic sequences +/- 100bp of ACTB and SOX2:
+    samtools faidx <GRCh38.fa> chr3:181711825-181714536 > ACTB+SOX2.fa
+    samtools faidx <GRCh38.fa> chr7:5526309-5564002    >> ACTB+SOX2.fa
+
+Test*.fastq: example FASTQ files
