@@ -132,17 +132,18 @@ def test_slugify():
     assert slugify("this/is/an invalid filename!.txt"), "thisisan_invalid_filenametxt"
 
 def test_reference_dict(base_path):
-    r1 = reference_dict("A", {'chr1': 1, 'chr2':2, 'chrM': 23, 'chrX': 24})
-    r2 = reference_dict("B", {'chr1': 1, 'chrX': 24})
-    r3 = reference_dict("C", {'chr1': 1, 'chrX': 24, 'chrM': 23}) # different order
-    r4 = reference_dict("B", {'chr1': 1, 'chrX': 25}) # different length
-    assert reference_dict.merge_and_validate() is None
-    assert reference_dict.merge_and_validate(r1)==r1
-    assert reference_dict.merge_and_validate(r1,r2)=={'chr1': 1, 'chrX': 24}
+    r1 = ReferenceDict("A", {'chr1': 1, 'chr2':2, 'chrM': 23, 'chrX': 24})
+    r2 = ReferenceDict("B", {'chr1': 1, 'chrX': 24})
+    r3 = ReferenceDict("C", {'chr1': 1, 'chrX': 24, 'chrM': 23}) # different order
+    r4 = ReferenceDict("B", {'chr1': 1, 'chrX': 25}) # different length
+    assert ReferenceDict.merge_and_validate() is None
+    assert ReferenceDict.merge_and_validate(r1) == r1
+    assert ReferenceDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
     with pytest.raises(AssertionError) as e_info:
-        reference_dict.merge_and_validate(r1, r3)
+        ReferenceDict.merge_and_validate(r1, r3)
     print(f'Expected assertion: {e_info}')
-    assert reference_dict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
+    assert ReferenceDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
     with pytest.raises(AssertionError) as e_info:
-        reference_dict.merge_and_validate(r1, r4)
+        ReferenceDict.merge_and_validate(r1, r4)
     print(f'Expected assertion: {e_info}')
+    ReferenceDict.merge_and_validate(r1,None,r2)

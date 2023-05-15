@@ -1,8 +1,9 @@
-from pygenlib.genemodel import *
+from pygenlib.genemodel import gi
 import pytest
 from pathlib import Path
 from itertools import product
-
+import heapq
+import os
 @pytest.fixture(autouse=True)
 def base_path() -> Path:
     """Go to testdata dir"""
@@ -14,17 +15,17 @@ def base_path() -> Path:
 def merge_result_lists(l):
     """ helper function """
     l1, l2 = zip(*l)
-    m=loc_obj.merge(list(l1))
+    m=gi.merge(list(l1))
     seq=''.join([str(x) for x in l2])
     return m, seq
 
 def test_loc_simple():
     # simple tests on single chrom
     d = {
-        'a': loc_obj.from_str('chr1:1-10'),
-        'b': loc_obj.from_str('chr1:5-20'),
-        'c': loc_obj.from_str('chr1:1-20'),
-        'd': loc_obj.from_str('chr1:15-20')
+        'a': gi.from_str('chr1:1-10'),
+        'b': gi.from_str('chr1:5-20'),
+        'c': gi.from_str('chr1:1-20'),
+        'd': gi.from_str('chr1:15-20')
     }
     assert d['a']<d['b']
     assert d['a']!=d['b']
@@ -48,12 +49,12 @@ def test_loc_overlaps():
     #                         |-e-|
     #                     |-f--------|
     d = {
-        'a': loc_obj('1', 1, 10),
-        'b': loc_obj('1', 11, 20),
-        'c': loc_obj('1', 5, 15),
-        'd': loc_obj('1', 30, 40),
-        'e': loc_obj('2', 21, 30),
-        'f': loc_obj('2', 1, 50)
+        'a': gi('1', 1, 10),
+        'b': gi('1', 11, 20),
+        'c': gi('1', 5, 15),
+        'd': gi('1', 30, 40),
+        'e': gi('2', 21, 30),
+        'f': gi('2', 1, 50)
     }
     d_plus = {x: d[x].copy() for x in d}
     d_minus = {x: d[x].copy() for x in d}
@@ -79,6 +80,21 @@ def test_loc_overlaps():
         assert (not d[x].is_adjacent(d_plus[x]))
         assert (not d_minus[x].is_adjacent(d_plus[x]))
 
+def test_loc_overlaps_unrestricted():
+    d = {
+        'a': gi('1', 1, 10),
+        'b': gi('1', 11, 20),
+        'c': gi('1', 5, 15),
+        'd': gi('1', 30, 40),
+        'e': gi('2', 21, 30),
+        'f': gi('2', 1, 50)
+    }
+    # unrestricted intervals
+    assert d['a'].overlaps(gi('1',None,None))
+    assert d['a'].overlaps(gi('1', 8, None))
+    assert not d['a'].overlaps(gi('1', 11, None))
+    assert d['a'].overlaps(gi(None, 1, None))
+
 def test_loc_merge():
     # Some merging tests
     # .........1........  ....2......
@@ -89,22 +105,50 @@ def test_loc_merge():
     #                         |-e-|
     #                     |-f--------|
     d = {
-        'a': loc_obj('1', 1, 10),
-        'b': loc_obj('1', 11, 20),
-        'c': loc_obj('1', 5, 15),
-        'd': loc_obj('1', 30, 40),
-        'e': loc_obj('2', 21, 30),
-        'f': loc_obj('2', 1, 50)
+        'a': gi('1', 1, 10),
+        'b': gi('1', 11, 20),
+        'c': gi('1', 5, 15),
+        'd': gi('1', 30, 40),
+        'e': gi('2', 21, 30),
+        'f': gi('2', 1, 50)
     }
     d_plus = {x: d[x].copy() for x in d}
     d_minus = {x: d[x].copy() for x in d}
     for x, y in zip(d_plus.values(), d_minus.values()):
         x.strand = '+'
         y.strand = '-'
-    assert loc_obj.merge([d_plus['a'], d_plus['a']]) == d_plus['a']
-    assert loc_obj.merge([d['a'], d['a']]) == d['a']
-    assert loc_obj.merge([d['a'], d['b']]) == loc_obj('1', 1, 20)
-    assert loc_obj.merge([d['a'], d['e']]) is None  # chrom mismatch
-    assert loc_obj.merge([d['e'], d['f']]) == loc_obj('2', 1, 50) # containment
-    assert loc_obj.merge([d['a'], d_plus['a']]) is None  # strand mismatch
-    assert loc_obj.merge([d_plus['a'], d_plus['a']]) == d_plus['a']
+    assert gi.merge([d_plus['a'], d_plus['a']]) == d_plus['a']
+    assert gi.merge([d['a'], d['a']]) == d['a']
+    assert gi.merge([d['a'], d['b']]) == gi('1', 1, 20)
+    assert gi.merge([d['a'], d['e']]) is None  # chrom mismatch
+    assert gi.merge([d['e'], d['f']]) == gi('2', 1, 50) # containment
+    assert gi.merge([d['a'], d_plus['a']]) is None  # strand mismatch
+    assert gi.merge([d_plus['a'], d_plus['a']]) == d_plus['a']
+
+def test_loc_merge_unrestricted():
+    d = {
+        'a': gi('1', 1, 10),
+        'b': gi(None, 11, 20)
+    }
+    print(gi.merge([d['a'], d['b']]))
+    print(gi.merge([d['b'], d['a']]))
+
+def test_loc_merge_sorted():
+    a = {
+        'a': gi('1', 1, 10),
+        'c': gi('1', 5, 15),
+        'f': gi('2', 1, 50),
+        'e': gi('2', 21, 30),
+    }
+    b = {
+        'a': gi('1', 1, 10),
+        'c': gi('3', 5, 15),
+        'f': gi('4', 1, 50),
+        'e': gi('4', 21, 30)
+    }
+    for n,l in a.items():
+        l.data=n
+    for n,l in b.items():
+        l.data=n
+    for i in heapq.merge(a.values(), b.values()):
+        print(i, i.data)

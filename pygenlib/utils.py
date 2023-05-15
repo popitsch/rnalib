@@ -5,6 +5,7 @@ General (low-level) utility methods
 
 @author: niko.popitsch@univie.ac.at
 """
+import math
 from collections import Counter
 from itertools import zip_longest
 import sys
@@ -24,6 +25,7 @@ from Bio import pairwise2
 import numpy as np
 from functools import reduce
 from dataclasses import dataclass, field
+
 
 # --------------------------------------------------------------
 # Commandline and config handling
@@ -139,14 +141,16 @@ def intersect_lists(*lists, check_order=False) -> list:
             intersect_lists([1,2,3,4],[1,4],[3,1], check_order=True)
             intersect_lists((1,2,3,5),(1,3,4,5)) # [1,3,5]
     """
-    if len(lists)==0:
-        return[]
+    if len(lists) == 0:
+        return []
+
     def intersect_lists_(list1, list2):
-        return list(filter(lambda x:x in list1, list2))
-    isec=reduce(intersect_lists_, lists)
+        return list(filter(lambda x: x in list1, list2))
+
+    isec = reduce(intersect_lists_, lists)
     if check_order:
         for l in lists:
-            assert [x for x in l if x in isec]==isec, f"Input list have differing order of shared elements {isec}"
+            assert [x for x in l if x in isec] == isec, f"Input list have differing order of shared elements {isec}"
     return isec
 
 
@@ -359,7 +363,7 @@ def count_rest(s, rest=['GGTACC', 'GAATTC', 'CTCGAG', 'CATATG', 'ACTAGT']) -> in
     return sum([r in s for r in rest])
 
 
-def longest_hp_gc_len(seq) -> (int,int):
+def longest_hp_gc_len(seq) -> (int, int):
     """
         Counts HP length (any allele) from start.
         This method counts any character including N's
@@ -468,28 +472,6 @@ def find_gpos(genome_fa, kmers, included_chromosomes=None) -> Counter:
 # genomics helpers
 # --------------------------------------------------------------
 
-genomics_filetypes = {
-    '.fastq': 'fastq', '.fq': 'fastq',
-    '.gff': 'gff', '.gff3': 'gff',
-    '.gtf': 'gtf',
-    '.bed': 'bed',
-    '.sam': 'sam', '.bam': 'sam',
-    '.vcf': 'vcf'
-}
-
-
-def guess_file_type(file) -> (str,str,bool,str):
-    """
-        Guesses the file type from the file extension
-        Returns filename (w/o extension), extension, flag indicating whether file was gzipped and guessed genomics filetype
-    """
-    fn, ext = os.path.splitext(file.lower())
-    is_gzipped = False
-    if ext == '.gz':
-        is_gzipped = True
-        fn, ext = os.path.splitext(fn)
-    return fn, ext, is_gzipped, genomics_filetypes.get(ext, None)
-
 
 def parse_gff_info(info, fmt='gff3'):
     """ parse GFF3/GTF info section """
@@ -517,7 +499,7 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
     pysam.tabix_compress(in_file, out_file, force=True)  # @UndefinedVariable
     if create_index:
         if preset == 'auto':
-            fn, ext, is_gzipped, preset = guess_file_type(in_file)
+            preset = guess_file_format(in_file)
             if preset == 'gtf':
                 preset = 'gff'  # pysam default
             print(f"Detected file format for index creation: {preset}")
@@ -529,7 +511,7 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
 
 def count_reads(in_file):
     """ Counts reads in different file types """
-    fn, ext, is_gzipped, ftype = guess_file_type(in_file)
+    ftype = guess_file_format(in_file)
     if ftype == 'fastq':
         return count_lines(in_file) / 4.0
     elif ftype == 'sam':
@@ -544,20 +526,22 @@ def count_reads(in_file):
 # BAM flags, @see https://broadinstitute.github.io/picard/explain-flags.html
 class BAM_FLAG(IntEnum):
     BAM_FPAIRED = 0x1  # the read is paired in sequencing, no matter whether it is mapped in a pair
-    BAM_FPROPER_PAIR = 0x2 # the read is mapped in a proper pair
-    BAM_FUNMAP = 0x4 # the read itself is unmapped; conflictive with BAM_FPROPER_PAIR
-    BAM_FMUNMAP = 0x8 # the mate is unmapped
-    BAM_FREVERSE = 0x10 # the read is mapped to the reverse strand
-    BAM_FMREVERSE = 0x20 # the mate is mapped to the reverse strand
-    BAM_FREAD1 = 0x40 # this is read1
-    BAM_FREAD2 = 0x80 # this is read2
-    BAM_FSECONDARY = 0x100 # not primary alignment
-    BAM_FQCFAIL = 0x200 # QC failure
-    BAM_FDUP = 0x400 # optical or PCR duplicate
-    BAM_SUPPLEMENTARY = 0x800 # optical or PCR duplicate
+    BAM_FPROPER_PAIR = 0x2  # the read is mapped in a proper pair
+    BAM_FUNMAP = 0x4  # the read itself is unmapped; conflictive with BAM_FPROPER_PAIR
+    BAM_FMUNMAP = 0x8  # the mate is unmapped
+    BAM_FREVERSE = 0x10  # the read is mapped to the reverse strand
+    BAM_FMREVERSE = 0x20  # the mate is mapped to the reverse strand
+    BAM_FREAD1 = 0x40  # this is read1
+    BAM_FREAD2 = 0x80  # this is read2
+    BAM_FSECONDARY = 0x100  # not primary alignment
+    BAM_FQCFAIL = 0x200  # QC failure
+    BAM_FDUP = 0x400  # optical or PCR duplicate
+    BAM_SUPPLEMENTARY = 0x800  # optical or PCR duplicate
+
 
 # Default BAM flag filter (3844) as used, e.g., in IGV
-DEFAULT_FLAG_FILTER=BAM_FLAG.BAM_FUNMAP | BAM_FLAG.BAM_FSECONDARY | BAM_FLAG.BAM_FQCFAIL | BAM_FLAG.BAM_FDUP | BAM_FLAG.BAM_SUPPLEMENTARY
+DEFAULT_FLAG_FILTER = BAM_FLAG.BAM_FUNMAP | BAM_FLAG.BAM_FSECONDARY | BAM_FLAG.BAM_FQCFAIL | BAM_FLAG.BAM_FDUP | BAM_FLAG.BAM_SUPPLEMENTARY
+
 
 @dataclass
 class TagFilter:
@@ -569,6 +553,7 @@ class TagFilter:
     filter_values: field(default_factory=list)
     filter_if_no_tag: bool = False
     inverse: bool = False
+
     def filter(self, r):
         if r.has_tag(self.tag):
             value_exists = r.get_tag(self.tag) in self.filter_values
@@ -576,6 +561,7 @@ class TagFilter:
         else:
             return self.filter_if_no_tag
         return False
+
 
 def get_softclip_seq(read: pysam.AlignedSegment):
     """Extracts soft-clipped sequences from the passed read"""
@@ -590,38 +576,42 @@ def get_softclip_seq(read: pysam.AlignedSegment):
     return left, right
 
 
-
-class reference_dict(dict):
+class ReferenceDict(dict):
     """
         Named dict for representing a set of references (contigs) and their lengths.
         Note that two reference dicts match if their contig dicts match (name is not compared)
     """
+
     def __init__(self, name, *args, **kw):
-        self.name=name
-        super(reference_dict, self).__init__(*args, **kw)
+        self.name = name
+        super(ReferenceDict, self).__init__(*args, **kw)
+
     def __repr__(self):
         return f"Refset {self.name} with {len(self.keys())} references: {self.keys()}, {self.values()}"
+
     @classmethod
     def merge_and_validate(cls, *refsets):
         """
-            Checks whether the passed reference sets areee compatible and returns the
-            merged reference set containing the intersection of common refereneces
+            Checks whether the passed reference sets are compatible and returns the
+            merged reference set containing the intersection of common references
         """
-        if len(refsets)==0:
+        refsets = [r for r in refsets if r is not None]
+        if len(refsets) == 0:
             return None
         # intersect all contig lists while preserving order (set.intersection() or np.intersect1d() do not work!)
-        shared_ref={k:None for k in intersect_lists(*[list(r.keys()) for r in refsets], check_order=True)}
+        shared_ref = {k: None for k in intersect_lists(*[list(r.keys()) for r in refsets], check_order=True)}
         # check whether contig lengths match
         for r in refsets:
-            for contig,oldlen in shared_ref.items():
-                newlen=r.get(contig)
+            for contig, oldlen in shared_ref.items():
+                newlen = r.get(contig)
                 if newlen is None:
                     continue
                 if oldlen is None:
-                    shared_ref[contig]=newlen
+                    shared_ref[contig] = newlen
                 else:
                     assert oldlen == newlen, f"Incompatible lengths for contig ({oldlen}!={newlen}) when comparing refsets {refsets}"
-        return reference_dict(','.join([r.name for r in refsets]), shared_ref)
+        return ReferenceDict(','.join([r.name for r in refsets]), shared_ref)
+
 
 def get_reference_dict(fh) -> dict:
     """ Extracts chromosome names, order and (where possible) length from pysam objects.
@@ -640,72 +630,65 @@ def get_reference_dict(fh) -> dict:
         if input type is not supported yet
     """
     if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
-        return reference_dict(f'References from FASTA file {fh.filename}',
+        return ReferenceDict(f'References from FASTA file {fh.filename}',
                              {c: fh.get_reference_length(c) for c in fh.references})
     elif isinstance(fh, pysam.AlignmentFile):  # @UndefinedVariable
-        return reference_dict(f'References from SAM/BAM file {fh.filename}',
+        return ReferenceDict(f'References from SAM/BAM file {fh.filename}',
                              {c: fh.header.get_reference_length(c) for c in fh.references})
     elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
-        return reference_dict(f'References from TABIX file {fh.filename}',
-                             {c: None for c in fh.contigs}) # no ref length info in tabix
+        return ReferenceDict(f'References from TABIX file {fh.filename}',
+                             {c: None for c in fh.contigs})  # no ref length info in tabix
     elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
-        return reference_dict(f'References from VCF file {fh.filename}',
+        return ReferenceDict(f'References from VCF file {fh.filename}',
                              {c: fh.header.contigs.get(c).length for c in fh.header.contigs})
     else:
         raise NotImplementedError(f"Unknown input object type {type(fh)}")
 
-def guess_file_format(file_name,
-                   file_extensions={
-                       'fasta': ('.fa', '.fasta', '.fna'),
-                       'sam': ('.sam'),
-                       'bam': ('.bam'),
-                       'tsv': ('.tsv', '.tsv.gz'),
-                       'bed': ('.bed', '.bed.gz', '.bedgraph', '.bedgraph.gz'),
-                       'vcf': ('.vcf', '.vcf.gz'),
-                       'bcf': ('.bcf')
-                   }):
+default_file_extensions={
+    'fasta': ('.fa', '.fasta', '.fna', '.fa.gz', '.fasta.gz'),
+    'sam': ('.sam'),
+    'bam': ('.bam'),
+    'tsv': ('.tsv', '.tsv.gz'),
+    'bed': ('.bed', '.bed.gz', '.bedgraph', '.bedgraph.gz'),
+    'vcf': ('.vcf', '.vcf.gz'),
+    'bcf': ('.bcf'),
+    'gff': ('.gff3', '.gff3.gz'),
+    'gtf': ('.gtf', '.gtf.gz'),
+    'fastq': ('.fq', '.fastq', '.fq.gz', '.fastq.gz'),
+}
+
+def guess_file_format(file_name, file_extensions=default_file_extensions):
     """
     Guesses the file format from the file extension
     :param file_name:
     :param file_extensions:
     :return:
     """
-    for ff, ext in file_extensions.items():
+    # fn, ext = os.path.splitext(file_name.lower())
+    # if ext == '.gz':
+    #     fn, ext = os.path.splitext(fn)
+    #     ext += '.gz'
+    # return file_extensions.get(ext, )
+    for ff, ext in file_extensions.items(): # TODO: make faster
         if file_name.endswith(ext):
             return ff
     return None
 
-def open_pysam_obj(fh, file_format=None, file_extensions={
-                       'fasta': ('.fa', '.fasta', '.fna'),
-                       'sam': ('.sam'),
-                       'bam': ('.bam'),
-                       'tsv': ('.tsv', '.tsv.gz'),
-                       'bed': ('.bed', '.bed.gz', '.bedgraph', '.bedgraph.gz'),
-                       'vcf': ('.vcf', '.vcf.gz'),
-                       'bcf': ('.bcf')
-                   }) -> (object):
-    """ Ensures and instantiated pysam object and returns the respective file format as string.
 
-    If a string or posix path was passed, a respective pysam object is instantiated.
-    If a pysam object was passed, it is returned.
+def open_file_obj(fh, file_format=None, file_extensions=default_file_extensions) -> (object):
+    """ Opens a file object.
 
-    Parameters
-    ----------
-    fh : str or pysam object
-        if a string/file path is passed, the file type is detected from the file extension and a respective pysam object is instantiated.
+    If a pysam compatible file format was detected, the respcetive pysam object is instantiated.
 
-    file_format : str
-        Can be any <supported_formats> or NONE for auto-detection from filename (valid file extensions can be configured).
-        Only useful if a str/path is passed.
+    :parameter fh : str or file path object
+    :parameter file_format : str
+        Can be any <supported_formats> or None for auto-detection from filename (valid file extensions can be configured).
 
-    Returns
-    -------
-    file_handle : instance
-        pysam object
+    :returns file_handle : instance (file/pysam object)
     """
     fh = str(fh)  # convert path to str
     if file_format is None:  # auto detect via file extension
-        file_format=guess_file_format(fh, file_extensions)
+        file_format = guess_file_format(fh, file_extensions)
     # instantiate pysam object
     if file_format == 'fasta':
         fh = pysam.Fastafile(fh)  # @UndefinedVariable
@@ -718,15 +701,27 @@ def open_pysam_obj(fh, file_format=None, file_extensions={
         was_opened = True
     elif file_format == 'bed':
         fh = pysam.TabixFile(fh, mode="r")  # @UndefinedVariable
+    elif file_format == 'gtf':
+        fh = pysam.TabixFile(fh, mode="r")  # @UndefinedVariable
+    elif file_format == 'gff':
+        fh = pysam.TabixFile(fh, mode="r")  # @UndefinedVariable
     elif file_format == 'tsv':
         fh = pysam.TabixFile(fh, mode="r")  # @UndefinedVariable
     elif file_format == 'vcf':
         fh = pysam.VariantFile(fh, mode="r")  # @UndefinedVariable
     elif file_format == 'bcf':
         fh = pysam.VariantFile(fh, mode="rb")  # @UndefinedVariable
+    elif file_format == 'fastq':
+        fh = gzip.open(fh, 'rb') if fh.endswith('.gz') else open(fh, mode="r")
     else:
         raise NotImplementedError(f"Unsupported input format for file {fh}")
     return fh
+
+def get_merged_refdict(*files):
+    """Returns the merged reference dict for the passed genomic files."""
+    return ReferenceDict.merge_and_validate(*[get_reference_dict(open_file_obj(fh)) for fh in files])
+
+
 
 def get_covered_contigs(bam_files):
     """ Returns all contigs that have some coverage across a set of BAMs.
@@ -843,3 +838,198 @@ def get_bcgs(fast5_file):
     with h5py.File(fast5_file, 'r') as f:
         first_rn = next(iter(f.keys()))
         return [a for a in list(f[first_rn]['Analyses']) if a.startswith("Basecall_")]
+
+
+# ------------------------------------------------------------------------
+# genomic interval implementation
+# ------------------------------------------------------------------------
+
+class gi:
+    """
+        Class for representing a genomic interval.
+
+        Coordinates
+        ----------
+        This implementation can be used for 0-based or 1-based coordinates. Intervals endpoints are
+        included, i.e., {x | start <= x <= end}. Coordinates can be unrestricted, i.e., passing None as
+        start/end will set those to -inf/+inf respectively.
+        Setting None as chromosome name will leave this unrestricted in comparisons.
+
+        Strandedness
+        ------------
+        Intervals can be stranded ('+','-') or unstranded (strand=None).
+        Comparisons can be done in a stranded (default) or unstranded manner.
+
+    """
+    # save some space and improve access time for default attr but add __dict__ to enable custom attrs
+    __slots__ = ("chromosome", "start", "end", "strand", "__dict__")
+    def __init__(self, chromosome, start, end, strand=None):
+        self.chromosome=chromosome
+        self.start=-math.inf if start is None else start
+        self.end = math.inf if end is None else end
+        self.strand=strand
+        assert self.strand in [None, '+','-']
+
+    @classmethod
+    def from_str(cls, loc_string):
+        """ Parse from chr:start-end. start+end must be >=0 """
+        chromosome, start, end = re.split(':|-', loc_string)
+        return cls(chromosome, int(start), int(end))
+
+    @classmethod
+    def split_by_chrom(cls, loc_list, sort=True):
+        """ Split a list of locations into a chrom:locations dict
+        """
+        ret={}
+        for x in loc_list:
+            if x.chromosome not in ret:
+                ret[x.chromosome]=list()
+            ret[x.chromosome].append(x)
+        if sort:
+            ret={x:sorted(y) for x,y in ret.items()}
+        return ret
+
+    def __repr__(self):
+        return f"{self.chromosome}:{self.start}-{self.end} ({'u' if self.strand is None else self.strand})"
+
+    def to_file_str(self):
+        """ returns a sluggified string representation "<chrom>_<start>_<end>_<strand>"        """
+        f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
+
+    def __len__(self):
+        return self.end - self.start + 1
+
+    def __hash__(self):
+        return hash(self.__repr__())
+
+    def is_stranded(self):
+        return self.strand is not None
+
+    def cs_match(self, other, strand_specific=True):
+        """ True if this location is on the same chrom/strand as the passed one.
+            will not compare chromosomes if they are unrestricted in one of the intervals
+        """
+        if strand_specific and self.strand != other.strand:
+            return False
+        if self.chromosome and other.chromosome and self.chromosome!=other.chromosome:
+            return False
+        return True
+
+    def __eq__(self, other, strand_specific=True):
+        """
+            Test whether this interval is equal to the other.
+            Includes a chromosome and strand check.
+        """
+        return (self.chromosome==other.chromosome) and (self.strand==other.strand) and (self.start == other.start) and (self.end == other.end)
+
+    def __cmp__(self, other, cmp_str, strand_specific=True):
+        if not self.cs_match(other, strand_specific):
+            return None
+        if self.start != other.start:
+            return getattr(self.start, cmp_str)(other.start)
+        return getattr(self.end, cmp_str)(other.end)
+
+    def __lt__(self, other, strand_specific=True):
+        """
+            Test whether this interval is smaller than the other.
+            Defined only on same chromosome/strand but allows unrestricted coordinates.
+            If chrom/strand do not match, None is returned.
+        """
+        return self.__cmp__(other, '__lt__', strand_specific)
+
+    def __le__(self, other, strand_specific=True):
+        """
+            Test whether this interval is smaller or equal than the other.
+            Defined only on same chromosome/strand but allows unrestricted coordinates.
+            If chrom/strand do not match, None is returned.
+        """
+        return self.__cmp__(other, '__le__', strand_specific)
+
+    def __gt__(self, other, strand_specific=True):
+        """
+            Test whether this interval is greater than the other.
+            Defined only on same chromosome/strand but allows unrestricted coordinates.
+            If chrom/strand do not match, None is returned.
+        """
+        return self.__cmp__(other, '__gt__', strand_specific)
+
+    def __ge__(self, other, strand_specific=True):
+        """
+            Test whether this interval is greater or equal than the other.
+            Defined only on same chromosome/strand but allows unrestricted coordinates.
+            If chrom/strand do not match, None is returned.
+        """
+        return self.__cmp__(other, '__ge__', strand_specific)
+
+    def left_match(self, other, strand_specific=True):
+        if not self.cs_match(other, strand_specific):
+            return False
+        return self.start == other.start
+
+    def right_match(self, other, strand_specific=True):
+        if not self.cs_match(other, strand_specific):
+            return False
+        return self.end == other.end
+
+    def left_pos(self):
+        return gi(self.chromosome, self.start, self.start, strand=self.strand)
+
+    def right_pos(self):
+        return gi(self.chromosome, self.end, self.end, strand=self.strand)
+
+    def overlaps(self, other, strand_specific=True) -> bool:
+        """ Tests whether this interval overlaps the passed one.
+            Supports unrestricted start/end coordinates
+        """
+        if not self.cs_match(other, strand_specific):
+            return False
+        return self.start <= other.end and other.start <= self.end
+
+    def split_coordinates(self) -> (str, int, int):
+        return self.chromosome, self.start, self.end
+
+    @classmethod
+    def merge(cls, l):
+        """ Merges a list of intervals.
+            If intervals are not on the same chromosome or if strand is not matching, None is returned
+            The resulting ingtervalk will inherit the chromosome of the first passed one.
+        """
+        if l is None:
+            return None
+        if len(l) == 1:
+            return l[0]
+        merged = None
+        for x in l:
+            if merged is None:
+                merged = x
+            else:
+                if not merged.cs_match(x):
+                    return None
+                merged.start = min(merged.start, x.start)
+                merged.end = max(merged.end, x.end)
+        return merged
+
+    def is_adjacent(self, other):
+        """ true if intervals are directly next to each other (not overlapping!) """
+        if not self.cs_match(other):
+            return False
+        a, b = (self.end + 1, other.start) if self.end < other.end else (other.end + 1, self.start)
+        return a == b
+
+    def split_by_maxwidth(self, maxwidth):
+        """ Splits this into n intervals of maximum width """
+        k, m = divmod(self.end - self.start + 1, maxwidth)
+        ret = [
+            gi(self.chromosome, self.start + i * maxwidth, self.start + (i + 1) * maxwidth - 1, strand=self.strand)
+            for i in range(k)]
+        if m > 0:
+            ret += [gi(self.chromosome, self.start + k * maxwidth, self.end, strand=self.strand)]
+        return ret
+
+    def copy(self):
+        """ Deep copy """
+        return gi(self.chromosome, self.start, self.end, self.strand)
+
+    def __iter__(self):
+        for pos in range(self.start, self.end+1):
+            yield gi(self.chromosome, pos, pos, self.strand)
