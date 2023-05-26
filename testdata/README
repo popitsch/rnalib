@@ -1,9 +1,14 @@
 Test data
 
 gencode.v39.ACTB+SOX2.gff3: Human ACTB and SOX2 annotations extracted from gencode v39
+UCSC.hg38.ncbiRefSeq.ACTB+SOX2.sorted.gtf.gz: Human ACTB and SOX2 annotations extracted from UCSC ncbiRefSeq data
+flybase.dmel-all-r6.51.sorted.gtf.gz: flybase full annotation
+mirgenedb.dme.sorted.gff3.gz: mirgenedb dmel annotations
 
 ACTB+SOX2.fa: mFASTA with genomic sequences +/- 100bp of ACTB and SOX2:
     samtools faidx <GRCh38.fa> chr3:181711825-181714536 > ACTB+SOX2.fa
     samtools faidx <GRCh38.fa> chr7:5526309-5564002    >> ACTB+SOX2.fa
 
 Test*.fastq: example FASTQ files
+
+dmelanogaster_6_exported_20230523.vcf.gz: exported from https://www.ebi.ac.uk/eva/?Variant-Browser&species=dmelanogaster_6&selectFilter=region&studies=SNPASSAY_4_SUBMISSION_2010_11_14&region=2L%3A574291-575734

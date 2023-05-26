@@ -41,14 +41,36 @@ def test_get_config():
 def test_parse_gff_info(base_path):
     """ shallow test of GFF/GTF infor parsing.
     """
-    gene_gff_file = 'gencode.v39.ACTB+SOX2.gff3.gz'  # 275 records
-    with pysam.TabixFile(gene_gff_file, mode="r") as f:
-        for row in f.fetch(parser=pysam.asTuple()):
-            reference, source, ftype, fstart, fend, score, strand, phase, info = row
-            pinfo = parse_gff_info(info)
-            min_exp_fields=set('ID,gene_id,gene_type,gene_name,level'.split(','))
-            shared, _, _ = cmp_sets(set(pinfo.keys()), min_exp_fields)
-            assert shared==min_exp_fields
+    for fn in ['gencode.v39.ACTB+SOX2.gff3.gz',
+                          'UCSC.hg38.ncbiRefSeq.ACTB+SOX2.sorted.gtf.gz',
+                          'ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz',
+                          'flybase.dmel-all-r6.51.sorted.gtf.gz']:
+        with pysam.TabixFile(fn, mode="r") as f:
+            for row in f.fetch(parser=pysam.asTuple()):
+                reference, source, ftype, fstart, fend, score, strand, phase, info = row
+                pinfo = parse_gff_info(info, fmt=guess_file_format(fn))
+                min_exp_fields = set('gene_id'.split(','))
+                shared, _, _ = cmp_sets(set(pinfo.keys()), min_exp_fields)
+                assert shared == min_exp_fields, f"error parsing {info} in file {fn}"
+
+
+
+def test_get_reference_dict(base_path):
+    """Test reference dict implementation and aliasing"""
+    assert get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).keys() == {'chr3','chr7'}
+    assert get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz').orig.keys() == \
+           get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).orig.keys()
+    assert get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).alias('1')=='chr1'
+    # compare 2 refsets, one w/o chr prefix (ensembl) and one with (fasta file)
+    assert ReferenceDict.merge_and_validate(
+        get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr),
+        get_reference_dict('ACTB+SOX2.fa.gz')
+    ).keys()=={'chr3', 'chr7'}
+    assert ReferenceDict.merge_and_validate(
+        get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz'),
+        get_reference_dict('ACTB+SOX2.fa.gz', fun_alias=toggle_chr)
+    ).keys()=={'3', '7'}
+
 
 def test_longest_hp_gc_len():
     assert longest_hp_gc_len("AAAAAA"), (6, 0)
@@ -132,15 +154,15 @@ def test_slugify():
     assert slugify("this/is/an invalid filename!.txt"), "thisisan_invalid_filenametxt"
 
 def test_reference_dict(base_path):
-    r1 = ReferenceDict("A", {'chr1': 1, 'chr2':2, 'chrM': 23, 'chrX': 24})
-    r2 = ReferenceDict("B", {'chr1': 1, 'chrX': 24})
-    r3 = ReferenceDict("C", {'chr1': 1, 'chrX': 24, 'chrM': 23}) # different order
-    r4 = ReferenceDict("B", {'chr1': 1, 'chrX': 25}) # different length
+    r1 = ReferenceDict("A", None, {'chr1': 1, 'chr2':2, 'chrM': 23, 'chrX': 24})
+    r2 = ReferenceDict("B", None, {'chr1': 1, 'chrX': 24})
+    r3 = ReferenceDict("C", None, {'chr1': 1, 'chrX': 24, 'chrM': 23}) # different order
+    r4 = ReferenceDict("B", None, {'chr1': 1, 'chrX': 25}) # different length
     assert ReferenceDict.merge_and_validate() is None
     assert ReferenceDict.merge_and_validate(r1) == r1
     assert ReferenceDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
     with pytest.raises(AssertionError) as e_info:
-        ReferenceDict.merge_and_validate(r1, r3)
+        ReferenceDict.merge_and_validate(r1, r3, check_order=True)
     print(f'Expected assertion: {e_info}')
     assert ReferenceDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
     with pytest.raises(AssertionError) as e_info:

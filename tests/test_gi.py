@@ -1,7 +1,7 @@
 from pygenlib.genemodel import gi
 import pytest
 from pathlib import Path
-from itertools import product
+from itertools import product, pairwise
 import heapq
 import os
 @pytest.fixture(autouse=True)
@@ -18,6 +18,9 @@ def merge_result_lists(l):
     m=gi.merge(list(l1))
     seq=''.join([str(x) for x in l2])
     return m, seq
+
+def from_str(s):
+    return [gi.from_str(x) for x in s.split(',')]
 
 def test_loc_simple():
     # simple tests on single chrom
@@ -37,7 +40,7 @@ def test_loc_simple():
     assert list(reversed(sorted(d.values())))==list(reversed([d['a'], d['c'], d['b'], d['d']]))
     # stranded
     d['a'].strand='+'
-    assert ((d['a'] < d['b']) is None) and ((d['a'] > d['b']) is None) and ((d['a'] == d['b']) is False) and (d['a'] != d['b'])
+    assert (d['a'] < d['b']) and (d['d'] > d['a']) and (not d['a'] == d['b']) and (d['a'] != d['b'])
 
 def test_loc_overlaps():
     # Some overlap tests
@@ -75,10 +78,10 @@ def test_loc_overlaps():
         assert (not d[x].is_adjacent(d[y]))
     # wrong strand: no overlap
     for x in d.keys():
-        assert (not d[x].overlaps(d_plus[x]))
-        assert (not d_minus[x].overlaps(d_plus[x]))
-        assert (not d[x].is_adjacent(d_plus[x]))
-        assert (not d_minus[x].is_adjacent(d_plus[x]))
+        assert (not d[x].overlaps(d_plus[x], strand_specific=True))
+        assert (not d_minus[x].overlaps(d_plus[x], strand_specific=True))
+        assert (not d[x].is_adjacent(d_plus[x], strand_specific=True))
+        assert (not d_minus[x].is_adjacent(d_plus[x], strand_specific=True))
 
 def test_loc_overlaps_unrestricted():
     d = {
@@ -152,3 +155,24 @@ def test_loc_merge_sorted():
         l.data=n
     for i in heapq.merge(a.values(), b.values()):
         print(i, i.data)
+
+def test_distance():
+    a=from_str('1:1-10,1:1-10,1:10-20,1:25-30,1:1-10,2:1-10,2:11-12')
+    dist=[a.distance(b) for a,b in pairwise(a)]
+    assert dist==[0, 0, 5, -15, None, 1]
+
+
+def test_sort():
+    a=from_str('1:1-10,1:1-10,1:10-20,1:25-30,1:1-10,2:1-10,2:11-12')
+    for i,x in enumerate(a):
+        x.strand='+' if i%2==0 else '-'
+    list(sorted(a))
+
+
+def test_eq():
+    a = from_str('1:1-10')
+    assert a[0] in a
+    assert a[0].copy() in a
+    b=a[0].copy()
+    b.strand='-'
+    assert b not in a

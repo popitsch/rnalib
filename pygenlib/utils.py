@@ -27,6 +27,213 @@ from functools import reduce
 from dataclasses import dataclass, field
 
 
+# ------------------------------------------------------------------------
+# genomic interval implementation
+# ------------------------------------------------------------------------
+
+class gi:
+    """
+        Class for representing a genomic interval.
+
+        Coordinates
+        ----------
+        This implementation can be used for 0-based or 1-based coordinates. Intervals endpoints are
+        included, i.e., {x | start <= x <= end}. Coordinates can be unrestricted, i.e., passing None as
+        start/end will set those to -inf/+inf respectively.
+        Setting None as chromosome name will leave this unrestricted in comparisons.
+
+        Strandedness
+        ------------
+        Intervals can be stranded ('+','-') or unstranded (strand=None).
+        Comparisons are by default done in an unstranded manner (i.e., comparing coordinates only).
+
+    """
+    # save some space and improve access time for default attr but add __dict__ to enable custom attrs
+    __slots__ = ("chromosome", "start", "end", "strand", "__dict__")
+    def __init__(self, chromosome, start, end, strand=None):
+        self.chromosome=chromosome
+        self.start=-math.inf if start is None else start
+        self.end = math.inf if end is None else end
+        self.strand=strand if strand != '.' else None
+        assert self.strand in [None, '+','-']
+
+    @classmethod
+    def from_str(cls, loc_string):
+        """ Parse from chr:start-end. start+end must be >=0 """
+        chromosome, start, end = re.split(':|-', loc_string)
+        return cls(chromosome, int(start), int(end))
+
+    @classmethod
+    def split_by_chrom(cls, loc_list, sort=True):
+        """ Split a list of locations into a chrom:locations dict
+        """
+        ret={}
+        for x in loc_list:
+            if x.chromosome not in ret:
+                ret[x.chromosome]=list()
+            ret[x.chromosome].append(x)
+        if sort:
+            ret={x:sorted(y) for x,y in ret.items()}
+        return ret
+
+    def __repr__(self):
+        return f"{self.chromosome}:{self.start}-{self.end} ({'u' if self.strand is None else self.strand})"
+
+    def to_file_str(self):
+        """ returns a sluggified string representation "<chrom>_<start>_<end>_<strand>"        """
+        return f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
+
+    def __len__(self):
+        return self.end - self.start + 1
+
+    def is_stranded(self):
+        return self.strand is not None
+
+    def cs_match(self, other, strand_specific=False):
+        """ True if this location is on the same chrom/strand as the passed one.
+            will not compare chromosomes if they are unrestricted in one of the intervals
+        """
+        if strand_specific and self.strand != other.strand:
+            return False
+        if self.chromosome and other.chromosome and self.chromosome!=other.chromosome:
+            return False
+        return True
+
+    def __eq__(self, other, strand_specific=True):
+        """
+            Test whether this interval is equal to the other.
+            Includes a chromosome and strand check.
+        """
+        if (other is None) or (not isinstance(other, __class__)):
+            return False
+        if strand_specific and self.strand!=other.strand:
+            return False
+        return (self.chromosome==other.chromosome) and (self.strand==other.strand) and (self.start == other.start) and (self.end == other.end)
+
+    def __cmp__(self, other, cmp_str):
+        if not self.cs_match(other, strand_specific=False):
+            return None
+        if self.start != other.start:
+            return getattr(self.start, cmp_str)(other.start)
+        return getattr(self.end, cmp_str)(other.end)
+
+    def __lt__(self, other):
+        """
+            Test whether this interval is smaller than the other.
+            Defined only on same chromosome but allows unrestricted coordinates.
+            If chroms do not match, None is returned.
+        """
+        return self.__cmp__(other, '__lt__')
+
+    def __le__(self, other):
+        """
+            Test whether this interval is smaller or equal than the other.
+            Defined only on same chromosome but allows unrestricted coordinates.
+            If chroms do not match, None is returned.
+        """
+        return self.__cmp__(other, '__le__')
+
+    def __gt__(self, other):
+        """
+            Test whether this interval is greater than the other.
+            Defined only on same chromosome but allows unrestricted coordinates.
+            If chroms do not match, None is returned.
+        """
+        return self.__cmp__(other, '__gt__')
+
+    def __ge__(self, other):
+        """
+            Test whether this interval is greater or equal than the other.
+            Defined only on same chromosome but allows unrestricted coordinates.
+            If chroms do not match, None is returned.
+        """
+        return self.__cmp__(other, '__ge__')
+
+    def left_match(self, other, strand_specific=False):
+        if not self.cs_match(other, strand_specific):
+            return False
+        return self.start == other.start
+
+    def right_match(self, other, strand_specific=False):
+        if not self.cs_match(other, strand_specific):
+            return False
+        return self.end == other.end
+
+    def left_pos(self):
+        return gi(self.chromosome, self.start, self.start, strand=self.strand)
+
+    def right_pos(self):
+        return gi(self.chromosome, self.end, self.end, strand=self.strand)
+
+    def overlaps(self, other, strand_specific=False) -> bool:
+        """ Tests whether this interval overlaps the passed one.
+            Supports unrestricted start/end coordinates and optional strand checl
+        """
+        if not self.cs_match(other, strand_specific):
+            return False
+        return self.start <= other.end and other.start <= self.end
+
+    def split_coordinates(self) -> (str, int, int):
+        return self.chromosome, self.start, self.end
+
+    @classmethod
+    def merge(cls, l):
+        """ Merges a list of intervals.
+            If intervals are not on the same chromosome or if strand is not matching, None is returned
+            The resulting interval will inherit the chromosome and strand of the first passed one.
+        """
+        if l is None:
+            return None
+        if len(l) == 1:
+            return l[0]
+        merged = None
+        for x in l:
+            if merged is None:
+                merged = x
+            else:
+                if not merged.cs_match(x, strand_specific=True):
+                    return None
+                merged.start = min(merged.start, x.start)
+                merged.end = max(merged.end, x.end)
+        return merged
+
+    def is_adjacent(self, other, strand_specific=False):
+        """ true if intervals are directly next to each other (not overlapping!) """
+        if not self.cs_match(other, strand_specific=strand_specific):
+            return False
+        a, b = (self.end + 1, other.start) if self.end < other.end else (other.end + 1, self.start)
+        return a == b
+
+    def split_by_maxwidth(self, maxwidth):
+        """ Splits this into n intervals of maximum width """
+        k, m = divmod(self.end - self.start + 1, maxwidth)
+        ret = [
+            gi(self.chromosome, self.start + i * maxwidth, self.start + (i + 1) * maxwidth - 1, strand=self.strand)
+            for i in range(k)]
+        if m > 0:
+            ret += [gi(self.chromosome, self.start + k * maxwidth, self.end, strand=self.strand)]
+        return ret
+
+    def copy(self):
+        """ Deep copy """
+        return gi(self.chromosome, self.start, self.end, self.strand)
+
+    def distance(self, other,  strand_specific=False):
+        """
+            Distance to other interval.
+            - None if chromosomes do not match
+            - 0 if intervals overlap
+            - negative if other < self
+        """
+        if self.cs_match(other, strand_specific=strand_specific):
+            if self.overlaps(other):
+                return 0
+            return other.start-self.end if other>self else other.end-self.start
+        return None
+    def __iter__(self):
+        for pos in range(self.start, self.end+1):
+            yield gi(self.chromosome, pos, pos, self.strand)
+
 # --------------------------------------------------------------
 # Commandline and config handling
 # --------------------------------------------------------------
@@ -148,9 +355,11 @@ def intersect_lists(*lists, check_order=False) -> list:
         return list(filter(lambda x: x in list1, list2))
 
     isec = reduce(intersect_lists_, lists)
-    if check_order:
-        for l in lists:
+    for l in lists:
+        if check_order:
             assert [x for x in l if x in isec] == isec, f"Input list have differing order of shared elements {isec}"
+        elif [x for x in l if x in isec] != isec:
+            print(f"WARN: Input list have differing order of shared elements {isec}")
     return isec
 
 
@@ -450,14 +659,14 @@ def kmer_search(seq, kmer_set, include_revcomp=False) -> dict:
     return ret
 
 
-def find_gpos(genome_fa, kmers, included_chromosomes=None) -> Counter:
+def find_gpos(genome_fa, kmers, included_chrom=None) -> Counter:
     """ Returns a dict that maps the passed kmers to their (exact match) genomic positions (1-based).
         Positions are returned as (chr, pos1) tuples.
         included_chromosomes (list): if configured, then only the respective chromosomes will be considered.
     """
     fasta = pysam.Fastafile(genome_fa)
     ret = Counter()
-    chroms = fasta.references if included_chromosomes is None else set(fasta.references) & set(included_chromosomes)
+    chroms = fasta.references if included_chrom is None else set(fasta.references) & set(included_chrom)
     for c in tqdm(chroms, total=len(chroms), desc='Searching chromosome'):
         pos = kmer_search(fasta.fetch(c), kmers)
         for kmer in kmers:
@@ -475,9 +684,12 @@ def find_gpos(genome_fa, kmers, included_chromosomes=None) -> Counter:
 
 def parse_gff_info(info, fmt='gff3'):
     """ parse GFF3/GTF info section """
-    if fmt == 'GTF':
+    # remove optional commegt section (see flybase gtf)
+    if '#' in info:
+        info=info.split('#')[0].strip()
+    if fmt.lower() == 'gtf':
         return {k: v.translate({ord(c): None for c in '"'}) for k, v in
-                [a.strip().split(' ') for a in info.split(';') if ' ' in a]}
+                [a.strip().split(' ', 1) for a in info.split(';') if ' ' in a]}
     return {k: v for k, v in [a.split('=') for a in info.split(';') if '=' in a]}
 
 
@@ -575,22 +787,52 @@ def get_softclip_seq(read: pysam.AlignedSegment):
         pos += l
     return left, right
 
+def toggle_chr(s):
+    """
+        Simple function that toggle 'chr' prefixes. If the passed reference name start with 'chr',
+        then it is removed, otherwise it is added. If None is passed, None is returned.
+        Can be used as fun_alias function.
+    """
+    if s is None:
+        return None
+    if isinstance(s,str) and s.startswith('chr'):
+        return s[3:]
+    else:
+        return f'chr{s}'
 
 class ReferenceDict(dict):
     """
         Named dict for representing a set of references (contigs) and their lengths.
-        Note that two reference dicts match if their contig dicts match (name is not compared)
+        Supports aliasing by passing a function (e.g., fun_alias=toggle_chr which will
+        add/remove 'chr' prefixes) to easily integrate genomic files that use different
+        (but compatible) reference names.
+
+        If an aliasing function is passed then the actual dict will contain the aliased refnames,
+        the originally read refnames are accessible via the orig property. An aliasing function must be
+        reversible, i.e., fun_alias(fun_alias(str))==str and support None.
+
+        Note that two reference dicts match if their (aliased) contig
+        dicts match (name of ReferenceDict is not compared).
     """
 
-    def __init__(self, name, *args, **kw):
+    def __init__(self, name, fun_alias=None, *args, **kw):
         self.name = name
+        self.fun_alias = fun_alias
         super(ReferenceDict, self).__init__(*args, **kw)
-
+        if fun_alias is not None:
+            self.orig=super().copy()
+            for k in list(self.keys()): # apply fun to keys
+                self[fun_alias(k)] = self.pop(k)
+        else:
+            self.orig=self
     def __repr__(self):
-        return f"Refset {self.name} with {len(self.keys())} references: {self.keys()}, {self.values()}"
-
+        return f"Refset (size: {len(self.keys())}): {self.keys()}{f' (aliased from {self.orig.keys()})' if self.fun_alias else ''}, {self.values()} name: {self.name} "
+    def alias(self, chr):
+        if self.fun_alias:
+            return self.fun_alias(chr)
+        return chr
     @classmethod
-    def merge_and_validate(cls, *refsets):
+    def merge_and_validate(cls, *refsets, check_order=False, included_chrom=[]):
         """
             Checks whether the passed reference sets are compatible and returns the
             merged reference set containing the intersection of common references
@@ -599,7 +841,7 @@ class ReferenceDict(dict):
         if len(refsets) == 0:
             return None
         # intersect all contig lists while preserving order (set.intersection() or np.intersect1d() do not work!)
-        shared_ref = {k: None for k in intersect_lists(*[list(r.keys()) for r in refsets], check_order=True)}
+        shared_ref = {k: None for k in intersect_lists(*[list(r.keys()) for r in refsets], check_order=check_order) if (len(included_chrom)==0) or (k in included_chrom)}
         # check whether contig lengths match
         for r in refsets:
             for contig, oldlen in shared_ref.items():
@@ -610,15 +852,16 @@ class ReferenceDict(dict):
                     shared_ref[contig] = newlen
                 else:
                     assert oldlen == newlen, f"Incompatible lengths for contig ({oldlen}!={newlen}) when comparing refsets {refsets}"
-        return ReferenceDict(','.join([r.name for r in refsets]), shared_ref)
+        return ReferenceDict(','.join([r.name for r in refsets]), None, shared_ref)
 
 
-def get_reference_dict(fh) -> dict:
+def get_reference_dict(fh, fun_alias=None) -> dict:
     """ Extracts chromosome names, order and (where possible) length from pysam objects.
 
     Parameters
     ----------
     fh : pysam object
+    fun_alias : aliasing functions (see RefDict)
 
     Returns
     -------
@@ -629,17 +872,19 @@ def get_reference_dict(fh) -> dict:
     NotImplementedError
         if input type is not supported yet
     """
+    if isinstance(fh, str):
+        fh=open_file_obj(fh)
     if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
-        return ReferenceDict(f'References from FASTA file {fh.filename}',
+        return ReferenceDict(f'References from FASTA file {fh.filename}', fun_alias,
                              {c: fh.get_reference_length(c) for c in fh.references})
     elif isinstance(fh, pysam.AlignmentFile):  # @UndefinedVariable
-        return ReferenceDict(f'References from SAM/BAM file {fh.filename}',
+        return ReferenceDict(f'References from SAM/BAM file {fh.filename}',fun_alias,
                              {c: fh.header.get_reference_length(c) for c in fh.references})
     elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
-        return ReferenceDict(f'References from TABIX file {fh.filename}',
+        return ReferenceDict(f'References from TABIX file {fh.filename}',fun_alias,
                              {c: None for c in fh.contigs})  # no ref length info in tabix
     elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
-        return ReferenceDict(f'References from VCF file {fh.filename}',
+        return ReferenceDict(f'References from VCF file {fh.filename}',fun_alias,
                              {c: fh.header.contigs.get(c).length for c in fh.header.contigs})
     else:
         raise NotImplementedError(f"Unknown input object type {type(fh)}")
@@ -716,10 +961,6 @@ def open_file_obj(fh, file_format=None, file_extensions=default_file_extensions)
     else:
         raise NotImplementedError(f"Unsupported input format for file {fh}")
     return fh
-
-def get_merged_refdict(*files):
-    """Returns the merged reference dict for the passed genomic files."""
-    return ReferenceDict.merge_and_validate(*[get_reference_dict(open_file_obj(fh)) for fh in files])
 
 
 
@@ -839,197 +1080,3 @@ def get_bcgs(fast5_file):
         first_rn = next(iter(f.keys()))
         return [a for a in list(f[first_rn]['Analyses']) if a.startswith("Basecall_")]
 
-
-# ------------------------------------------------------------------------
-# genomic interval implementation
-# ------------------------------------------------------------------------
-
-class gi:
-    """
-        Class for representing a genomic interval.
-
-        Coordinates
-        ----------
-        This implementation can be used for 0-based or 1-based coordinates. Intervals endpoints are
-        included, i.e., {x | start <= x <= end}. Coordinates can be unrestricted, i.e., passing None as
-        start/end will set those to -inf/+inf respectively.
-        Setting None as chromosome name will leave this unrestricted in comparisons.
-
-        Strandedness
-        ------------
-        Intervals can be stranded ('+','-') or unstranded (strand=None).
-        Comparisons can be done in a stranded (default) or unstranded manner.
-
-    """
-    # save some space and improve access time for default attr but add __dict__ to enable custom attrs
-    __slots__ = ("chromosome", "start", "end", "strand", "__dict__")
-    def __init__(self, chromosome, start, end, strand=None):
-        self.chromosome=chromosome
-        self.start=-math.inf if start is None else start
-        self.end = math.inf if end is None else end
-        self.strand=strand
-        assert self.strand in [None, '+','-']
-
-    @classmethod
-    def from_str(cls, loc_string):
-        """ Parse from chr:start-end. start+end must be >=0 """
-        chromosome, start, end = re.split(':|-', loc_string)
-        return cls(chromosome, int(start), int(end))
-
-    @classmethod
-    def split_by_chrom(cls, loc_list, sort=True):
-        """ Split a list of locations into a chrom:locations dict
-        """
-        ret={}
-        for x in loc_list:
-            if x.chromosome not in ret:
-                ret[x.chromosome]=list()
-            ret[x.chromosome].append(x)
-        if sort:
-            ret={x:sorted(y) for x,y in ret.items()}
-        return ret
-
-    def __repr__(self):
-        return f"{self.chromosome}:{self.start}-{self.end} ({'u' if self.strand is None else self.strand})"
-
-    def to_file_str(self):
-        """ returns a sluggified string representation "<chrom>_<start>_<end>_<strand>"        """
-        f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
-
-    def __len__(self):
-        return self.end - self.start + 1
-
-    def __hash__(self):
-        return hash(self.__repr__())
-
-    def is_stranded(self):
-        return self.strand is not None
-
-    def cs_match(self, other, strand_specific=True):
-        """ True if this location is on the same chrom/strand as the passed one.
-            will not compare chromosomes if they are unrestricted in one of the intervals
-        """
-        if strand_specific and self.strand != other.strand:
-            return False
-        if self.chromosome and other.chromosome and self.chromosome!=other.chromosome:
-            return False
-        return True
-
-    def __eq__(self, other, strand_specific=True):
-        """
-            Test whether this interval is equal to the other.
-            Includes a chromosome and strand check.
-        """
-        return (self.chromosome==other.chromosome) and (self.strand==other.strand) and (self.start == other.start) and (self.end == other.end)
-
-    def __cmp__(self, other, cmp_str, strand_specific=True):
-        if not self.cs_match(other, strand_specific):
-            return None
-        if self.start != other.start:
-            return getattr(self.start, cmp_str)(other.start)
-        return getattr(self.end, cmp_str)(other.end)
-
-    def __lt__(self, other, strand_specific=True):
-        """
-            Test whether this interval is smaller than the other.
-            Defined only on same chromosome/strand but allows unrestricted coordinates.
-            If chrom/strand do not match, None is returned.
-        """
-        return self.__cmp__(other, '__lt__', strand_specific)
-
-    def __le__(self, other, strand_specific=True):
-        """
-            Test whether this interval is smaller or equal than the other.
-            Defined only on same chromosome/strand but allows unrestricted coordinates.
-            If chrom/strand do not match, None is returned.
-        """
-        return self.__cmp__(other, '__le__', strand_specific)
-
-    def __gt__(self, other, strand_specific=True):
-        """
-            Test whether this interval is greater than the other.
-            Defined only on same chromosome/strand but allows unrestricted coordinates.
-            If chrom/strand do not match, None is returned.
-        """
-        return self.__cmp__(other, '__gt__', strand_specific)
-
-    def __ge__(self, other, strand_specific=True):
-        """
-            Test whether this interval is greater or equal than the other.
-            Defined only on same chromosome/strand but allows unrestricted coordinates.
-            If chrom/strand do not match, None is returned.
-        """
-        return self.__cmp__(other, '__ge__', strand_specific)
-
-    def left_match(self, other, strand_specific=True):
-        if not self.cs_match(other, strand_specific):
-            return False
-        return self.start == other.start
-
-    def right_match(self, other, strand_specific=True):
-        if not self.cs_match(other, strand_specific):
-            return False
-        return self.end == other.end
-
-    def left_pos(self):
-        return gi(self.chromosome, self.start, self.start, strand=self.strand)
-
-    def right_pos(self):
-        return gi(self.chromosome, self.end, self.end, strand=self.strand)
-
-    def overlaps(self, other, strand_specific=True) -> bool:
-        """ Tests whether this interval overlaps the passed one.
-            Supports unrestricted start/end coordinates
-        """
-        if not self.cs_match(other, strand_specific):
-            return False
-        return self.start <= other.end and other.start <= self.end
-
-    def split_coordinates(self) -> (str, int, int):
-        return self.chromosome, self.start, self.end
-
-    @classmethod
-    def merge(cls, l):
-        """ Merges a list of intervals.
-            If intervals are not on the same chromosome or if strand is not matching, None is returned
-            The resulting ingtervalk will inherit the chromosome of the first passed one.
-        """
-        if l is None:
-            return None
-        if len(l) == 1:
-            return l[0]
-        merged = None
-        for x in l:
-            if merged is None:
-                merged = x
-            else:
-                if not merged.cs_match(x):
-                    return None
-                merged.start = min(merged.start, x.start)
-                merged.end = max(merged.end, x.end)
-        return merged
-
-    def is_adjacent(self, other):
-        """ true if intervals are directly next to each other (not overlapping!) """
-        if not self.cs_match(other):
-            return False
-        a, b = (self.end + 1, other.start) if self.end < other.end else (other.end + 1, self.start)
-        return a == b
-
-    def split_by_maxwidth(self, maxwidth):
-        """ Splits this into n intervals of maximum width """
-        k, m = divmod(self.end - self.start + 1, maxwidth)
-        ret = [
-            gi(self.chromosome, self.start + i * maxwidth, self.start + (i + 1) * maxwidth - 1, strand=self.strand)
-            for i in range(k)]
-        if m > 0:
-            ret += [gi(self.chromosome, self.start + k * maxwidth, self.end, strand=self.strand)]
-        return ret
-
-    def copy(self):
-        """ Deep copy """
-        return gi(self.chromosome, self.start, self.end, self.strand)
-
-    def __iter__(self):
-        for pos in range(self.start, self.end+1):
-            yield gi(self.chromosome, pos, pos, self.strand)

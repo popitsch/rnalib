@@ -3,8 +3,9 @@ import random
 import numpy as np
 import pysam
 
+from pygenlib.genemodel import *
 from pygenlib.iterators import *
-from pygenlib.utils import TagFilter
+from pygenlib.utils import TagFilter, toggle_chr
 import pytest
 import os
 from pathlib import Path
@@ -54,6 +55,8 @@ def test_DictIterator(base_path, testdata):
     d,df=testdata
     assert len(DictIterator(d).take()) == len(d)
     assert DictIterator(d, '2', 10, 20).take()==[(gi.from_str('2:1-50'), 'f')]
+    # with aliasing
+    assert DictIterator(d, 'chr2', 10, 20, fun_alias=toggle_chr).take() == [(gi.from_str('chr2:1-50'), 'f')]
 
 def test_FastaIterator(base_path):
     fasta_file='ACTB+SOX2.fa.gz'
@@ -62,6 +65,9 @@ def test_FastaIterator(base_path):
         ref={c:fh.fetch(c) for c in fh.references}
     # consume all
     all=''.join([s for _,s in FastaIterator(fasta_file, 'chr3', width=1, step=1).take()])
+    assert(all==ref['chr3'])
+    # with aliasing
+    all=''.join([s for _,s in FastaIterator(fasta_file, '3', width=1, step=1, fun_alias=toggle_chr).take()])
     assert(all==ref['chr3'])
     # some edge cases where the provided sequence is shorter than the requested window size
     assert FastaIterator(fasta_file, 'chr7', 3, 6, width=5, step=3, padding=False).take() == [(gi('chr7', 3, 7), 'GTGCN')] # 5-mer from region of size 4, wo padding
@@ -94,9 +100,9 @@ def test_TabixIterator(base_path):
     with pytest.raises(AssertionError) as e_info:
         TabixIterator(vcf_file, 'unknown_contig',5,10)
     print(f'Expected assertion: {e_info}')
-    # BED file
-    ti=TabixIterator(bed_file, '1', 1, 10, coord_inc = [1, 0])
-    assert(merge_yields(ti.take())[0] == gi('1', 6, 15)) # start is 0-based, end is 1-based
+    # BED file with added 'chr' prefix
+    ti=TabixIterator(bed_file, 'chr1', 1, 10, coord_inc = [1, 0], fun_alias=toggle_chr)
+    assert(merge_yields(ti.take())[0] == gi('chr1', 6, 15)) # start is 0-based, end is 1-based
     # bedgraph file but parsed as Tabixfile
     assert sum([float(r[3])*len(l) for l, r in TabixIterator(bedg_file, coord_inc=[1, 0]).take()])==pytest.approx(7.425)
 
@@ -106,24 +112,34 @@ def test_GFF3Iterator(base_path):
     gff_file='gencode.v39.ACTB+SOX2.gff3.gz'
     stats=Counter()
     for loc, info in GFF3Iterator(gff_file):
-        if info['feature_type']=='gene':
-            print(info, loc)
         stats[info['feature_type']]+=1
     assert stats == {'exon': 106, 'CDS': 60, 'five_prime_UTR': 33, 'transcript': 24, 'three_prime_UTR': 20, 'start_codon': 17, 'stop_codon': 13, 'gene': 2}
+    # GTF with aliasing
+    gtf_file = 'ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz'
+    stats = Counter()
+    for loc, info in GFF3Iterator(gtf_file, 'chr7', fun_alias=toggle_chr):
+        stats[info['feature_type']] += 1
+    assert stats=={'exon': 105,'CDS': 59,'five_prime_utr': 32,'transcript': 23,'three_prime_utr': 19,'start_codon': 16,'stop_codon': 12,'gene': 1}
 
 def test_PandasIterator(base_path, testdata):
     d,df=testdata
     it = PandasIterator(df, 'Name')
     assert {k:v for v,k in it}==d
+    # with aliasing
+    it = PandasIterator(df, 'Name', fun_alias=toggle_chr)
+    d1={n:gi('chr'+l.chromosome,l.start,l.end,l.strand) for n,l in d.items()}
+    assert {k:v for v,k in it}==d1
 
 def test_BlockLocationIterator(base_path, testdata):
-    with BlockLocationIterator(TabixIterator('test.bed.gz', coord_inc = [1, 0]), strategy=BlockStrategy.OVERLAP) as it:
+    with BlockLocationIterator(TabixIterator('test.bed.gz', coord_inc = [1, 0], fun_alias=toggle_chr), strategy=BlockStrategy.OVERLAP) as it:
         locs=[l for l,_ in it]
-        assert locs == loc_list('1:6-15,2:10-150')
+        assert locs == loc_list('chr1:6-15,chr2:10-150')
     d, df = testdata
     assert [l for l, _ in BlockLocationIterator(PandasIterator(df, 'Name'), strategy=BlockStrategy.OVERLAP)] == loc_list('1:1-20,1:30-40 ,2:1-50')
     assert BlockLocationIterator(PandasIterator(df, 'Name'), strategy=BlockStrategy.LEFT).take()[-1][1][1] == ['e', 'g', 'h'] # same start coord
     assert BlockLocationIterator(PandasIterator(df, 'Name'), strategy=BlockStrategy.RIGHT).take()[-2][1][1] == ['e', 'g'] # same end coord
+    assert BlockLocationIterator(PandasIterator(df, 'Name', fun_alias=toggle_chr), strategy=BlockStrategy.RIGHT).take()[-2][1][1] == \
+           ['e', 'g']  # with aliasing
     right_sorted= BlockLocationIterator(PandasIterator(df.sort_values(['Chromosome', 'End']), 'Name', is_sorted=True), strategy=BlockStrategy.RIGHT)
     assert [x[1] for _, x in right_sorted.take()[-2:]] ==  [['e', 'g'], ['f', 'h']]
 
@@ -298,7 +314,9 @@ def test_ReadIterator(base_path):
     assert tc_conv['HWI-ST466_135068617:8:2209:6224:33460', False] == [(29, 22432587, 'T', 'C')]
     #  a read with 2 A/G conversions
     assert tc_conv['HWI-ST466_135068617:8:2316:4251:54002', False]==[(2, 22443997, 'A', 'G'), (5, 22444000, 'A', 'G')]
-
+    # test aliasing
+    assert len(ReadIterator('small_example.bam', 'chr1',fun_alias=toggle_chr).take())==21932
+    # TODO add data from /groups/.../ref/testdata/smallbams/
 
 def slow_pileup(bam, chrom,start,stop):
     """ Runs pysam pileup for reference """
@@ -334,6 +352,9 @@ def test_FastPileupIterator(base_path):
         assert [(l.start,c) for l,c in FastPileupIterator(bam, '1', range(22379012,22379015))]==[(22379012, Counter()),(22379013, Counter()), (22379014, Counter({'C': 1}))]
         # assert equal to slow pysam pileup. This region contains uncovered areas, insertions and deletions: chr1:22,408,208-22,408,300
         assert FastPileupIterator(bam, '1', range(22408208,22408300)).take()==slow_pileup(bam, '1', 22408208,22408300)
+        # test aliasing
+        assert [(l.start, c) for l, c in FastPileupIterator(bam, 'chr1', {22418244}, fun_alias=toggle_chr)] == [
+            (22418244, Counter({'T': 136, None: 1}))]
 
 def test_FastqIterator(base_path):
     fastq_file='test.fq.gz'
@@ -345,10 +366,70 @@ def test_FastqIterator(base_path):
         n2 = r2.name.split(' ')[1].split(':')[0]
         assert n1=='1' and n2=='2'
 
-def anno_tests(base_path):
+def test_VcfIterator(base_path):
+    """TODO: test INDELs"""
+    vcf_file = 'test.vcf.gz'
+    with VcfIterator(vcf_file) as it:
+        assert [v.GT for _,v in it.take()]==[{'SAMPLE':'1/1'}]*3
+        assert [v.CS for _,v in it.take()]==[{'SAMPLE':'A'},{'SAMPLE':'B'},{'SAMPLE':'C'}]
+        assert [v.zyg for _,v in it.take()]==[{'SAMPLE':2}]*3
+        assert [l.start for l,_ in it.take()]==[100000,200000,300000]
+
+    # with sample filtering
+    vcf_file='dmelanogaster_6_exported_20230523.vcf.gz'
+    with VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721']) as it:
+        dat=it.take()
+        assert len(dat)==25 # there are 25 variants called in at least one of the 3 samples
+        # NOTE: 2nd var is a no call (./.) in this sample!
+        assert [v.zyg['DGRP-208'] for _,v in dat] == [2, None, 2, 2, 0, 0, 2, 0, 0, 2, 0, 0, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 2]
+
+def test_BedIterator(base_path):
     bed_file='test.bed.gz'
     bedg_file = 'test.bedgraph.gz'
+
+    # simple test
+    assert len(BedIterator(bed_file).take()) == 3
+
     # annotate all intervals with values from 2 bedgraph iterators
-    for x in BedIterator(bed_file).annotate([BedGraphIterator(bedg_file),BedGraphIterator(bedg_file)], ['val1','val2']):
-        print(x, x.val1, x.val2)
-        assert x.val1==x.val2
+    for l,d in BedIterator(bed_file).annotate([BedGraphIterator(bedg_file),BedGraphIterator(bedg_file)], ['val1','val2']):
+        d.val1 = None if len(d.val1)==0 else np.mean(d.val1)
+        d.val2 = None if len(d.val2)==0 else np.mean(d.val2)
+        print(l, d, d.val1, d.val2)
+        assert d.val1 == d.val2
+
+def test_vcf_and_gff_it(base_path):
+    """TODO: expand"""
+    gff_file = 'flybase.dmel-all-r6.51.sorted.gtf.gz'
+    vcf_file = 'dmelanogaster_6_exported_20230523.vcf.gz'
+    for x in GFF3Iterator(gff_file, '2L', 574299, 575733).annotate(
+        VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721']), 'variant'):
+        print(x, x.variant)
+
+def test_transcriptome_iterator(base_path):
+    config = {
+        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
+        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_flavour': 'gencode',
+        'transcript_filter': {
+            'included_tids': ['ENST00000473257.3']
+        },
+        'drop_empty_genes': True
+    }
+    t=Transcriptome(config)
+
+
+    # annotate
+    bedg_file = 'GRCh38.k24.umap.ACTB_ex1+2.bedgraph.gz'
+    for l, ex in t.annotate(Exon, BedGraphIterator(bedg_file), 'val1'):
+        print(ex)
+
+    for l, ex in TranscriptomeIterator(t, feature_types=(Exon)).annotate(BedGraphIterator(bedg_file), 'mappability'):
+        print(l, ex, ex.mappability if hasattr(ex, 'mappability') else None)
+
+
+
+    # iterate exons and introns only
+    with TranscriptomeIterator(t, feature_types=(Exon,Intron)) as it:
+        for feature in it:
+            print(feature, feature.__dict__)
