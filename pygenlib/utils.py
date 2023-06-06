@@ -5,113 +5,112 @@ General (low-level) utility methods
 
 @author: niko.popitsch@univie.ac.at
 """
-import math
-from collections import Counter
-from itertools import zip_longest
-import sys
-import os
-import pysam
-from tqdm import tqdm
-import random
-from pathlib import Path
 import gzip
-import shutil
-from enum import IntEnum
-import h5py
-import unicodedata
+import math
+import numbers
+import os
+import random
 import re
-import mygene
-from Bio import pairwise2
-import numpy as np
-from functools import reduce
+import shutil
+import sys
+import unicodedata
+from collections import Counter, abc
 from dataclasses import dataclass, field
+from enum import IntEnum
+from functools import reduce
+from itertools import zip_longest
+from pathlib import Path
+
+import h5py
+import pysam
+from Bio import pairwise2
+from tqdm import tqdm
 
 
 # ------------------------------------------------------------------------
 # genomic interval implementation
 # ------------------------------------------------------------------------
 
+@dataclass(frozen=True)
 class gi:
     """
-        Class for representing a genomic interval.
+        Genomic intervals (gi) in pygenlib are inclusive and 1-based.
+        Points are represented by intervals with same start+stop coordinate, empty intervals by passing start>end
+        coordinates (e.g., gi('chr1', 1,0).is_empty() -> True).
 
-        Coordinates
-        ----------
-        This implementation can be used for 0-based or 1-based coordinates. Intervals endpoints are
-        included, i.e., {x | start <= x <= end}. Coordinates can be unrestricted, i.e., passing None as
-        start/end will set those to -inf/+inf respectively.
-        Setting None as chromosome name will leave this unrestricted in comparisons.
+        GIs are implemented as frozen(immutable) dataclasses and can be used, e.g., as keys in a dict.
+        They can be instantiated by passing chrom/start/stop coordinates or can be parsed form a string.
 
-        Strandedness
-        ------------
-        Intervals can be stranded ('+','-') or unstranded (strand=None).
-        Comparisons are by default done in an unstranded manner (i.e., comparing coordinates only).
+        Intervals can be stranded.
+        Using None for each component of the coordinates is allowed to represent unbounded intervals
 
+        sorting
+        -------
+        Chromosomes group intervals and the order of intervals from different groups (chromosomes) is left undefined.
+        To sort also by chromosome, one can use a @ReferenceDict which defined the chromosome order:
+        sorted(gis, key=lambda x: (refdict.index(x.chromosome), x)) # note that the index of chromosome 'None' is always 0
+        TODO: test overlap/etc for empty intervals (start>end)
     """
-    # save some space and improve access time for default attr but add __dict__ to enable custom attrs
-    __slots__ = ("chromosome", "start", "end", "strand", "__dict__")
-    def __init__(self, chromosome, start, end, strand=None):
-        self.chromosome=chromosome
-        self.start=-math.inf if start is None else start
-        self.end = math.inf if end is None else end
-        self.strand=strand if strand != '.' else None
-        assert self.strand in [None, '+','-']
+    chromosome: str = None
+    start: int = -math.inf
+    end: int = math.inf
+    strand: str = None
 
+    def __post_init__(self):
+        """ Some sanity checks and default values """
+        object.__setattr__(self, 'start', -math.inf if self.start is None else self.start)
+        object.__setattr__(self, 'end', math.inf if self.end is None else self.end)
+        object.__setattr__(self, 'strand', self.strand if self.strand != '.' else None)
+        assert isinstance(self.start, numbers.Number)
+        assert isinstance(self.end, numbers.Number)
+        assert self.strand in [None, '+', '-']
+
+    def __len__(self):
+        if self.is_empty():
+            return 0
+        return self.end - self.start + 1
     @classmethod
     def from_str(cls, loc_string):
-        """ Parse from chr:start-end. start+end must be >=0 """
-        chromosome, start, end = re.split(':|-', loc_string)
-        return cls(chromosome, int(start), int(end))
-
-    @classmethod
-    def split_by_chrom(cls, loc_list, sort=True):
-        """ Split a list of locations into a chrom:locations dict
-        """
-        ret={}
-        for x in loc_list:
-            if x.chromosome not in ret:
-                ret[x.chromosome]=list()
-            ret[x.chromosome].append(x)
-        if sort:
-            ret={x:sorted(y) for x,y in ret.items()}
-        return ret
-
+        """ Parse from <chr>:<start>-<end> (<strand>). Strand is optional"""
+        pattern = re.compile("(\w+):(\d+)-(\d+)(?:[\s]*\(([+-])\))?$")
+        match=pattern.findall(loc_string.strip().replace(',', '')) # convenience
+        if len(match)==0:
+            return None
+        chromosome, start, end, strand = match[0]
+        strand = None if strand=='' else strand
+        return cls(chromosome, int(start), int(end), strand)
     def __repr__(self):
-        return f"{self.chromosome}:{self.start}-{self.end} ({'u' if self.strand is None else self.strand})"
+        return f"{self.chromosome}:{self.start}-{self.end}{'' if self.strand is None else f' ({self.strand})'}"
 
+    def get_stranded(self, strand):
+        """Get a new object with same coordinates; the strand will be set according to the passed variable."""
+        return gi(self.chromosome, self.start, self.end, strand)
     def to_file_str(self):
         """ returns a sluggified string representation "<chrom>_<start>_<end>_<strand>"        """
         return f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
 
-    def __len__(self):
-        return self.end - self.start + 1
-
+    def is_empty(self):
+        return self.start>self.end
     def is_stranded(self):
         return self.strand is not None
 
     def cs_match(self, other, strand_specific=False):
         """ True if this location is on the same chrom/strand as the passed one.
-            will not compare chromosomes if they are unrestricted in one of the intervals
+            will not compare chromosomes if they are unrestricted in one of the intervals.
+            Empty intervals always return False hee
         """
         if strand_specific and self.strand != other.strand:
             return False
-        if self.chromosome and other.chromosome and self.chromosome!=other.chromosome:
+        if (self.chromosome) and (other.chromosome) and (self.chromosome!=other.chromosome):
+            return False
+        if self.is_empty():
             return False
         return True
 
-    def __eq__(self, other, strand_specific=True):
-        """
-            Test whether this interval is equal to the other.
-            Includes a chromosome and strand check.
-        """
-        if (other is None) or (not isinstance(other, __class__)):
-            return False
-        if strand_specific and self.strand!=other.strand:
-            return False
-        return (self.chromosome==other.chromosome) and (self.strand==other.strand) and (self.start == other.start) and (self.end == other.end)
-
-    def __cmp__(self, other, cmp_str):
+    def __cmp__(self, other, cmp_str, refdict=None):
         if not self.cs_match(other, strand_specific=False):
+            if refdict is not None:
+                return getattr(refdict.index(self.chromosome), cmp_str)(refdict.index(other.chromosome))
             return None
         if self.start != other.start:
             return getattr(self.start, cmp_str)(other.start)
@@ -148,7 +147,6 @@ class gi:
             If chroms do not match, None is returned.
         """
         return self.__cmp__(other, '__ge__')
-
     def left_match(self, other, strand_specific=False):
         if not self.cs_match(other, strand_specific):
             return False
@@ -167,11 +165,24 @@ class gi:
 
     def overlaps(self, other, strand_specific=False) -> bool:
         """ Tests whether this interval overlaps the passed one.
-            Supports unrestricted start/end coordinates and optional strand checl
+            Supports unrestricted start/end coordinates and optional strand check
         """
         if not self.cs_match(other, strand_specific):
             return False
         return self.start <= other.end and other.start <= self.end
+
+    def envelop(self, other, strand_specific=False) -> bool:
+        """ Tests whether this interval envelops the passed one.
+        """
+        if not self.cs_match(other, strand_specific):
+            return False
+        return self.start <= other.start and self.end >= other.end
+
+    def overlap(self, other, strand_specific=False) -> int:
+        """Calculates the overlap with the passed one"""
+        if not self.cs_match(other, strand_specific):
+            return 0
+        return min(self.end, other.end) - max(self.start, other.start) + 1.
 
     def split_coordinates(self) -> (str, int, int):
         return self.chromosome, self.start, self.end
@@ -189,13 +200,13 @@ class gi:
         merged = None
         for x in l:
             if merged is None:
-                merged = x
+                merged = [x.chromosome, x.start, x.end, x.strand]
             else:
-                if not merged.cs_match(x, strand_specific=True):
+                if (x.chromosome != merged[0]) or (x.strand != merged[3]):
                     return None
-                merged.start = min(merged.start, x.start)
-                merged.end = max(merged.end, x.end)
-        return merged
+                merged[1] = min(merged[1], x.start)
+                merged[2] = max(merged[2], x.end)
+        return gi(*merged)
 
     def is_adjacent(self, other, strand_specific=False):
         """ true if intervals are directly next to each other (not overlapping!) """
@@ -233,6 +244,76 @@ class gi:
     def __iter__(self):
         for pos in range(self.start, self.end+1):
             yield gi(self.chromosome, pos, pos, self.strand)
+
+class ReferenceDict(abc.Mapping[str, int]):
+    """
+        Named mapping for representing a set of references (contigs) and their lengths.
+
+        Supports aliasing by passing a function (e.g., fun_alias=toggle_chr which will add/remove 'chr' prefixes) to
+        easily integrate genomic files that use different (but compatible) reference names. If an aliasing function is
+        passed, original reference names are accessible via the orig property. An aliasing function must be reversible,
+        i.e., fun_alias(fun_alias(str))==str and support None.
+
+        Note that two reference dicts match if their (aliased) contig dicts match (name of ReferenceDict is not
+        compared).
+    """
+    def __init__(self, d, name=None, fun_alias=None):
+        self.d = d
+        self.name=name
+        self.fun_alias=fun_alias
+        if fun_alias is not None:
+            self.orig=d.copy()
+            self.d={fun_alias(k):v for k,v in d.items()} # apply fun to keys
+        else:
+            self.orig=self
+    def __getitem__(self, key):
+        return self.d[key]
+    def __len__(self):
+        return len(self.d)
+    def __iter__(self):
+        return iter(self.d)
+    def __repr__(self):
+        #return f"Refset{'' if self.name is None else self.name} (len: {len(self.d)})"
+        return f"Refset (size: {len(self.d.keys())}): {self.d.keys()}{f' (aliased from {self.orig.keys()})' if self.fun_alias else ''}, {self.d.values()} name: {self.name} "
+    def alias(self, chr):
+        if self.fun_alias:
+            return self.fun_alias(chr)
+        return chr
+    def index(self, chrom):
+        """ Index of the passed chromosome, None if chromosome not in refdict or -1 if None was passed.
+            Useful, e.g., for sorting genomic coordinates
+        """
+        if not chrom:
+            return -1
+        try:
+            return list(self.keys()).index(chrom)
+        except ValueError:
+            print(f"{chrom} not in refdict")
+            return None
+
+    @classmethod
+    def merge_and_validate(cls, *refsets, check_order=False, included_chrom=[]):
+        """
+            Checks whether the passed reference sets are compatible and returns the
+            merged reference set containing the intersection of common references
+        """
+        refsets = [r for r in refsets if r is not None]
+        if len(refsets) == 0:
+            return None
+        # intersect all contig lists while preserving order (set.intersection() or np.intersect1d() do not work!)
+        shared_ref = {k: None for k in intersect_lists(*[list(r.keys()) for r in refsets], check_order=check_order) if
+                      (len(included_chrom) == 0) or (k in included_chrom)}
+        # check whether contig lengths match
+        for r in refsets:
+            for contig, oldlen in shared_ref.items():
+                newlen = r.get(contig)
+                if newlen is None:
+                    continue
+                if oldlen is None:
+                    shared_ref[contig] = newlen
+                else:
+                    assert oldlen == newlen, f"Incompatible lengths for contig ({oldlen}!={newlen}) when comparing refsets {refsets}"
+        return ReferenceDict(shared_ref, name=','.join([r.name for r in refsets]), fun_alias=None )
 
 # --------------------------------------------------------------
 # Commandline and config handling
@@ -619,7 +700,7 @@ def align_sequence(query, target, print_alignment=False) -> (float, int, int):
     """
         Global alignment of query to target sequence with default scoring.
         Returns a length-normalized alignment score and the start and end positions of the alignment.
-        TODO replace with Bio.Align.PairwiseAligner
+        TODO replace with Bio.Align.PairwiseAligner and expose parameters
     """
     aln = pairwise2.align.globalxs(  # globalxs(sequenceA, sequenceB, open, extend) -> alignments
         query,
@@ -800,60 +881,6 @@ def toggle_chr(s):
     else:
         return f'chr{s}'
 
-class ReferenceDict(dict):
-    """
-        Named dict for representing a set of references (contigs) and their lengths.
-        Supports aliasing by passing a function (e.g., fun_alias=toggle_chr which will
-        add/remove 'chr' prefixes) to easily integrate genomic files that use different
-        (but compatible) reference names.
-
-        If an aliasing function is passed then the actual dict will contain the aliased refnames,
-        the originally read refnames are accessible via the orig property. An aliasing function must be
-        reversible, i.e., fun_alias(fun_alias(str))==str and support None.
-
-        Note that two reference dicts match if their (aliased) contig
-        dicts match (name of ReferenceDict is not compared).
-    """
-
-    def __init__(self, name, fun_alias=None, *args, **kw):
-        self.name = name
-        self.fun_alias = fun_alias
-        super(ReferenceDict, self).__init__(*args, **kw)
-        if fun_alias is not None:
-            self.orig=super().copy()
-            for k in list(self.keys()): # apply fun to keys
-                self[fun_alias(k)] = self.pop(k)
-        else:
-            self.orig=self
-    def __repr__(self):
-        return f"Refset (size: {len(self.keys())}): {self.keys()}{f' (aliased from {self.orig.keys()})' if self.fun_alias else ''}, {self.values()} name: {self.name} "
-    def alias(self, chr):
-        if self.fun_alias:
-            return self.fun_alias(chr)
-        return chr
-    @classmethod
-    def merge_and_validate(cls, *refsets, check_order=False, included_chrom=[]):
-        """
-            Checks whether the passed reference sets are compatible and returns the
-            merged reference set containing the intersection of common references
-        """
-        refsets = [r for r in refsets if r is not None]
-        if len(refsets) == 0:
-            return None
-        # intersect all contig lists while preserving order (set.intersection() or np.intersect1d() do not work!)
-        shared_ref = {k: None for k in intersect_lists(*[list(r.keys()) for r in refsets], check_order=check_order) if (len(included_chrom)==0) or (k in included_chrom)}
-        # check whether contig lengths match
-        for r in refsets:
-            for contig, oldlen in shared_ref.items():
-                newlen = r.get(contig)
-                if newlen is None:
-                    continue
-                if oldlen is None:
-                    shared_ref[contig] = newlen
-                else:
-                    assert oldlen == newlen, f"Incompatible lengths for contig ({oldlen}!={newlen}) when comparing refsets {refsets}"
-        return ReferenceDict(','.join([r.name for r in refsets]), None, shared_ref)
-
 
 def get_reference_dict(fh, fun_alias=None) -> dict:
     """ Extracts chromosome names, order and (where possible) length from pysam objects.
@@ -875,17 +902,17 @@ def get_reference_dict(fh, fun_alias=None) -> dict:
     if isinstance(fh, str):
         fh=open_file_obj(fh)
     if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
-        return ReferenceDict(f'References from FASTA file {fh.filename}', fun_alias,
-                             {c: fh.get_reference_length(c) for c in fh.references})
+        return ReferenceDict({c: fh.get_reference_length(c) for c in fh.references},
+                             name=f'References from FASTA file {fh.filename}', fun_alias=fun_alias)
     elif isinstance(fh, pysam.AlignmentFile):  # @UndefinedVariable
-        return ReferenceDict(f'References from SAM/BAM file {fh.filename}',fun_alias,
-                             {c: fh.header.get_reference_length(c) for c in fh.references})
+        return ReferenceDict({c: fh.header.get_reference_length(c) for c in fh.references},
+                             name=f'References from SAM/BAM file {fh.filename}',fun_alias=fun_alias)
     elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
-        return ReferenceDict(f'References from TABIX file {fh.filename}',fun_alias,
-                             {c: None for c in fh.contigs})  # no ref length info in tabix
+        return ReferenceDict({c: None for c in fh.contigs}, name=f'References from TABIX file {fh.filename}',
+                             fun_alias=fun_alias)  # no ref length info in tabix
     elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
-        return ReferenceDict(f'References from VCF file {fh.filename}',fun_alias,
-                             {c: fh.header.contigs.get(c).length for c in fh.header.contigs})
+        return ReferenceDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
+                             name=f'References from VCF file {fh.filename}',fun_alias=fun_alias)
     else:
         raise NotImplementedError(f"Unknown input object type {type(fh)}")
 
@@ -1050,8 +1077,7 @@ def _fast5_tree(h5node, prefix: str = '', space='    ', branch='│   ', tee='�
 def print_fast5_tree(fast5_file, max_lines=10, n_reads=1, show_attrs=True):
     """
         Prints the structure of a fast5 file.
-        example: /Volumes/groups/ameres/Niko/projects/Ameres/nanopore/data/nanocall_gfp/rawdata/singlesampleruns/wtgfpivt/1bc1/20230201_1500_MN32894_FAQ5549│·········
-8_125c10c7/fast5/FAQ55498_b5ea166b_0.fast5
+        example: /Volumes/groups/ameres/Niko/projects/Ameres/nanopore/data/nanocall_gfp/rawdata/singlesampleruns/wtgfpivt/1bc1/20230201_1500_MN32894_FAQ55498_125c10c7/fast5/FAQ55498_b5ea166b_0.fast5
     """
     with h5py.File(fast5_file, 'r') as f:
         for cnt, rn in enumerate(f.keys()):

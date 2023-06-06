@@ -25,3 +25,6 @@ can be loaded on demand. Efficient location-based queries are implemented via ch
 trees.
 
 
+## Related work
+
+- [Pygenomics](https://gitlab.com/gtamazian/pygenomics) A general python genomics library

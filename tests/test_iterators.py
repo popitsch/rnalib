@@ -1,18 +1,15 @@
+import os
 import random
+from dataclasses import dataclass
+from pathlib import Path
 
-import numpy as np
-import pysam
+import pandas as pd
+import pytest
 
 from pygenlib.genemodel import *
 from pygenlib.iterators import *
-from pygenlib.utils import TagFilter, toggle_chr
-import pytest
-import os
-from pathlib import Path
-from itertools import product
-from more_itertools import take
-import pandas as pd
-from dataclasses import dataclass
+from pygenlib.utils import TagFilter, toggle_chr, gi
+
 
 @pytest.fixture(autouse=True)
 def base_path() -> Path:
@@ -104,7 +101,8 @@ def test_TabixIterator(base_path):
     ti=TabixIterator(bed_file, 'chr1', 1, 10, coord_inc = [1, 0], fun_alias=toggle_chr)
     assert(merge_yields(ti.take())[0] == gi('chr1', 6, 15)) # start is 0-based, end is 1-based
     # bedgraph file but parsed as Tabixfile
-    assert sum([float(r[3])*len(l) for l, r in TabixIterator(bedg_file, coord_inc=[1, 0]).take()])==pytest.approx(7.425)
+    # 0.042+0.083+0.125+0.167+0.208+4*0.3+0.7*2+0.8*2+0.1*20 == 6.824999999999999
+    assert sum([float(r[3])*len(l) for l, r in TabixIterator(bedg_file, coord_inc=[1, 0]).take()])==pytest.approx(6.825)
 
 
 
@@ -143,8 +141,106 @@ def test_BlockLocationIterator(base_path, testdata):
     right_sorted= BlockLocationIterator(PandasIterator(df.sort_values(['Chromosome', 'End']), 'Name', is_sorted=True), strategy=BlockStrategy.RIGHT)
     assert [x[1] for _, x in right_sorted.take()[-2:]] ==  [['e', 'g'], ['f', 'h']]
 
+def test_AnnotationIterator(base_path, testdata):
+    # simple test
+    a = {
+        'A': gi('chr1', 1, 4),
+        'B': gi('chr1', 1, 5),
+        'C': gi('chr3', 5, 6),
+    }
+    b = {
+        'D1': gi('chr1', 1, 4),
+        'D2': gi('chr1', 1, 4),
+        'E': gi('chr2', 1, 5),
+        'F': gi('chr3', 1, 5),
+        'G': gi('chr4', 5, 6),
+    }
+    def format_results(l):
+        return [([x[1] for x in i1], [x[1] for x in i2]) for loc, (i1,i2) in l]
+    assert format_results(AnnotationIterator(DictIterator(a), DictIterator(b)).take()) == \
+           [(['A'], ['D1', 'D2']),
+            (['B'], ['D1', 'D2']),
+            (['C'], ['F'])]
+    # with refdict (iterate only chr1)
+    assert format_results(AnnotationIterator(DictIterator(a), DictIterator(b), refdict=ReferenceDict({'chr1':0})).take()) == \
+            [(['A'], ['D1', 'D2']),
+            (['B'], ['D1', 'D2'])]
+
+
+    # Annotate intervals from a bed file with values from a bedgraph file
+    bed_file = 'test.bed.gz'
+    bedg_file = 'test.bedgraph.gz'
+
+    # overlap with bedgraph file, calculate overlap and sum scores
+    # NOTE bedgraph file contains interval (1:7-10, 0.3)
+    assert [(i1[0][1].name,sum([x[1]*l.overlap(x[0]) for x in i2])) for l,(i1,i2) in AnnotationIterator(BedIterator(bed_file), BedGraphIterator(bedg_file)).take()] == \
+           [('int1', 1.408), ('int2', 0.3), ('int3', 0)]
+
 
 def test_SyncPerPositionIterator(base_path, testdata):
+
+    # simple test
+    a = {
+        'A': gi('chr1', 1, 4),
+        'B': gi('chr1', 1, 5),
+        'C': gi('chr1', 2, 3),
+        'D': gi('chr1', 2, 4),
+        'E': gi('chr1', 6, 7),
+        'F': gi('chr2', 5, 6),
+    }
+    # pass 2 equal iterators and test whether intervals from both are returned.
+    for pos, (i1,i2) in SyncPerPositionIterator([DictIterator(a), DictIterator(a.copy())]).take():
+        assert i1==i2
+
+    # simple test 2
+    a = {
+        'A': gi('chr1', 1, 4),
+        'B': gi('chr1', 1, 5),
+        'C': gi('chr1', 2, 3)
+    }
+    b= {
+        'D': gi('chr1', 2, 4),
+        'E': gi('chr1', 6, 7),
+        'F': gi('chr2', 5, 6),
+    }
+    # check whether all positions are iterated
+    assert [(p, [x[1] for x in i1],[x[1] for x in i2]) for p,(i1,i2) in SyncPerPositionIterator([DictIterator(a), DictIterator(b)]).take()] == \
+           [(gi.from_str('chr1:1-1'), ['A', 'B'], []),
+            (gi.from_str('chr1:2-2'), ['A', 'B', 'C'], ['D']),
+            (gi.from_str('chr1:3-3'), ['A', 'B', 'C'], ['D']),
+            (gi.from_str('chr1:4-4'), ['A', 'B'], ['D']),
+            (gi.from_str('chr1:5-5'), ['B'], []),
+            (gi.from_str('chr1:6-6'), [], ['E']),
+            (gi.from_str('chr1:7-7'), [], ['E'])]
+
+    assert [(p, [x[1] for x in i1],[x[1] for x in i2]) for p,(i1,i2) in SyncPerPositionIterator([DictIterator(a), DictIterator(b)], refdict=DictIterator(b).refdict).take()] == \
+           [(gi.from_str('chr1:1-1'), ['A', 'B'], []),
+            (gi.from_str('chr1:2-2'), ['A', 'B', 'C'], ['D']),
+            (gi.from_str('chr1:3-3'), ['A', 'B', 'C'], ['D']),
+            (gi.from_str('chr1:4-4'), ['A', 'B'], ['D']),
+            (gi.from_str('chr1:5-5'), ['B'], []),
+            (gi.from_str('chr1:6-6'), [], ['E']),
+            (gi.from_str('chr1:7-7'), [], ['E']),
+            (gi.from_str('chr2:5-5'), [], ['F']),
+            (gi.from_str('chr2:6-6'), [], ['F'])]
+
+    # complex test with random dataset
+    @dataclass(frozen=True)
+    class test_feature(gi):
+        feature_id: str = None  # a unique id
+        feature_type: str = None  # a fetaur etype (e.g., exon, intron, etc.)
+        name: str = None  # an optional name
+        parent: object = None  # an optional parent
+
+        @classmethod
+        def from_gi(cls, loc, feature_id=None, feature_type=None, name=None, parent=None):
+            """  """
+            return cls(loc.chromosome, loc.start, loc.end, loc.strand, feature_id, feature_type, name, parent)
+
+        def location(self):
+            """Returns a genomic interval representing the genomic location of this feature."""
+            return gi(self.chromosome, self.start, self.end, self.strand)
+
     class SyncPerPositionIteratorTestDataset():
         """ 2nd, slow implementation of the sync algorithm for testing"""
 
@@ -168,30 +264,25 @@ def test_SyncPerPositionIterator(base_path, testdata):
             for i in range(random.randrange(n_int)):
                 start = random.randrange(n_pos)
                 end = random.randrange(start, n_pos)
-                g = gi(chrom, start, end)
-                g.testname = f'it{it}_{chrom}:{g.start}-{g.end}_{len(ret)}'
-                g.idx = it
+                g = test_feature.from_gi(gi(chrom, start, end),feature_id=it, name=f'it{it}_{chrom}:{start}-{end}_{len(ret)}')
                 if g.chromosome not in self.minmax:
                     self.minmax[g.chromosome] = range(g.start, g.end)
                 self.minmax[g.chromosome] = range(min(self.minmax[g.chromosome].start, g.start),
                                                   max(self.minmax[g.chromosome].stop, g.end))
                 ret.append(g)
             return list(sorted(ret))
-
         def expected(self):
             ret = []
             for chrom in sorted(self.minmax):
                 for p in range(self.minmax[chrom].start, self.minmax[chrom].stop + 1):
                     pos = gi(chrom, p, p)
-                    found = []
+                    found=[SortedList() for k in range(len(self.dat))]
                     for i, d in enumerate(self.dat.values()):
                         for g in d[chrom]:
                             if g.overlaps(pos):
-                                found.append(g)
-                    list.sort(found)
-                    ret.append((pos, (found, [g.idx for g in found], [g.testname for g in found])))
+                                found[g.feature_id].add((g.location(), g.name))
+                    ret.append((pos, found))
             return ret
-
         def found(self):
             """ Iterate with SyncPerPositionIterator() over DictIterators """
             ret = {}
@@ -200,41 +291,22 @@ def test_SyncPerPositionIterator(base_path, testdata):
                 for c in self.dat[it]:
                     gis.extend(self.dat[it][c])
                 ret[it] = gis
-            return SyncPerPositionIterator([DictIterator({g.testname: g for g in ret[it]}) for it in ret]).take()
-    # a = {
-    #     'a1': gi('1', 3, 5),
-    #     'a2': gi('1', 10, 15),
-    # }
-    # b = {
-    #     'b1': gi('1', 1, 5),
-    #     'b2': gi('1', 2, 6)
-    # }
-    # c = {
-    #     'c1': gi('1', 2, 3),
-    #     'c2': gi('1', 2, 7),
-    #     'c3': gi('1', 2, 7)
-    # }
-    # d = {
-    #     'd1': gi('2', 1, 5)
-    # }
-    # for x in [a,b,c,d]:
-    #     print(x)
-    # it = SyncPerPositionIterator([DictIterator(a), DictIterator(b), DictIterator(c), DictIterator(d)])
-    # for x in it:
-    #     print(x)
+            return SyncPerPositionIterator([DictIterator({g.name: g.location() for g in ret[it]}) for it in ret]).take()
 
     # test with random datasets
     found_differences=set()
     for seed in range(0,1000):
         print(f"======================================={seed}============================")
         t=SyncPerPositionIteratorTestDataset(seed)
+        #print('found', t.found())
+        #print('expected', t.expected())
         assert len(t.found()) == len(t.expected()), f"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
         for a,b in zip(t.found(), t.expected()):
             if a!=b:
-                if SortedSet(a[1][0])!=SortedSet(b[1][0]):
+                if SortedSet(a[1]) != SortedSet(b[1]):
                     found_differences.add(seed)
     assert len(found_differences)==0
-    # use more intervals other params
+    # use more intervals, iterators, chromosomes; heavy overlaps
     found_differences=set()
     for seed in range(0,10):
         print(f"======================================={seed}============================")
@@ -251,6 +323,8 @@ def test_SyncPerPositionIterator(base_path, testdata):
     #     for a, b in zip(t.found(), t.expected()):
     #         if a != b:
     #             print('>', a, b)
+
+
 
 def test_PyrangesIterator(base_path):
     exons, cpg = pr.data.exons(), pr.data.cpg()
@@ -386,24 +460,16 @@ def test_VcfIterator(base_path):
 def test_BedIterator(base_path):
     bed_file='test.bed.gz'
     bedg_file = 'test.bedgraph.gz'
-
     # simple test
     assert len(BedIterator(bed_file).take()) == 3
-
-    # annotate all intervals with values from 2 bedgraph iterators
-    for l,d in BedIterator(bed_file).annotate([BedGraphIterator(bedg_file),BedGraphIterator(bedg_file)], ['val1','val2']):
-        d.val1 = None if len(d.val1)==0 else np.mean(d.val1)
-        d.val2 = None if len(d.val2)==0 else np.mean(d.val2)
-        print(l, d, d.val1, d.val2)
-        assert d.val1 == d.val2
 
 def test_vcf_and_gff_it(base_path):
     """TODO: expand"""
     gff_file = 'flybase.dmel-all-r6.51.sorted.gtf.gz'
     vcf_file = 'dmelanogaster_6_exported_20230523.vcf.gz'
-    for x in GFF3Iterator(gff_file, '2L', 574299, 575733).annotate(
-        VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721']), 'variant'):
-        print(x, x.variant)
+    for x in AnnotationIterator(GFF3Iterator(gff_file, '2L', 574299, 575733),
+                                VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721'])):
+        print(x)
 
 def test_transcriptome_iterator(base_path):
     config = {

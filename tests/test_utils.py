@@ -1,12 +1,14 @@
-from pygenlib.utils import *
-import pytest
-from pathlib import Path
 import json
-import pysam
-import numpy as np
 import os
 import tempfile
-import shutil
+from pathlib import Path
+
+import numpy as np
+import pysam
+import pytest
+
+from pygenlib.utils import *
+
 
 @pytest.fixture(autouse=True)
 def base_path() -> Path:
@@ -154,10 +156,10 @@ def test_slugify():
     assert slugify("this/is/an invalid filename!.txt"), "thisisan_invalid_filenametxt"
 
 def test_reference_dict(base_path):
-    r1 = ReferenceDict("A", None, {'chr1': 1, 'chr2':2, 'chrM': 23, 'chrX': 24})
-    r2 = ReferenceDict("B", None, {'chr1': 1, 'chrX': 24})
-    r3 = ReferenceDict("C", None, {'chr1': 1, 'chrX': 24, 'chrM': 23}) # different order
-    r4 = ReferenceDict("B", None, {'chr1': 1, 'chrX': 25}) # different length
+    r1 = ReferenceDict({'chr1': 1, 'chr2':2, 'chrM': 23, 'chrX': 24}, "A", None)
+    r2 = ReferenceDict({'chr1': 1, 'chrX': 24}, "B", None)
+    r3 = ReferenceDict({'chr1': 1, 'chrX': 24, 'chrM': 23}, "C", None) # different order
+    r4 = ReferenceDict({'chr1': 1, 'chrX': 25}, "D", None) # different length
     assert ReferenceDict.merge_and_validate() is None
     assert ReferenceDict.merge_and_validate(r1) == r1
     assert ReferenceDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
