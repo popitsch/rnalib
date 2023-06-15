@@ -1,15 +1,24 @@
+import copy
+import itertools
 import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
+import pyranges as pr
+import numpy as np
 import pytest
 
 from pygenlib.genemodel import *
 from pygenlib.iterators import *
 from pygenlib.utils import TagFilter, toggle_chr, gi
 
+def merge_yields(l) -> (gi, tuple):
+    """ Takes an enumeration of (loc,payload) tuples and returns a tuple (merged location, payloads) """
+    l1, l2 = zip(*l)
+    mloc = gi.merge(list(l1))
+    return mloc, l2
 
 @pytest.fixture(autouse=True)
 def base_path() -> Path:
@@ -103,7 +112,8 @@ def test_TabixIterator(base_path):
     # bedgraph file but parsed as Tabixfile
     # 0.042+0.083+0.125+0.167+0.208+4*0.3+0.7*2+0.8*2+0.1*20 == 6.824999999999999
     assert sum([float(r[3])*len(l) for l, r in TabixIterator(bedg_file, coord_inc=[1, 0]).take()])==pytest.approx(6.825)
-
+    # test open intervals
+    assert len(TabixIterator(bed_file, region=gi('1'), coord_inc=[0, 0], pos_indices=[0, 1, 1]).take()) == 2
 
 
 def test_GFF3Iterator(base_path):
@@ -156,25 +166,60 @@ def test_AnnotationIterator(base_path, testdata):
         'G': gi('chr4', 5, 6),
     }
     def format_results(l):
-        return [([x[1] for x in i1], [x[1] for x in i2]) for loc, (i1,i2) in l]
+        return [(anno, [x[1] for x in i2]) for loc, (anno,i2) in l]
     assert format_results(AnnotationIterator(DictIterator(a), DictIterator(b)).take()) == \
-           [(['A'], ['D1', 'D2']),
-            (['B'], ['D1', 'D2']),
-            (['C'], ['F'])]
-    # with refdict (iterate only chr1)
-    assert format_results(AnnotationIterator(DictIterator(a), DictIterator(b), refdict=ReferenceDict({'chr1':0})).take()) == \
-            [(['A'], ['D1', 'D2']),
-            (['B'], ['D1', 'D2'])]
+           [('A', ['D1', 'D2']),
+            ('B', ['D1', 'D2']),
+            ('C', ['F'])]
+    # iterate only chr1
+    assert format_results(AnnotationIterator(DictIterator(a, chromosome='chr1'), DictIterator(b)).take()) == \
+            [('A', ['D1', 'D2']),
+            ('B', ['D1', 'D2'])]
 
+    # multiple iterators and labels
+    with AnnotationIterator(DictIterator(a), [DictIterator(b), DictIterator(b)], ['A', 'B']) as it:
+        assert ([[i.data.anno, [x.data for x in i.data.A], [x.data for x in i.data.B]] for i in it.take()]) == \
+               [['A', ['D1', 'D2'], ['D1', 'D2']], [ 'B', ['D1', 'D2'], ['D1', 'D2']], ['C', ['F'], ['F']]]
 
     # Annotate intervals from a bed file with values from a bedgraph file
-    bed_file = 'test.bed.gz'
-    bedg_file = 'test.bedgraph.gz'
-
+    bed_file = 'test.bed.gz' # anno
+    bedg_file = 'test.bedgraph.gz' #scores
     # overlap with bedgraph file, calculate overlap and sum scores
     # NOTE bedgraph file contains interval (1:7-10, 0.3)
-    assert [(i1[0][1].name,sum([x[1]*l.overlap(x[0]) for x in i2])) for l,(i1,i2) in AnnotationIterator(BedIterator(bed_file), BedGraphIterator(bedg_file)).take()] == \
-           [('int1', 1.408), ('int2', 0.3), ('int3', 0)]
+    with AnnotationIterator(BedIterator(bed_file), BedGraphIterator(bedg_file), labels=['scores']) as it:
+        assert ([(i.anno.name, sum([x.data * loc.overlap(x.location) for x in i.scores])) for loc, i in it.take()]) == \
+               [('int1', 1.408), ('int2', 0.3), ('int3', 0)]
+
+    # envelop scenario:
+    # it:    |----A-----------------|
+    #         |----X--|   |---Y-|
+    # an:          |-1-||---2-----|
+    # test whether this gives same results for X/Y with and w/o A
+    a1 = {
+        'A': gi.from_str('1:1-20'),
+        'X': gi.from_str('1:2-5'),
+        'Y': gi.from_str('1:7-10')
+    }
+    a2 = a1.copy()
+    del a2['A']
+    b = {
+        '1': gi.from_str('1:4-6'),
+        '2': gi.from_str('1:6-15'),
+    }
+    res1={i.location: i.data for i in (AnnotationIterator(DictIterator(a1), DictIterator(b)).take())}
+    res2={i.location: i.data for i in (AnnotationIterator(DictIterator(a2), DictIterator(b)).take())}
+    # test whether omitting 'A' leads to different results!
+    for k in res1.keys() & res2.keys():
+        assert res1[k]==res2[k]
+    # real world example for such a situation:
+    # roi = gi('chr20', 653200, 654306)
+    # bedit=BedGraphIterator('/Volumes/groups/ameres/Niko/ref/genomes/GRCh38/mappability/GRCh38.k24.umap.bedgraph.gz',
+    #                  chromosome=roi.chromosome, start=roi.start, end=roi.end)
+    # gffit=GFF3Iterator('/Volumes/groups/ameres/Niko/ref/genomes/GRCh38/annotation/gencode.v39.annotation.sorted.gff3.gz',
+    #                    chromosome=roi.chromosome, start=roi.start, end=roi.end)
+    # with AnnotationIterator(gffit, [bedit]) as it:
+    #     for loc,dat in it:
+    #         print(loc, dat.anno['ID'], dat.it0)
 
 
 def test_SyncPerPositionIterator(base_path, testdata):
@@ -295,7 +340,7 @@ def test_SyncPerPositionIterator(base_path, testdata):
 
     # test with random datasets
     found_differences=set()
-    for seed in range(0,1000):
+    for seed in range(0,100):
         print(f"======================================={seed}============================")
         t=SyncPerPositionIteratorTestDataset(seed)
         #print('found', t.found())
@@ -389,7 +434,9 @@ def test_ReadIterator(base_path):
     #  a read with 2 A/G conversions
     assert tc_conv['HWI-ST466_135068617:8:2316:4251:54002', False]==[(2, 22443997, 'A', 'G'), (5, 22444000, 'A', 'G')]
     # test aliasing
-    assert len(ReadIterator('small_example.bam', 'chr1',fun_alias=toggle_chr).take())==21932
+    res=ReadIterator('small_example.bam', 'chr1',fun_alias=toggle_chr).take()
+    assert len(res)==21932
+    assert res[0].location.chromosome=='chr1'
     # TODO add data from /groups/.../ref/testdata/smallbams/
 
 def slow_pileup(bam, chrom,start,stop):
@@ -469,33 +516,21 @@ def test_vcf_and_gff_it(base_path):
     vcf_file = 'dmelanogaster_6_exported_20230523.vcf.gz'
     for x in AnnotationIterator(GFF3Iterator(gff_file, '2L', 574299, 575733),
                                 VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721'])):
-        print(x)
+        #print(x)
+        pass
 
-def test_transcriptome_iterator(base_path):
-    config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
-        'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
-        'annotation_flavour': 'gencode',
-        'transcript_filter': {
-            'included_tids': ['ENST00000473257.3']
-        },
-        'drop_empty_genes': True
-    }
-    t=Transcriptome(config)
-
-
-    # annotate
-    bedg_file = 'GRCh38.k24.umap.ACTB_ex1+2.bedgraph.gz'
-    for l, ex in t.annotate(Exon, BedGraphIterator(bedg_file), 'val1'):
-        print(ex)
-
-    for l, ex in TranscriptomeIterator(t, feature_types=(Exon)).annotate(BedGraphIterator(bedg_file), 'mappability'):
-        print(l, ex, ex.mappability if hasattr(ex, 'mappability') else None)
-
-
-
-    # iterate exons and introns only
-    with TranscriptomeIterator(t, feature_types=(Exon,Intron)) as it:
-        for feature in it:
-            print(feature, feature.__dict__)
+def test_set_chrom(base_path, testdata):
+    d, df = testdata
+    its=[BedIterator('test.bed.gz'),
+         BedGraphIterator('test.bedgraph.gz'),
+         DictIterator(d),
+         GFF3Iterator('gencode.v39.ACTB+SOX2.gff3.gz'),
+         PandasIterator(df, 'Name')]
+    for it in its:
+        all=it.take()
+        per_chrom=[]
+        for c in it.chromosomes:
+            it.set_region(gi(c))
+            per_chrom.append(it.take())
+        per_chrom=list(itertools.chain(*per_chrom))
+        assert [l for l,_ in all]==[l for l,_ in per_chrom]

@@ -1,16 +1,19 @@
 """
     Genomic itererables for efficient iteration over genomic data.
 
-    - Most iterables inherit from LocationIterator and yield data alongside the respective genomic coordinates
-    - Supports chunked I/O where feasible and not supported by the underlying (pysam) implementation (e.g., FastaIterator)
+    - Most iterables inherit from LocationIterator and yield named tuples containing data and its respective genomic
+        location.
+    - Supports chunked I/O where feasible and not supported by the underlying (pysam) implementation (e.g.,
+        FastaIterator)
 
     TODO
-    - docs
+    - improve docs
     - strand specific iteration
     - url streaming
 
     @LICENSE
 """
+import math
 from collections import Counter, namedtuple
 from enum import Enum
 from itertools import chain
@@ -20,24 +23,25 @@ import pysam
 from more_itertools import windowed, peekable
 from sortedcontainers import SortedSet, SortedList
 from tqdm import tqdm
+import pandas as pd
 
 from pygenlib.utils import gi, open_file_obj, DEFAULT_FLAG_FILTER, get_reference_dict, grouper, ReferenceDict, \
-    guess_file_format, parse_gff_info
+    guess_file_format, parse_gff_attributes
 
-
-def merge_yields(l) -> (gi, tuple):
-    """ Takes an enumeration of (loc,payload) tuples and returns a tuple (merged location, payloads) """
-    l1, l2 = zip(*l)
-    mloc = gi.merge(list(l1))
-    return mloc, l2
+""" A location, data tuple, returned by an locationiteraor """
+Item = namedtuple('Item', 'location data')
 
 
 class LocationIterator:
-    """Superclass."""
+    """
+        Superclass.
+
+        :param region genomic region to iterate; overrides chromosome/strat/end/strand params
+    """
 
     def __init__(self, file, chromosome=None, start=None, end=None, region=None, strand=None, file_format=None,
                  chunk_size=1024, per_position=False,
-                 fun_alias=None):
+                 fun_alias=None, refdict=None):
         self.stats = Counter()
         self.location = None
         self.per_position = per_position
@@ -48,20 +52,30 @@ class LocationIterator:
             self.file = file
             self.was_opened = False
         self.fun_alias = fun_alias
-        self.refdict = get_reference_dict(self.file, self.fun_alias) if self.file else None
+        self.refdict = refdict if refdict is not None else get_reference_dict(self.file, self.fun_alias) if self.file else None
         self.chunk_size = chunk_size
         self.strand = strand
         if region is not None:
-            location = gi.from_str(region) if isinstance(region, str) else region
-            self.chromosome, self.start, self.end = location.split_coordinates()
+            self.region = gi.from_str(region) if isinstance(region, str) else region
         else:
-            self.chromosome = chromosome
-            self.start = start
-            self.end = end
+            self.region = gi(chromosome, start, end, strand)
+        self.chromosome, self.start, self.end = self.region.split_coordinates()
         assert (self.refdict is None) or (self.chromosome is None) or (
                 self.chromosome in self.refdict), f"{chromosome} not found in references {self.refdict}"
-        self.region = gi(self.chromosome, self.start, self.end, self.strand)
+        if self.chromosome is None:
+            self.chromosomes = self.refdict.keys() if self.refdict is not None else None # all chroms in correct order
+        else:
+            self.chromosomes = [self.chromosome]
         return self
+
+    def set_region(self, region):
+        """ Update the iterated region of this iterator.
+            Note that the region's chromosome must be in this iterators refdict (if any)
+        """
+        self.region = gi.from_str(region) if isinstance(region, str) else region
+        self.chromosome, self.start, self.end = self.region.split_coordinates()
+        if self.refdict is not None and self.chromosome is not None:
+            assert self.chromosome in self.refdict, f"Invalid chromosome {self.chromosome} not in refddict {self.refdict}"
 
     def take(self):
         """ Exhausts iterator and returns results in a list.
@@ -80,52 +94,25 @@ class LocationIterator:
             print(f"Closing iterator {self}")
             self.file.close()
 
-    def old_annotate(self, anno_its, field_names):
-        """Annotates intervals in this iterator with values from the passed per-position iterators
-            using a SyncPerPositionIterator.
-        """
-        if not isinstance(anno_its, list):
-            anno_its = [anno_its]
-            field_names = [field_names]
-        for p, (loc, idx, data) in SyncPerPositionIterator([self] + anno_its, self.refdict):
-            # NOTE: we pass refdict to iterate also intervals that are not covered in the annotation
-            for l, d in [(loc[i], data[i]) for i, x in enumerate(idx) if x == 0]:
-                for a in range(len(anno_its)):
-                    anno_val = [data[i] for i, x in enumerate(idx) if x == a + 1]
-                    if not hasattr(d, field_names[a]):
-                        d.__setattr__(field_names[a], [])
-                    for v in anno_val:
-                        getattr(d, field_names[a]).append(v)
-                if p.start == l.end:
-                    #     l.mean_value=np.mean(l.mean_value) if len(l.mean_value)>0 else None
-                    yield l, d
-
 
 class TranscriptomeIterator(LocationIterator):
-    """Iterates over features in a transcriptome object"""
+    """
+        Iterates over features in a transcriptome object.
+        Note that no chromosome aliasing is possible with this iterator as returned features are immutable.
+    """
 
-    def __init__(self, t, feature_types=None, chromosome=None, start=None, end=None, region=None, fun_alias=None):
-        super().__init__(None, chromosome=chromosome, start=start, end=end, region=region, fun_alias=fun_alias)
+    def __init__(self, t, chromosome=None, start=None, end=None, region=None, feature_types=None, description='Transcriptome elements'):
+        super().__init__(None, chromosome=chromosome, start=start, end=end, region=region, refdict=t.merged_refdict)
         self.t = t
         self.feature_types = feature_types
-        self.chromosomes = t.merged_refdict.keys() if self.chromosome is None else [self.chromosome]
-        self.filter_region = None if [chromosome, start, end, region] == [None] * 4 else self.region
 
-    def __iter__(self) -> (gi):
-        for chrom in (pbar := tqdm(self.chromosomes)):
-            pbar.set_description(
-                f"Chrom {chrom} ({'all features' if self.feature_types is None else str(self.feature_types)})")
-            if self.filter_region is not None:
-                sl = self.t.obj[chrom].irange(self.filter_region.left_pos(), self.filter_region.right_pos())
-                # TODO: maybe add filtering by region overlap?
-            else:
-                sl = self.t.obj[chrom]
-            for obj in self.t.obj[chrom]:
-                # filter by feature_type
-                if (self.feature_types is not None) and (not isinstance(obj, self.feature_types)):
-                    self.stats[f'filtered_{type(obj)}'] += 1
-                    continue
-                yield obj.location(), obj
+    def __iter__(self) -> Item:
+        for f in self.t.__iter__(feature_types=self.feature_types):
+            # filter by genomic region
+            if (self.region is not None) and (not f.overlaps(self.region)):
+                self.stats[f'filtered_features'] += 1
+                continue
+            yield Item(f, self.t.anno[f])
 
 
 class DictIterator(LocationIterator):
@@ -134,23 +121,19 @@ class DictIterator(LocationIterator):
         Mainly for debugging purposes.
     """
 
-    def __init__(self, d, chromosome=None, start=None, end=None, region=None, fun_alias=None, per_position=False):
-        super().__init__(None, chromosome=chromosome, start=start, end=end, region=region, per_position=per_position,
-                         fun_alias=fun_alias)
-        self.d = {n: gi(self.fun_alias(l.chromosome), l.start, l.end, l.strand) for n, l in
-                  d.items()} if self.fun_alias else d
-        self.refdict = ReferenceDict({ l.chromosome: None for l in self.d.values() }, name='DictIterator', fun_alias=fun_alias)
-        if per_position:
-            raise NotImplementedError() # TODO: overlapping intervals!
+    def __init__(self, d, chromosome=None, start=None, end=None, region=None, fun_alias=None):
+        self.d = {n: gi(fun_alias(l.chromosome), l.start, l.end, l.strand) for n, l in
+                  d.items()} if fun_alias else d
+        self.refdict = ReferenceDict({l.chromosome: None for l in self.d.values()}, name='DictIterator',
+                                     fun_alias=None)
+        print(self.refdict)
+        super().__init__(None, chromosome=chromosome, start=start, end=end, region=region, per_position=False,
+                         fun_alias=fun_alias, refdict=self.refdict)
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item:
         for n, l in self.d.items():
             if self.region.overlaps(l):
-                if self.per_position:
-                    for pos in l:
-                        yield pos, n
-                else:
-                    yield l, n
+                yield Item(l, n)
 
 
 class FastaIterator(LocationIterator):
@@ -219,7 +202,7 @@ class FastaIterator(LocationIterator):
             for d in chunk:
                 yield d
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item:
         padding = self.fillvalue * (self.width // 2) if self.padding else ""
         pos1 = 1 if (self.start is None) else max(1, self.start)  # 0-based coordinates in pysam!
         pos1 -= len(padding)
@@ -230,77 +213,70 @@ class FastaIterator(LocationIterator):
             end_loc = pos1 + len(dat) - 1
             self.location = gi(self.chromosome, pos1, end_loc)
             self.stats['n_seq', self.chromosome] += 1
-            yield self.location, dat
+            yield Item(self.location, dat)
             pos1 += self.step
 
 
 class TabixIterator(LocationIterator):
-    """ Iterates over tabix-indexed files and returns location/tuple pairs.
+    """ Iterates over a bgzipped + tabix-indexed file and returns location/tuple pairs.
+        Genomic locations will be parsed from the columns with given pos_indices and interval coordinates will be
+        converted to 1-based inclusive coordinates by adding values from the configured coord_inc tuple to start and end
+        coordinates. Note that this class serves as super-class for various file format specific iterators (e.g.,
+        BedIterator, VcfIterator, etc.) which use proper coord_inc/pos_index default values.
 
-        Requires a tabix-indexed file. Genomic locations will be parsed from the columns with given pos_indices.
-        For 'known' tabix based file formats (e.g., BED) this will be set automatically (and will overload any configured values).
 
-        For convenience, 'chr' prefixes can be added to or removed from the read file if fun_alias is set.
-        Use with care to avoid incompatible genomic datasets.
-
-        Example:
-                BED: coord_inc = [1, 0]
-                VCF: pos_indices=[0, 1, 1]
 
         FIXME
         - add slop
-        - fill/fill_value
         - improve docs
     """
 
     def __init__(self, tabix_file, chromosome=None, start=None, end=None,
-                 region=None, fun_alias=None,
-                 coord_inc=[0, 0],
-                 pos_indices=[0, 1, 2],
-                 per_position=False):
+                 region=None, fun_alias=None, per_position=False,
+                 coord_inc=(0, 0),
+                 pos_indices=(0, 1, 2)):
         super().__init__(file=tabix_file, chromosome=chromosome, start=start, end=end, region=region,
                          file_format='tsv', per_position=per_position, fun_alias=fun_alias)  # e.g., toggle_chr
         self.coord_inc = coord_inc
         self.pos_indices = pos_indices
-        self.start = 1 if (self.start is None) else max(1, self.start)  # 0-based coordinates in pysam!
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item:
         for row in self.file.fetch(reference=self.refdict.alias(self.chromosome),
-                                   start=self.start - 1,  # 0-based coordinates in pysam!
-                                   end=self.end,
+                                   start=(self.start - 1) if (self.start > 0) else None,  # 0-based coordinates in pysam!
+                                   end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asTuple()):  # @UndefinedVariable
             chromosome = self.refdict.alias(row[self.pos_indices[0]])
             start = int(row[self.pos_indices[1]]) + self.coord_inc[0]
             end = int(row[self.pos_indices[2]]) + self.coord_inc[1]
             self.location = gi(chromosome, start, end)
             self.stats['n_rows', chromosome] += 1
-            yield self.location, tuple(row)
+            yield Item(self.location, tuple(row))
 
 
 class BedGraphIterator(TabixIterator):
     """
-        Iterates a bedgraph file and yields float values
+        Iterates a bgzipped and indexed bedgraph file and yields float values
         If a strand is passed, all yielded intervals will have this strand assigned.
     """
 
     def __init__(self, bedgraph_file, chromosome=None, start=None, end=None,
-                 region=None, fun_alias=None, per_position=False,
-                 strand=None):
+                 region=None, fun_alias=None, strand=None):
         super().__init__(tabix_file=bedgraph_file, chromosome=chromosome, start=start, end=end, region=region,
-                         per_position=per_position, fun_alias=fun_alias, coord_inc=[1, 0], pos_indices=[0, 1, 2])
+                         per_position=False, fun_alias=fun_alias, coord_inc=(1, 0), pos_indices=(0, 1, 2))
         self.strand = strand
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item(gi, float):
         for loc, t in super().__iter__():
             if self.strand:
                 loc = loc.get_stranded(self.strand)
-            yield loc, float(t[3])
+            yield Item(loc, float(t[3]))
 
 
 class BedRecord():
     """Parsed (mutable) version of pysam BedProxy"""
+
     def __init__(self, tup):
-        self.name=tup[3] if len(tup)>=4 else None
+        self.name = tup[3] if len(tup) >= 4 else None
         self.score = tup[4] if len(tup) >= 5 else None
         strand = tup[5] if len(tup) >= 6 else None
         self.loc = gi(tup[0], int(tup[1]) + 1, int(tup[2]), strand)
@@ -316,20 +292,20 @@ class BedIterator(TabixIterator):
     """
 
     def __init__(self, bed_file, chromosome=None, start=None, end=None,
-                 region=None, fun_alias=None, per_position=False):
+                 region=None, fun_alias=None):
         assert guess_file_format(
             bed_file) == 'bed', f"expected BED file but guessed file format is {guess_file_format(bed_file)}"
         super().__init__(tabix_file=bed_file, chromosome=chromosome, start=start, end=end, region=region,
-                         per_position=per_position, fun_alias=fun_alias, coord_inc=[1, 0], pos_indices=[0, 1, 2])
+                         per_position=False, fun_alias=fun_alias, coord_inc=(1, 0), pos_indices=(0, 1, 2))
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item(gi, BedRecord):
         for bed in self.file.fetch(reference=self.refdict.alias(self.chromosome),
-                                   start=self.start - 1,  # 0-based coordinates in pysam!
-                                   end=self.end,
+                                   start=(self.start - 1) if (self.start > 0) else None,  # 0-based coordinates in pysam!
+                                   end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asTuple()):  # @UndefinedVariable
             rec = BedRecord(tuple(bed))
             self.stats['n_rows', rec.loc.chromosome] += 1
-            yield rec.loc, rec
+            yield Item(rec.loc, rec)
 
 
 # VCF no-call genotypes
@@ -405,7 +381,7 @@ class VcfIterator(TabixIterator):
         assert guess_file_format(
             vcf_file) == 'vcf', f"expected VCF file but guessed file format is {guess_file_format(vcf_file)}"
         super().__init__(tabix_file=vcf_file, chromosome=chromosome, start=start, end=end, region=region,
-                         per_position=True, fun_alias=fun_alias, coord_inc=[0, 0], pos_indices=[0, 1, 1])
+                         per_position=True, fun_alias=fun_alias, coord_inc=(0, 0), pos_indices=(0, 1, 1))
         # get header
         self.header = pysam.VariantFile(vcf_file).header  # @UndefinedVariable
         self.allsamples = list(self.header.samples)
@@ -413,10 +389,10 @@ class VcfIterator(TabixIterator):
                 samples is not None) else range(len(self.allsamples))
         self.filter_nocalls = filter_nocalls
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item(gi, VcfRecord):
         for var in self.file.fetch(reference=self.refdict.alias(self.chromosome),
-                                   start=self.start - 1,  # 0-based coordinates in pysam!
-                                   end=self.end,
+                                   start=(self.start - 1) if (self.start > 0) else None,  # 0-based coordinates in pysam!
+                                   end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asVCF()):  # @UndefinedVariable
             rec = VcfRecord(var, self.allsamples, self.shownsampleindices)
             if ('n_calls' in rec.__dict__) and (self.filter_nocalls) and (rec.n_calls == 0):
@@ -430,7 +406,7 @@ class VcfIterator(TabixIterator):
             strand = None
             self.location = gi(chromosome, start, end, strand)
             self.stats['n_rows', chromosome] += 1
-            yield self.location, rec
+            yield Item(self.location, rec)
 
 
 class GFF3Iterator(TabixIterator):
@@ -442,28 +418,28 @@ class GFF3Iterator(TabixIterator):
     """
 
     def __init__(self, gtf_file, chromosome=None, start=None, end=None,
-                 region=None, fun_alias=None, per_position=False):
+                 region=None, fun_alias=None):
         super().__init__(tabix_file=gtf_file, chromosome=chromosome, start=start, end=end, region=region,
-                         per_position=per_position, fun_alias=fun_alias, coord_inc=[0, 0], pos_indices=[0, 1, 2])
+                         per_position=False, fun_alias=fun_alias, coord_inc=(0, 0), pos_indices=(0, 1, 2))
         self.file_format = guess_file_format(gtf_file)
         assert self.file_format in ['gtf',
                                     'gff'], f"expected GFF3/GTF file but guessed file format is {self.file_format}"
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item(gi, dict):
         for row in self.file.fetch(reference=self.refdict.alias(self.chromosome),
-                                   start=self.start - 1,  # 0-based coordinates in pysam!
-                                   end=self.end,
+                                   start=(self.start - 1) if (self.start>0) else None,  # 0-based coordinates in pysam!
+                                   end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asTuple()):  # @UndefinedVariable
             chromosome, source, feature_type, start, end, score, strand, phase, info = row
             self.location = gi(self.refdict.alias(chromosome), int(start) + self.coord_inc[0],
                                int(end) + self.coord_inc[1], strand)
-            info = parse_gff_info(info, self.file_format)
+            info = parse_gff_attributes(info, self.file_format)
             info['feature_type'] = None if feature_type == '.' else feature_type
             info['source'] = None if source == '.' else source
             info['score'] = None if score == '.' else float(score)
             info['phase'] = None if phase == '.' else int(phase)
             self.stats['n_rows', chromosome] += 1
-            yield self.location, info
+            yield Item(self.location, info)
 
 
 class PandasIterator(LocationIterator):
@@ -492,26 +468,29 @@ class PandasIterator(LocationIterator):
 
     """
 
-    def __init__(self, df, feature, coord_columns=['Chromosome', 'Start', 'End'], is_sorted=False, per_position=False,
+    def __init__(self, df, feature, chromosome=None, start=None, end=None, region=None, strand=None,coord_columns=['Chromosome', 'Start', 'End'], is_sorted=False, per_position=False,
                  fun_alias=None):
         self.stats = Counter()
-        self.file = None
         self.location = None
         self.df = df if is_sorted else df.sort_values(['Chromosome', 'Start'])
+        self.chromosomes=list(dict.fromkeys(df['Chromosome'])) # unique set with preserved order
+        self.refdict=ReferenceDict({c:None for c in self.chromosomes})
+        super().__init__(None, chromosome=chromosome, start=start, end=end, region=region, per_position=False,
+                         fun_alias=fun_alias, refdict=self.refdict)
         self.feature = feature
         self.coord_columns = coord_columns
         self.per_position = per_position
-        self.fun_alias = fun_alias
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item(gi, pd.Series):
         for _, row in self.df.iterrows():
             chromosome = row[self.coord_columns[0]] if self.fun_alias is None else self.fun_alias(
                 row[self.coord_columns[0]])
             start = row[self.coord_columns[1]]
             end = row[self.coord_columns[2]]
             self.location = gi(chromosome, start, end)
-            self.stats['n_rows', chromosome] += 1
-            yield self.location, row[self.feature]
+            if self.region.overlaps(self.location):
+                self.stats['n_rows', chromosome] += 1
+                yield Item(self.location, row[self.feature])
 
     def close(self):
         pass
@@ -546,13 +525,13 @@ class ReadIterator(LocationIterator):
         self.report_mismatches = report_mismatches
         self.min_base_quality = min_base_quality
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item(gi, pysam.AlignedSegment):
         md_check = False
         for r in self.file.fetch(contig=self.refdict.alias(self.chromosome),
-                                 start=self.start,
-                                 end=self.end,
+                                 start=self.start if (self.start>0) else None,
+                                 end=self.end if (self.end<math.inf) else None,
                                  until_eof=True):
-            self.location = gi(self.chromosome, r.reference_start + 1, r.reference_end, '-' if r.is_reverse else '+')
+            self.location = gi(self.refdict.alias(r.reference_name), r.reference_start + 1, r.reference_end, '-' if r.is_reverse else '+')
             if r.flag & self.flag_filter:  # filter based on BAM flags
                 self.stats['n_fil_flag', self.location.chromosome] += 1
                 continue
@@ -579,16 +558,16 @@ class ReadIterator(LocationIterator):
                 mm = [(off, pos + 1, ref.upper(), r.query_sequence[off]) for (off, pos, ref) in
                       r.get_aligned_pairs(with_seq=True, matches_only=True) if ref.islower() and
                       r.query_qualities[off] > self.min_base_quality]  # mask bases with low per-base quailty
-                yield self.location, (r, mm)  # yield read/mismatch tuple
+                yield Item(self.location, (r, mm))  # yield read/mismatch tuple
             else:
-                yield self.location, r
+                yield Item(self.location, r)
 
 
 class FastPileupIterator(LocationIterator):
     """
         Fast pileup iterator that yields a complete pileup (w/o insertions) over a set of genomic positions. This is
         more lightweight and considerably faster than pysams pileup() but klacks some features (such as 'ignore_overlaps'
-        or 'ignore_orphans'). By default it basically reports what is seen in the default IGV view.
+        or 'ignore_orphans'). By default, it basically reports what is seen in the default IGV view.
 
 
         :parameter reported_positions  either a range (start/end) or a set of genomic positions for which counts will be reported.
@@ -622,7 +601,7 @@ class FastPileupIterator(LocationIterator):
         self.max_depth = max_depth
         self.count_dict = Counter()
 
-    def __iter__(self) -> (gi, str):
+    def __iter__(self) -> Item(gi, Counter):
         self.rit = ReadIterator(self.file, self.chromosome, self.start, self.end,
                                 min_mapping_quality=self.min_mapping_quality,
                                 flag_filter=self.flag_filter, max_span=self.max_span,
@@ -661,7 +640,7 @@ class FastPileupIterator(LocationIterator):
         # yield all reported positions (including uncovered ones)
         for gpos in self.reported_positions:
             self.location = gi(self.chromosome, gpos, gpos)
-            yield self.location, self.count_dict[gpos] if gpos in self.count_dict else Counter()
+            yield Item(self.location, self.count_dict[gpos] if gpos in self.count_dict else Counter())
 
 
 # ---------------------------------------------------------
@@ -687,7 +666,7 @@ class BlockLocationIterator(LocationIterator):
         self.strategy = strategy
         self.per_position = self.orgit.per_position
 
-    def __iter__(self) -> (gi, (tuple, tuple)):
+    def __iter__(self) -> Item(gi, (tuple, tuple)):
         values = None
         locations = None
         for l, value in self.it:
@@ -718,7 +697,7 @@ class BlockLocationIterator(LocationIterator):
                     locations += [l]
                     values += [v]
                     mloc = gi.merge((mloc, l))
-            yield mloc, (locations, values)
+            yield Item(mloc, (locations, values))
 
     def close(self):
         try:
@@ -726,58 +705,9 @@ class BlockLocationIterator(LocationIterator):
         except AttributeError:
             pass
 
-class AnnotationIterator(LocationIterator):
-    def __init__(self, it, anno_its, refdict=None):
-        """
-        :parameter iterables a list of location iterators
-        """
-        if not isinstance(anno_its, list):
-            anno_its = [anno_its]
-        for x in [it]+anno_its:
-            assert issubclass(type(x), LocationIterator), f"Only implemented for LocationIterators {type(x)}"
-        self.it=peekable(it)
-        self.anno_its = [peekable(it) for it in anno_its]  # make peekable iterators
-        self.refdict = it.refdict if refdict is None else refdict
-        print("Iterating refdict:", self.refdict)
-        self.chroms=list(self.refdict.keys())
-        self.current = [list() for i, _ in enumerate(self.anno_its)]
-    def update(self, ref):
-        for i,it in enumerate(self.anno_its):
-            self.current[i] = [(l, d) for l, d in self.current[i] if l.overlaps(ref)] # drop non overlapping
-            while True:
-                nxt=it.peek(default=None)
-                if nxt is None:
-                    break # exhausted
-                loc,dat=nxt
-                if loc.chromosome != ref.chromosome:
-                    if (loc.chromosome not in self.chroms) or (self.chroms.index(loc.chromosome)<self.chroms.index(ref.chromosome)):
-                        next(it) # consume and skip
-                        continue
-                    else:
-                        break # chrom comes after current one
-                over=loc.overlaps(ref)
-                if (loc > ref) and not (over):
-                    break # done
-                nxt=next(it) # consume interval
-                if over:
-                    self.current[i].append(nxt)
-
-    def __iter__(self) -> (gi, tuple):
-        for loc, dat in self.it:
-            if self.refdict and loc.chromosome not in self.refdict:
-                continue # skip chrom
-            self.update(loc)
-            yield loc, tuple([[(loc, dat)]] + self.current)
-    def close(self):
-        for it in [self.it] + self.anno_its:
-            try:
-                it.close()
-            except AttributeError:
-                pass
 
 
 class SyncPerPositionIterator(LocationIterator):
-
     """ Synchronizes the passed location iterators by genomic location and yields
         individual genomic positions and overlapping intervals per passed iterator
         Expects coordinate-sorted location iterators!
@@ -802,6 +732,7 @@ class SyncPerPositionIterator(LocationIterator):
         self.iterables = iterables
         for it in iterables:
             assert issubclass(type(it), LocationIterator), "Only implemented for LocationIterators"
+        self.per_position = True
         self.iterators = [peekable(it) for it in iterables]  # make peekable iterators
         if refdict is None:
             self.refdict = ReferenceDict.merge_and_validate(*[it.refdict for it in iterables])
@@ -809,21 +740,22 @@ class SyncPerPositionIterator(LocationIterator):
                 print("WARNING: could not determine refdict from iterators: using alphanumerical chrom order.")
             else:
                 print("Iterating merged refdict:", self.refdict)
-                if len(self.refdict)==0:
+                if len(self.refdict) == 0:
                     print("WARNING refdict is empty!")
         else:
             self.refdict = refdict
             print("Iterating refdict:", self.refdict)
-        self.current={i:list() for i,_ in enumerate(self.iterators)}
+        self.current = {i: list() for i, _ in enumerate(self.iterators)}
         # get first position if any
-        first_positions=SortedList(d[0] for d in [it.peek(default=None) for it in self.iterators] if d is not None)
+        first_positions = SortedList(d[0] for d in [it.peek(default=None) for it in self.iterators] if d is not None)
         if len(first_positions) > 0:
             # defined chrom sort order (fixed list) or create on the fly (sorted set that supports addition in iteration)
-            self.chroms = SortedSet([first_positions[0].chromosome]) if self.refdict is None else list(self.refdict.keys())  # chrom must be in same order as in iterator!
+            self.chroms = SortedSet([first_positions[0].chromosome]) if self.refdict is None else list(
+                self.refdict.keys())  # chrom must be in same order as in iterator!
             # get min.max pos
-            self.pos, self.maxpos=first_positions[0].start, first_positions[0].end
+            self.pos, self.maxpos = first_positions[0].start, first_positions[0].end
         else:
-            self.chroms=set() # no data
+            self.chroms = set()  # no data
 
     def first_pos(self):
         first_positions = SortedList(d[0] for d in [it.peek(default=None) for it in self.iterators] if d is not None)
@@ -837,32 +769,33 @@ class SyncPerPositionIterator(LocationIterator):
         for i, it in enumerate(self.iterators):
             self.current[i] = [(l, d) for l, d in self.current[i] if l.end >= self.pos]
             while True:
-                nxt=it.peek(default=None)
+                nxt = it.peek(default=None)
                 if nxt is None:
-                    break # exhausted
-                loc,dat=nxt
+                    break  # exhausted
+                loc, dat = nxt
                 if loc.chromosome != chromosome:
                     if self.refdict is None:
-                        self.chroms.add(loc.chromosome) # added chr
+                        self.chroms.add(loc.chromosome)  # added chr
                     break
-                self.maxpos=max(self.maxpos, loc.end)
-                if loc.start>self.pos:
+                self.maxpos = max(self.maxpos, loc.end)
+                if loc.start > self.pos:
                     break
-                self.current[i].append(next(it)) # consume interval
+                self.current[i].append(next(it))  # consume interval
 
-    def __iter__(self) -> (gi, tuple):
+    def __iter__(self) -> Item(gi, tuple):
         for c in self.chroms:
             self.update(c)
             while self.pos <= self.maxpos:
-                yield gi(c,self.pos, self.pos), [list(x) for x in self.current.values()]
+                yield Item(gi(c, self.pos, self.pos), [list(x) for x in self.current.values()])
                 self.pos += 1
                 self.update(c)
-            tmp=self.first_pos()
+            tmp = self.first_pos()
             if tmp is None:
-                break # exhausted
+                break  # exhausted
             self.pos, self.maxpos = tmp.start, tmp.end
             if self.refdict is None:
                 self.chroms.add(tmp.chromosome)
+
     def close(self):
         for it in self.iterables:
             try:
@@ -917,25 +850,160 @@ class FastqIterator():
             print(f"Closing iterator {self}")
             self.file.close()
 
-#
-#
-# if __name__ == '__main__':
-#     # print(FastaIterator('/Users/niko.popitsch/git/genomic_iterators/tests/data/reference1.fasta','1', 1, 10, width=1).take())
-#     # print(FastaIterator('/Users/niko.popitsch/git/genomic_iterators/tests/data/reference1.fasta','1', 1, 10, width=2).take())
-#     # print(FastaIterator('/Users/niko.popitsch/git/genomic_iterators/tests/data/reference1.fasta','1', 1, 10, width=10).take())
-#     # print(FastaIterator('/Users/niko.popitsch/git/genomic_iterators/tests/data/reference1.fasta','1', 1, 10, width=1, context_size=1).take())
-#     # print(FastaIterator('/Users/niko.popitsch/git/genomic_iterators/tests/data/reference1.fasta','1', 1, 10, width=2, context_size=1).take())
-#     # print(FastaIterator('/Users/niko.popitsch/git/genomic_iterators/tests/data/reference1.fasta','1', 1, 10, width=10, context_size=1).take())
-#     #print('\n'.join(str(x) for x in FastaIterator('/Users/niko.popitsch/git/genomic_iterators/tests/data/reference1.fasta','1', width=10, step_size=10).take()))
-#
-#     # dict_chr2idx, dict_idx2chr, dict_chr2len = get_chrom_dicts('/Users/niko.popitsch/git/genomic_iterators/tests/data/reference1.fasta')
-#     # print(TabixIterator('/Users/niko.popitsch/git/genomic_iterators/tests/data/test_snps.vcf.gz',
-#     #                     dict_chr2idx, dict_chr2len, '1', 1, 10, file_format='tsv', coord_inc=[0,0], pos_indices=[0,1,1]).take())
-#
-#     # to test interactively in PyDev console:
-#     # from genomic_iterators.iterators import FastaIterator
-#     # [...] modify source + save
-#     # import imp
-#     # imp.reload(genomic_iterators.iterators)
-#     pass
-#
+class AnnotationIterator(LocationIterator):
+    """
+        Annotates locations in the first iterator with data from the ano_its location iterators.
+        Yields the following data:
+            Item(location=gi, data=Result(anno=dat_from_it,
+                            label1=[Item(loc, dat_from_anno_it1)], ...,
+                            labeln=[Item(loc, dat_from_anno_itn)])
+            Which enables access to the following data
+                item.location: gi of the currently annotated location
+                item.data.anno: data of the currently annotated location
+                item.data.<label_n>: list of items from <iterator_n> that overlap the currentluy annotated position.
+
+            if no labels are provided, the following will be used: it0, it1, ..., itn.
+
+
+    """
+
+    def __init__(self, it, anno_its, labels=None, refdict=None):
+        """
+        :parameter it a location iterator; the created AnnotationIterator will yield each item from this iterator
+            alongside all overlapping items from the configured anno_its iterators
+        :parameter anno_its a list of location iterators for annotating the main iterator
+        """
+        if not isinstance(anno_its, list):
+            anno_its = [anno_its]
+        if labels is None:
+            labels = [f'it{i}' for i in range(len(anno_its))]
+        elif not isinstance(labels, list):
+            labels = [labels]
+        for x in [it] + anno_its:
+            assert issubclass(type(x), LocationIterator), f"Only implemented for LocationIterators {type(x)}"
+        self.it = it
+        self.refdict = it.refdict if refdict is None else refdict
+        self.anno_its=anno_its
+        self.region=it.region
+        self.chromosomes = it.chromosomes
+        self.Result = namedtuple('Result', ['anno'] + labels)  # result type
+
+    def coord_overlaps(self, a, b):
+        return a.start <= b.end and b.start <= a.end
+    def update(self, ref, anno_its):
+        for i, it in enumerate(anno_its):
+            self.buffer[i] = [Item(l, d) for l, d in self.buffer[i] if l.end >= ref.start]  # drop left
+            while True:
+                nxt = it.peek(default=None)
+                if nxt is None:
+                    break  # exhausted
+                loc, dat = nxt
+                if loc.start > ref.end:
+                    break  # done
+                nxt = next(it)  # consume interval
+                if loc.end < ref.start:
+                    continue # skip
+                self.buffer[i].append(nxt)
+            self.current[i] = [Item(l, d) for l, d in self.buffer[i] if self.coord_overlaps(l,ref)]
+        return anno_its
+
+    def __iter__(self) -> Item(gi, tuple):
+        for chromosome in tqdm(self.chromosomes, total=len(self.chromosomes)):
+            self.buffer = [list() for i, _ in enumerate(
+                self.anno_its)]  # holds sorted interval lists that overlap or are > than the currently annotated interval
+            self.current = [list() for i, _ in enumerate(self.anno_its)]
+            it=self.it.set_region(gi(chromosome, self.region.start, self.region.end))
+            anno_its = [it for it in self.anno_its if chromosome in it.refdict]
+            if len(anno_its)==0:
+                print(f"Skipping chromosome {chromosome} as no annotation data found!")
+                continue
+            for it in anno_its: # set current chrom
+                it.set_region(gi(chromosome, self.region.start, self.region.end))
+            anno_its=[peekable(it) for it in anno_its]  # make peekable iterators
+            for loc, dat in self.it:
+                anno_its=self.update(loc, anno_its)
+                yield Item(loc, self.Result(dat, *self.current))
+
+    def close(self):
+        for it in [self.it] + self.anno_its:
+            try:
+                it.close()
+            except AttributeError:
+                pass
+class AnnotationIterator_OLD(LocationIterator):
+    """
+        Annotates locations in the first iterator with data from the ano_its location iterators.
+        Yields the following data:
+            Item(location=gi, data=Result(anno=dat_from_it,
+                            label1=[Item(loc, dat_from_anno_it1)], ...,
+                            labeln=[Item(loc, dat_from_anno_itn)])
+            Which enables access to the following data
+                item.location: gi of the currently annotated location
+                item.data.anno: data of the currently annotated location
+                item.data.<label_n>: list of items from <iterator_n> that overlap the currentluy annotated position.
+
+            if no labels are provided, the following will be used: it0, it1, ..., itn.
+
+
+    """
+
+    def __init__(self, it, anno_its, labels=None, refdict=None):
+        """
+        :parameter it a location iterator; the created AnnotationIterator will yield each item from this iterator
+            alongside all overlapping items from the configured anno_its iterators
+        :parameter anno_its a list of location iterators for annotating the main iterator
+        """
+        if not isinstance(anno_its, list):
+            anno_its = [anno_its]
+        if labels is None:
+            labels = [f'it{i}' for i in range(len(anno_its))]
+        elif not isinstance(labels, list):
+            labels = [labels]
+        for x in [it] + anno_its:
+            assert issubclass(type(x), LocationIterator), f"Only implemented for LocationIterators {type(x)}"
+        self.it = peekable(it)
+        self.anno_its = [peekable(it) for it in anno_its]  # make peekable iterators
+        self.refdict = it.refdict if refdict is None else refdict
+        #print("Iterating refdict:", self.refdict)
+        self.chroms = list(self.refdict.keys())
+        self.buffer = [list() for i, _ in enumerate(self.anno_its)] # holds sorted interval lists that overlap or are > than the currently annotated interval
+        self.current = [list() for i, _ in enumerate(self.anno_its)]
+        self.Result = namedtuple('Result', ['anno'] + labels)  # result type
+
+    def update(self, ref):
+        for i, it in enumerate(self.anno_its):
+            #self.current[i] = [Item(l, d) for l, d in self.current[i] if l.overlaps(ref)]  # drop non overlapping
+            self.buffer[i] = [Item(l, d) for l, d in self.buffer[i] if l.overlaps(ref) or l > ref]  # drop non overlapping
+            while True:
+                nxt = it.peek(default=None)
+                if nxt is None:
+                    break  # exhausted
+                loc, dat = nxt
+                if loc.chromosome != ref.chromosome:
+                    if (loc.chromosome not in self.chroms) or (
+                            self.chroms.index(loc.chromosome) < self.chroms.index(ref.chromosome)):
+                        next(it)  # consume and skip
+                        continue
+                    else:
+                        break  # chrom comes after current one
+                over = loc.overlaps(ref)
+                if (loc > ref) and not (over):
+                    break  # done
+                nxt = next(it)  # consume interval
+                if over:
+                    self.buffer[i].append(nxt)
+            self.current[i] = [Item(l, d) for l, d in self.buffer[i] if l.overlaps(ref)]
+
+    def __iter__(self) -> Item(gi, tuple):
+        for loc, dat in self.it:
+            if self.refdict and loc.chromosome not in self.refdict:
+                continue  # skip chrom
+            self.update(loc)
+            yield Item(loc, self.Result(dat, *self.current))
+
+    def close(self):
+        for it in [self.it] + self.anno_its:
+            try:
+                it.close()
+            except AttributeError:
+                pass

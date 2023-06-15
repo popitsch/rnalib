@@ -40,7 +40,7 @@ def test_get_config():
     assert get_config(config, 'prop3') is None
 
 
-def test_parse_gff_info(base_path):
+def test_parse_gff_attributes(base_path):
     """ shallow test of GFF/GTF infor parsing.
     """
     for fn in ['gencode.v39.ACTB+SOX2.gff3.gz',
@@ -50,9 +50,9 @@ def test_parse_gff_info(base_path):
         with pysam.TabixFile(fn, mode="r") as f:
             for row in f.fetch(parser=pysam.asTuple()):
                 reference, source, ftype, fstart, fend, score, strand, phase, info = row
-                pinfo = parse_gff_info(info, fmt=guess_file_format(fn))
+                pattributes = parse_gff_attributes(info, fmt=guess_file_format(fn))
                 min_exp_fields = set('gene_id'.split(','))
-                shared, _, _ = cmp_sets(set(pinfo.keys()), min_exp_fields)
+                shared, _, _ = cmp_sets(set(pattributes.keys()), min_exp_fields)
                 assert shared == min_exp_fields, f"error parsing {info} in file {fn}"
 
 

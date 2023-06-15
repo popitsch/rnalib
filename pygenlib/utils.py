@@ -171,7 +171,7 @@ class gi:
             return False
         return self.start <= other.end and other.start <= self.end
 
-    def envelop(self, other, strand_specific=False) -> bool:
+    def envelops(self, other, strand_specific=False) -> bool:
         """ Tests whether this interval envelops the passed one.
         """
         if not self.cs_match(other, strand_specific):
@@ -553,7 +553,7 @@ def gunzip(in_file, out_file=None) -> str:
 
 def slugify(value, allow_unicode=False) -> str:
     """
-    Slugify a string (e.g., to get valid fileenames w/o extensions).
+    Slugify a string (e.g., to get valid filenames w/o extensions).
     @see https://github.com/django/django/blob/master/django/utils/text.py
     Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
     dashes to single dashes. Remove characters that aren't alphanumerics,
@@ -763,10 +763,9 @@ def find_gpos(genome_fa, kmers, included_chrom=None) -> Counter:
 # --------------------------------------------------------------
 
 
-def parse_gff_info(info, fmt='gff3'):
-    """ parse GFF3/GTF info section """
-    # remove optional commegt section (see flybase gtf)
-    if '#' in info:
+def parse_gff_attributes(info, fmt='gff3'):
+    """ parses GFF3/GTF info sections """
+    if '#' in info: # remove optional comment section (e.g., in flybase gtf)
         info=info.split('#')[0].strip()
     if fmt.lower() == 'gtf':
         return {k: v.translate({ord(c): None for c in '"'}) for k, v in
