@@ -31,7 +31,7 @@ _pygenlib_ can instantiate a gene annotation model from a GTF/GFF3 file and curr
 from the following annotation sources: gencode, ensembl, ucsc, flybase, mirgenedb. It supports transcript filtering based on location, attribute 
 values and explicit lists of included transcript ids.
 
-![transcriptome datamodel](pygenlib_transcriptome.png "Transcriptome datamodel")
+![transcriptome datamodel](notebooks/pygenlib_transcriptome.png "Transcriptome datamodel")
 
 _pygenlib_ explicitly models genes, transcripts, exons, introns, 5'UTRs and 3'UTRs. 
 Nucleotide sequences of these features can be loaded from a configured reference genome and will be 
