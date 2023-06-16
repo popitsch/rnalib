@@ -6,14 +6,14 @@ Gene model classes.
 
 from collections import Counter
 from dataclasses import dataclass, make_dataclass, field
-from itertools import chain, pairwise
+from itertools import chain
 
 import dill
 import mygene
 import pandas as pd
 import pysam
 from intervaltree import IntervalTree
-from more_itertools import triplewise
+from more_itertools import pairwise, triplewise
 from tqdm import tqdm
 
 from pygenlib.iterators import GFF3Iterator, AnnotationIterator, TranscriptomeIterator
