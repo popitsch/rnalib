@@ -593,16 +593,16 @@ class Transcriptome:
                 seq = reverse_complement(seq)
         return seq
 
-    def slice_from_parent(self, f, attr):
+    def slice_from_parent(self, f, attr, default_value=None):
         """
-            Gets an attr from the passed feature or it predecessors (by traversing the parent/child relationships).
+            Gets an attr from the passed feature or its predecessors (by traversing the parent/child relationships).
             If retrieved from an (enveloping) parent interval, the returned value will be sliced.
             Use only to access attributes that contain one item per genomic position (e.g, arrays of per-position
             values)
         """
         p, pseq = self.find_attr_rec(f, attr)
         if p is None:
-            return None
+            return default_value
         if p == f:
             return pseq
         else:

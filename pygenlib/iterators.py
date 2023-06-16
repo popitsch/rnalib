@@ -912,10 +912,13 @@ class AnnotationIterator(LocationIterator):
             self.buffer = [list() for i, _ in enumerate(
                 self.anno_its)]  # holds sorted interval lists that overlap or are > than the currently annotated interval
             self.current = [list() for i, _ in enumerate(self.anno_its)]
-            it=self.it.set_region(gi(chromosome, self.region.start, self.region.end))
+            # set chrom of it
+            self.it.set_region(gi(chromosome, self.region.start, self.region.end))
             anno_its = [it for it in self.anno_its if chromosome in it.refdict]
             if len(anno_its)==0:
-                print(f"Skipping chromosome {chromosome} as no annotation data found!")
+                #print(f"Skipping chromosome {chromosome} as no annotation data found!")
+                for loc, dat in self.it:
+                    yield Item(loc, self.Result(dat, *self.current)) # yield empty results
                 continue
             for it in anno_its: # set current chrom
                 it.set_region(gi(chromosome, self.region.start, self.region.end))
