@@ -145,8 +145,9 @@ class Feature(gi):
     def get(self, attr, default_value=None, slice_from_parent=False):
         """ Safe getter supporting default value and slice-from-parent """
         if slice_from_parent and (self.transcriptome is not None):
-            self.transcriptome.slice_from_parent(self, attr, default_value=default_value)
-        return getattr(self, attr, default_value)
+            return self.transcriptome.slice_from_parent(self, attr, default_value=default_value)
+        else:
+            return getattr(self, attr, default_value)
 
     @classmethod
     def from_gi(cls, loc, ):
