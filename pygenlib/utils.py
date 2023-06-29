@@ -69,28 +69,32 @@ class gi:
         if self.is_empty():
             return 0
         return self.end - self.start + 1
+
     @classmethod
     def from_str(cls, loc_string):
         """ Parse from <chr>:<start>-<end> (<strand>). Strand is optional"""
         pattern = re.compile("(\w+):(\d+)-(\d+)(?:[\s]*\(([+-])\))?$")
-        match=pattern.findall(loc_string.strip().replace(',', '')) # convenience
-        if len(match)==0:
+        match = pattern.findall(loc_string.strip().replace(',', ''))  # convenience
+        if len(match) == 0:
             return None
         chromosome, start, end, strand = match[0]
-        strand = None if strand=='' else strand
+        strand = None if strand == '' else strand
         return cls(chromosome, int(start), int(end), strand)
+
     def __repr__(self):
         return f"{self.chromosome}:{self.start}-{self.end}{'' if self.strand is None else f' ({self.strand})'}"
 
     def get_stranded(self, strand):
         """Get a new object with same coordinates; the strand will be set according to the passed variable."""
         return gi(self.chromosome, self.start, self.end, strand)
+
     def to_file_str(self):
         """ returns a sluggified string representation "<chrom>_<start>_<end>_<strand>"        """
         return f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
 
     def is_empty(self):
-        return self.start>self.end
+        return self.start > self.end
+
     def is_stranded(self):
         return self.strand is not None
 
@@ -101,7 +105,7 @@ class gi:
         """
         if strand_specific and self.strand != other.strand:
             return False
-        if (self.chromosome) and (other.chromosome) and (self.chromosome!=other.chromosome):
+        if (self.chromosome) and (other.chromosome) and (self.chromosome != other.chromosome):
             return False
         if self.is_empty():
             return False
@@ -147,6 +151,7 @@ class gi:
             If chroms do not match, None is returned.
         """
         return self.__cmp__(other, '__ge__')
+
     def left_match(self, other, strand_specific=False):
         if not self.cs_match(other, strand_specific):
             return False
@@ -229,7 +234,7 @@ class gi:
         """ Deep copy """
         return gi(self.chromosome, self.start, self.end, self.strand)
 
-    def distance(self, other,  strand_specific=False):
+    def distance(self, other, strand_specific=False):
         """
             Distance to other interval.
             - None if chromosomes do not match
@@ -239,11 +244,21 @@ class gi:
         if self.cs_match(other, strand_specific=strand_specific):
             if self.overlaps(other):
                 return 0
-            return other.start-self.end if other>self else other.end-self.start
+            return other.start - self.end if other > self else other.end - self.start
         return None
+
     def __iter__(self):
-        for pos in range(self.start, self.end+1):
+        for pos in range(self.start, self.end + 1):
             yield gi(self.chromosome, pos, pos, self.strand)
+
+
+# convenience lists of canonical chromosome names
+canonical_chromosomes = {
+    'GRCh38': [f"chr{c}" for c in list(range(1, 23)) + ['X', 'Y', 'M']],
+    'GRCm38': [f"chr{c}" for c in list(range(1, 20)) + ['X', 'Y', 'MT']],
+    'dmel': ['2L', '2R', '3L', '3R', '4', 'X', 'Y']
+}
+
 
 class ReferenceDict(abc.Mapping[str, int]):
     """
@@ -257,28 +272,35 @@ class ReferenceDict(abc.Mapping[str, int]):
         Note that two reference dicts match if their (aliased) contig dicts match (name of ReferenceDict is not
         compared).
     """
+
     def __init__(self, d, name=None, fun_alias=None):
         self.d = d
-        self.name=name
-        self.fun_alias=fun_alias
+        self.name = name
+        self.fun_alias = fun_alias
         if fun_alias is not None:
-            self.orig=d.copy()
-            self.d={fun_alias(k):v for k,v in d.items()} # apply fun to keys
+            self.orig = d.copy()
+            self.d = {fun_alias(k): v for k, v in d.items()}  # apply fun to keys
         else:
-            self.orig=self
+            self.orig = self
+
     def __getitem__(self, key):
         return self.d[key]
+
     def __len__(self):
         return len(self.d)
+
     def __iter__(self):
         return iter(self.d)
+
     def __repr__(self):
-        #return f"Refset{'' if self.name is None else self.name} (len: {len(self.d)})"
+        # return f"Refset{'' if self.name is None else self.name} (len: {len(self.d)})"
         return f"Refset (size: {len(self.d.keys())}): {self.d.keys()}{f' (aliased from {self.orig.keys()})' if self.fun_alias else ''}, {self.d.values()} name: {self.name} "
+
     def alias(self, chr):
         if self.fun_alias:
             return self.fun_alias(chr)
         return chr
+
     def index(self, chrom):
         """ Index of the passed chromosome, None if chromosome not in refdict or -1 if None was passed.
             Useful, e.g., for sorting genomic coordinates
@@ -313,7 +335,9 @@ class ReferenceDict(abc.Mapping[str, int]):
                     shared_ref[contig] = newlen
                 else:
                     assert oldlen == newlen, f"Incompatible lengths for contig ({oldlen}!={newlen}) when comparing refsets {refsets}"
-        return ReferenceDict(shared_ref, name=','.join([r.name for r in refsets]), fun_alias=None )
+        return ReferenceDict(shared_ref, name=','.join([r.name if r.name else "<unnamed refdict>" for r in refsets]),
+                             fun_alias=None)
+
 
 # --------------------------------------------------------------
 # Commandline and config handling
@@ -765,8 +789,8 @@ def find_gpos(genome_fa, kmers, included_chrom=None) -> Counter:
 
 def parse_gff_attributes(info, fmt='gff3'):
     """ parses GFF3/GTF info sections """
-    if '#' in info: # remove optional comment section (e.g., in flybase gtf)
-        info=info.split('#')[0].strip()
+    if '#' in info:  # remove optional comment section (e.g., in flybase gtf)
+        info = info.split('#')[0].strip()
     if fmt.lower() == 'gtf':
         return {k: v.translate({ord(c): None for c in '"'}) for k, v in
                 [a.strip().split(' ', 1) for a in info.split(';') if ' ' in a]}
@@ -794,7 +818,7 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
             preset = guess_file_format(in_file)
             if preset == 'gtf':
                 preset = 'gff'  # pysam default
-            if preset not in ['gff','bed','psltbl','sam','vcf']: # currerntly supported by tabix
+            if preset not in ['gff', 'bed', 'psltbl', 'sam', 'vcf']:  # currerntly supported by tabix
                 preset = None
             print(f"Detected file format for index creation: {preset}")
         pysam.tabix_index(out_file, preset=preset, force=True, seq_col=seq_col, start_col=start_col, end_col=end_col,
@@ -869,6 +893,7 @@ def get_softclip_seq(read: pysam.AlignedSegment):
         pos += l
     return left, right
 
+
 def toggle_chr(s):
     """
         Simple function that toggle 'chr' prefixes. If the passed reference name start with 'chr',
@@ -877,7 +902,7 @@ def toggle_chr(s):
     """
     if s is None:
         return None
-    if isinstance(s,str) and s.startswith('chr'):
+    if isinstance(s, str) and s.startswith('chr'):
         return s[3:]
     else:
         return f'chr{s}'
@@ -901,23 +926,24 @@ def get_reference_dict(fh, fun_alias=None) -> dict:
         if input type is not supported yet
     """
     if isinstance(fh, str):
-        fh=open_file_obj(fh)
+        fh = open_file_obj(fh)
     if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
         return ReferenceDict({c: fh.get_reference_length(c) for c in fh.references},
                              name=f'References from FASTA file {fh.filename}', fun_alias=fun_alias)
     elif isinstance(fh, pysam.AlignmentFile):  # @UndefinedVariable
         return ReferenceDict({c: fh.header.get_reference_length(c) for c in fh.references},
-                             name=f'References from SAM/BAM file {fh.filename}',fun_alias=fun_alias)
+                             name=f'References from SAM/BAM file {fh.filename}', fun_alias=fun_alias)
     elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
         return ReferenceDict({c: None for c in fh.contigs}, name=f'References from TABIX file {fh.filename}',
                              fun_alias=fun_alias)  # no ref length info in tabix
     elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
         return ReferenceDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
-                             name=f'References from VCF file {fh.filename}',fun_alias=fun_alias)
+                             name=f'References from VCF file {fh.filename}', fun_alias=fun_alias)
     else:
         raise NotImplementedError(f"Unknown input object type {type(fh)}")
 
-default_file_extensions={
+
+default_file_extensions = {
     'fasta': ('.fa', '.fasta', '.fna', '.fa.gz', '.fasta.gz'),
     'sam': ('.sam'),
     'bam': ('.bam'),
@@ -929,6 +955,7 @@ default_file_extensions={
     'gtf': ('.gtf', '.gtf.gz'),
     'fastq': ('.fq', '.fastq', '.fq.gz', '.fastq.gz'),
 }
+
 
 def guess_file_format(file_name, file_extensions=default_file_extensions):
     """
@@ -942,7 +969,7 @@ def guess_file_format(file_name, file_extensions=default_file_extensions):
     #     fn, ext = os.path.splitext(fn)
     #     ext += '.gz'
     # return file_extensions.get(ext, )
-    for ff, ext in file_extensions.items(): # TODO: make faster
+    for ff, ext in file_extensions.items():  # TODO: make faster
         if file_name.endswith(ext):
             return ff
     return None
@@ -989,7 +1016,6 @@ def open_file_obj(fh, file_format=None, file_extensions=default_file_extensions)
     else:
         raise NotImplementedError(f"Unsupported input format for file {fh}")
     return fh
-
 
 
 def get_covered_contigs(bam_files):
@@ -1106,4 +1132,3 @@ def get_bcgs(fast5_file):
     with h5py.File(fast5_file, 'r') as f:
         first_rn = next(iter(f.keys()))
         return [a for a in list(f[first_rn]['Analyses']) if a.startswith("Basecall_")]
-
