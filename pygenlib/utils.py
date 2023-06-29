@@ -794,6 +794,8 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
             preset = guess_file_format(in_file)
             if preset == 'gtf':
                 preset = 'gff'  # pysam default
+            if preset not in ['gff','bed','psltbl','sam','vcf']: # currerntly supported by tabix
+                preset = None
             print(f"Detected file format for index creation: {preset}")
         pysam.tabix_index(out_file, preset=preset, force=True, seq_col=seq_col, start_col=start_col, end_col=end_col,
                           meta_char='#', line_skip=line_skip, zerobased=zerobased)  # @UndefinedVariable

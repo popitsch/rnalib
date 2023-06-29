@@ -61,7 +61,7 @@ class LocationIterator:
             self.region = gi(chromosome, start, end, strand)
         self.chromosome, self.start, self.end = self.region.split_coordinates()
         assert (self.refdict is None) or (self.chromosome is None) or (
-                self.chromosome in self.refdict), f"{chromosome} not found in references {self.refdict}"
+                self.chromosome in self.refdict), f"{self.chromosome} not found in references {self.refdict}"
         if self.chromosome is None:
             self.chromosomes = self.refdict.keys() if self.refdict is not None else None # all chroms in correct order
         else:
@@ -82,6 +82,14 @@ class LocationIterator:
             For debugging/testing only
         """
         return [x for x in self]
+
+    def max_items(self):
+        """ Maximum numebr of items yielded by this iterator or None if unknown.
+            Note that this is the upper boudn of yielded items but less (or even no) items may be yielded
+            based on filter setings, etc.
+            Useful, e.g., for progressbars or time estimates
+        """
+        return None
 
     def __enter__(self):
         return self
@@ -130,6 +138,9 @@ class DictIterator(LocationIterator):
         super().__init__(None, chromosome=chromosome, start=start, end=end, region=region, per_position=False,
                          fun_alias=fun_alias, refdict=self.refdict)
 
+    def max_items(self):
+        return len(self.d)
+
     def __iter__(self) -> Item:
         for n, l in self.d.items():
             if self.region.overlaps(l):
@@ -168,7 +179,7 @@ class FastaIterator(LocationIterator):
         The extracted sequence in including sequence context.
         The core sequence w/o context can be accessed via seq[context_size:context_size+width].
 
-    TODO: support chromosome=None
+    TODO: support chromosome=None; support max_items
 
     """
 
@@ -335,7 +346,7 @@ def gt2zyg(gt):
 
 class VcfRecord():
     """Parsed version of pysam VCFProxy, no type conversions for performance reasons"""
-    loc: gi = None
+    location: gi = None
 
     def parse_info(self, info):
         if info == '.':
@@ -349,9 +360,15 @@ class VcfRecord():
                 ret[s[0]] = s[1]
         return ret
 
-    def __init__(self, pysam_var, samples, sample_indices):
-        self.loc = gi(pysam_var.contig, pysam_var.pos, pysam_var.pos, None)
-        self.pos = pysam_var.pos
+    def __init__(self, pysam_var, samples, sample_indices, refdict):
+        if (len(pysam_var.ref) == 1) and (len(pysam_var.alt) == 1):
+            self.is_indel=False
+            start, end = pysam_var.pos + 1, pysam_var.pos + 1 # 0-based in pysam
+        else:  # INDEL
+            self.is_indel = True
+            start, end = pysam_var.pos + 2, pysam_var.pos + len(pysam_var.alt) # 0-based in pysam
+        self.pos = start
+        self.location = gi(refdict.alias(pysam_var.contig), start, end, None)
         self.id = pysam_var.id if pysam_var.id != '.' else None
         self.ref = pysam_var.ref
         self.alt = pysam_var.alt
@@ -367,7 +384,7 @@ class VcfRecord():
             self.n_calls = sum([0 if (x is None) or (x == 0) else 1 for x in self.zyg.values()])
 
     def __repr__(self):
-        return f"{self.loc.chromosome}:{self.pos}{self.ref}>{self.alt}"
+        return f"{self.location.chromosome}:{self.pos}{self.ref}>{self.alt}"
 
 
 class VcfIterator(TabixIterator):
@@ -377,35 +394,29 @@ class VcfIterator(TabixIterator):
     """
 
     def __init__(self, vcf_file, chromosome=None, start=None, end=None,
-                 region=None, fun_alias=None, samples=None, filter_nocalls=True, ):
+                 region=None, fun_alias=None, samples=None, filter_nocalls=True ):
         assert guess_file_format(
             vcf_file) == 'vcf', f"expected VCF file but guessed file format is {guess_file_format(vcf_file)}"
         super().__init__(tabix_file=vcf_file, chromosome=chromosome, start=start, end=end, region=region,
                          per_position=True, fun_alias=fun_alias, coord_inc=(0, 0), pos_indices=(0, 1, 1))
         # get header
         self.header = pysam.VariantFile(vcf_file).header  # @UndefinedVariable
-        self.allsamples = list(self.header.samples)
+        self.allsamples = list(self.header.samples) # list of all samples in this VCF file
         self.shownsampleindices = [i for i, j in enumerate(self.header.samples) if j in samples] if (
-                samples is not None) else range(len(self.allsamples))
+                samples is not None) else range(len(self.allsamples)) # list of all sammple indices to be considered
         self.filter_nocalls = filter_nocalls
 
     def __iter__(self) -> Item(gi, VcfRecord):
-        for var in self.file.fetch(reference=self.refdict.alias(self.chromosome),
+        for pysam_var in self.file.fetch(reference=self.refdict.alias(self.chromosome),
                                    start=(self.start - 1) if (self.start > 0) else None,  # 0-based coordinates in pysam!
                                    end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asVCF()):  # @UndefinedVariable
-            rec = VcfRecord(var, self.allsamples, self.shownsampleindices)
+            rec = VcfRecord(pysam_var, self.allsamples, self.shownsampleindices, self.refdict)
             if ('n_calls' in rec.__dict__) and (self.filter_nocalls) and (rec.n_calls == 0):
-                self.stats['filtered_nocalls'] += 1
+                self.stats['filtered_nocalls'] += 1 # filter no-calls
                 continue
-            chromosome = self.refdict.alias(var.contig)
-            if len(var.ref) == 1 and len(var.alt) == 1:
-                start, end = var.pos, var.pos
-            else:  # INDEL
-                start, end = var.pos + 1, var.pos + len(var.alt)
-            strand = None
-            self.location = gi(chromosome, start, end, strand)
-            self.stats['n_rows', chromosome] += 1
+            self.location=rec.location
+            self.stats['n_rows', self.location.chromosome] += 1
             yield Item(self.location, rec)
 
 
@@ -525,6 +536,10 @@ class ReadIterator(LocationIterator):
         self.report_mismatches = report_mismatches
         self.min_base_quality = min_base_quality
 
+    def max_items(self):
+        """ Returns number of reads retrieved from the SAM/BAM index"""
+        return sum([x.total for x in self.file.get_index_statistics()])
+
     def __iter__(self) -> Item(gi, pysam.AlignedSegment):
         md_check = False
         for r in self.file.fetch(contig=self.refdict.alias(self.chromosome),
@@ -566,7 +581,7 @@ class ReadIterator(LocationIterator):
 class FastPileupIterator(LocationIterator):
     """
         Fast pileup iterator that yields a complete pileup (w/o insertions) over a set of genomic positions. This is
-        more lightweight and considerably faster than pysams pileup() but klacks some features (such as 'ignore_overlaps'
+        more lightweight and considerably faster than pysams pileup() but lacks some features (such as 'ignore_overlaps'
         or 'ignore_orphans'). By default, it basically reports what is seen in the default IGV view.
 
 

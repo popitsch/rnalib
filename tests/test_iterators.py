@@ -491,10 +491,10 @@ def test_VcfIterator(base_path):
     """TODO: test INDELs"""
     vcf_file = 'test.vcf.gz'
     with VcfIterator(vcf_file) as it:
-        assert [v.GT for _,v in it.take()]==[{'SAMPLE':'1/1'}]*3
-        assert [v.CS for _,v in it.take()]==[{'SAMPLE':'A'},{'SAMPLE':'B'},{'SAMPLE':'C'}]
-        assert [v.zyg for _,v in it.take()]==[{'SAMPLE':2}]*3
-        assert [l.start for l,_ in it.take()]==[100000,200000,300000]
+        assert [v.GT for _,v in it.take()]==[{'SAMPLE':'1/1'}]*4
+        assert [v.CS for _,v in it.take()]==[{'SAMPLE':'A'},{'SAMPLE':'B'},{'SAMPLE':'C'},{'SAMPLE':'D'}]
+        assert [v.zyg for _,v in it.take()]==[{'SAMPLE':2}]*4
+        assert [l.start for l,_ in it.take()]==[100001,200001,300001, 1000] # first 3 are deletions, so the genomic pos is +1
 
     # with sample filtering
     vcf_file='dmelanogaster_6_exported_20230523.vcf.gz'
