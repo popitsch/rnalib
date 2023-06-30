@@ -115,7 +115,6 @@ def test_TabixIterator(base_path):
     # test open intervals
     assert len(TabixIterator(bed_file, region=gi('1'), coord_inc=[0, 0], pos_indices=[0, 1, 1]).take()) == 2
 
-
 def test_GFF3Iterator(base_path):
     gff_file='gencode.v39.ACTB+SOX2.gff3.gz'
     stats=Counter()
@@ -488,12 +487,13 @@ def test_FastqIterator(base_path):
         assert n1=='1' and n2=='2'
 
 def test_gt2zyg(base_path):
-    assert gt2zyg('.')==0
-    assert gt2zyg('1') == 2
-    assert gt2zyg('2') == 2
-    assert gt2zyg('1/.') == 2
-    assert gt2zyg('.|2') == 2
-    assert gt2zyg('1/1/2') == 1
+    assert gt2zyg('.')==(0, 0)
+    assert gt2zyg('1') == (2, 1)
+    assert gt2zyg('2') == (2, 1)
+    assert gt2zyg('1/.') == (2, 1)
+    assert gt2zyg('.|2') == (2, 1)
+    assert gt2zyg('1/1/2') == (1,1)
+    assert gt2zyg('0/0/.') == (2, 0)
 
 def test_VcfIterator(base_path):
     """TODO: test INDELs"""
@@ -506,12 +506,15 @@ def test_VcfIterator(base_path):
 
     # with sample filtering
     vcf_file='dmelanogaster_6_exported_20230523.vcf.gz'
-    with VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721']) as it:
+    with VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721'], filter_nocalls=True) as it:
         dat=it.take()
         assert len(dat)==25 # there are 25 variants called in at least one of the 3 samples
-        # NOTE: 2nd var is a no call (./.) in this sample!
-        assert [v.zyg['DGRP-208'] for _,v in dat] == [2, None, 2, 2, 0, 0, 2, 0, 0, 2, 0, 0, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 2]
+        # NOTE: 2nd var is a hom-ref call (0/0) in this sample!
+        assert [v.data.zyg['DGRP-208'] for v in dat] == [2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
 
+    # test missing chromosome, i.e., a chrom that is in the refdict but not in the tabix index!
+    vcf_file='test_snps.vcf.gz'
+    assert VcfIterator(vcf_file, region=gi('3')).take()==[]
 def test_BedIterator(base_path):
     bed_file='test.bed.gz'
     bedg_file = 'test.bedgraph.gz'

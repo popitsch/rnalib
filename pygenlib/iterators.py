@@ -244,15 +244,19 @@ class TabixIterator(LocationIterator):
 
     def __init__(self, tabix_file, chromosome=None, start=None, end=None,
                  region=None, fun_alias=None, per_position=False,
-                 coord_inc=(0, 0),
-                 pos_indices=(0, 1, 2)):
+                 coord_inc=(0, 0), pos_indices=(0, 1, 2), refdict=None):
         super().__init__(file=tabix_file, chromosome=chromosome, start=start, end=end, region=region,
-                         file_format='tsv', per_position=per_position, fun_alias=fun_alias)  # e.g., toggle_chr
+                         file_format='tsv', per_position=per_position, fun_alias=fun_alias, refdict=refdict)  # e.g., toggle_chr
         self.coord_inc = coord_inc
         self.pos_indices = pos_indices
 
     def __iter__(self) -> Item:
-        for row in self.file.fetch(reference=self.refdict.alias(self.chromosome),
+        # we need to check whether chrom exists in tabix contig list!
+        chrom=self.refdict.alias(self.chromosome)
+        if (chrom is not None) and (chrom not in self.file.contigs):
+            #print(f"{chrom} not in {self.file.contigs}")
+            return
+        for row in self.file.fetch(reference=chrom,
                                    start=(self.start - 1) if (self.start > 0) else None,  # 0-based coordinates in pysam!
                                    end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asTuple()):  # @UndefinedVariable
@@ -310,7 +314,11 @@ class BedIterator(TabixIterator):
                          per_position=False, fun_alias=fun_alias, coord_inc=(1, 0), pos_indices=(0, 1, 2))
 
     def __iter__(self) -> Item(gi, BedRecord):
-        for bed in self.file.fetch(reference=self.refdict.alias(self.chromosome),
+        # we need to check whether chrom exists in tabix contig list!
+        chrom=self.refdict.alias(self.chromosome)
+        if (chrom is not None) and (chrom not in self.file.contigs):
+            return
+        for bed in self.file.fetch(reference=chrom,
                                    start=(self.start - 1) if (self.start > 0) else None,  # 0-based coordinates in pysam!
                                    end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asTuple()):  # @UndefinedVariable
@@ -319,26 +327,21 @@ class BedIterator(TabixIterator):
             yield Item(rec.loc, rec)
 
 
-def gt2zyg(gt):
+def gt2zyg(gt) -> (int, int):
     """
-    :returns zygosity of GT. 2: all called alleles are the same, 1: mixed called alleles, 0: no call
-    - GT : genotype, encoded as allele values separated by either of / or |. The allele values are 0 for the reference
-        allele (what is in the REF field), 1 for the first allele listed in ALT, 2 for the second allele list in ALT and
-        so on. For diploid calls examples could be 0/1, 1 | 0, or 1/2, etc.
-        For haploid calls, e.g. on Y, male nonpseudoautosomal X, or mitochondrion, only one allele value should be given;
-        a triploid call might look like 0/0/1. If a call cannot be made for a sample at a given locus, ‘.’ should be
-        specified for each missing allele in the GT field (for example ‘./.’ for a diploid genotype and ‘.’ for
-        haploid genotype). The meanings of the separators are as follows (see the PS field below for more details on
-        incorporating phasing information into thegenotypes):
-        ◦ / : genotype unphased
-        ◦ | : genotype phased
+    :returns zygosity of GT and a flag if called.
+        zygosity: 2: all called alleles are the same, 1: mixed called alleles, 0: no call
+        call: 0 if no-call or homref, 1 otherwise
     :param gt:
     :return:
     """
     dat = gt.split('/') if '/' in gt else gt.split('|')
     if set(dat)=={'.'}: # no call
-        return 0
-    return 2 if len(set([x for x in dat if x!='.']))==1 else 1
+        return 0, 0
+    dat_clean=[x for x in dat if x != '.'] # drop no-calls
+    if set(dat_clean) == {'0'}:  # homref in all called samples
+        return 2, 0
+    return 2 if len(set(dat_clean))==1 else 1, 1
 
 
 class VcfRecord():
@@ -377,8 +380,9 @@ class VcfRecord():
                                                      [pysam_var[i].split(':')[col] for i in sample_indices])}
         # calc zygosity per call
         if 'GT' in self.__dict__:
-            self.zyg = {k: gt2zyg(v) for k, v in self.__dict__['GT'].items()}
-            self.n_calls = sum([0 if (x is None) or (x == 0) else 1 for x in self.zyg.values()])
+            zyg, calls = zip(*map(gt2zyg, self.__dict__['GT'].values()))
+            self.zyg = {k: v for k, v in zip(self.__dict__['GT'].keys(), zyg)} # sample: <0,1,2> (0=nocall, 1=het, 2=hom)
+            self.n_calls = sum(calls)
 
     def __repr__(self):
         return f"{self.location.chromosome}:{self.pos}{self.ref}>{self.alt}"
@@ -394,20 +398,24 @@ class VcfIterator(TabixIterator):
                  region=None, fun_alias=None, samples=None, filter_nocalls=True ):
         assert guess_file_format(
             vcf_file) == 'vcf', f"expected VCF file but guessed file format is {guess_file_format(vcf_file)}"
+        # pass refdict extracted from VCF header, otherwise it is read from tabix index which would contain only the
+        # chroms that are contained in the actual file
         super().__init__(tabix_file=vcf_file, chromosome=chromosome, start=start, end=end, region=region,
-                         per_position=True, fun_alias=fun_alias, coord_inc=(0, 0), pos_indices=(0, 1, 1))
+                         per_position=True, fun_alias=fun_alias, coord_inc=(0, 0), pos_indices=(0, 1, 1),
+                         refdict=get_reference_dict(vcf_file, fun_alias))
         # get header
         self.header = pysam.VariantFile(vcf_file).header  # @UndefinedVariable
         self.allsamples = list(self.header.samples) # list of all samples in this VCF file
         self.shownsampleindices = [i for i, j in enumerate(self.header.samples) if j in samples] if (
                 samples is not None) else range(len(self.allsamples)) # list of all sammple indices to be considered
         self.filter_nocalls = filter_nocalls
-        # update refdict from VCF header, otherwise it is read from tabix index which would contain only the
-        # chroms that are contained in the actual file
-        self.refdict = get_reference_dict(vcf_file, fun_alias)
 
     def __iter__(self) -> Item(gi, VcfRecord):
-        for pysam_var in self.file.fetch(reference=self.refdict.alias(self.chromosome),
+        # we need to check whether chrom exists in tabix contig list!
+        chrom = self.refdict.alias(self.chromosome)
+        if (chrom is not None) and (chrom not in self.file.contigs):
+            return
+        for pysam_var in self.file.fetch(reference=chrom,
                                    start=(self.start - 1) if (self.start > 0) else None,  # 0-based coordinates in pysam!
                                    end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asVCF()):  # @UndefinedVariable
@@ -437,7 +445,11 @@ class GFF3Iterator(TabixIterator):
                                     'gff'], f"expected GFF3/GTF file but guessed file format is {self.file_format}"
 
     def __iter__(self) -> Item(gi, dict):
-        for row in self.file.fetch(reference=self.refdict.alias(self.chromosome),
+        # we need to check whether chrom exists in tabix contig list!
+        chrom=self.refdict.alias(self.chromosome)
+        if (chrom is not None) and (chrom not in self.file.contigs):
+            return
+        for row in self.file.fetch(reference=chrom,
                                    start=(self.start - 1) if (self.start>0) else None,  # 0-based coordinates in pysam!
                                    end=self.end if (self.end<math.inf) else None,
                                    parser=pysam.asTuple()):  # @UndefinedVariable
