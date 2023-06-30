@@ -487,6 +487,14 @@ def test_FastqIterator(base_path):
         n2 = r2.name.split(' ')[1].split(':')[0]
         assert n1=='1' and n2=='2'
 
+def test_gt2zyg(base_path):
+    assert gt2zyg('.')==0
+    assert gt2zyg('1') == 2
+    assert gt2zyg('2') == 2
+    assert gt2zyg('1/.') == 2
+    assert gt2zyg('.|2') == 2
+    assert gt2zyg('1/1/2') == 1
+
 def test_VcfIterator(base_path):
     """TODO: test INDELs"""
     vcf_file = 'test.vcf.gz'

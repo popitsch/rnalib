@@ -36,7 +36,7 @@ class LocationIterator:
     """
         Superclass.
 
-        :param region genomic region to iterate; overrides chromosome/strat/end/strand params
+        :param region genomic region to iterate; overrides chromosome/start/end/strand params
     """
 
     def __init__(self, file, chromosome=None, start=None, end=None, region=None, strand=None, file_format=None,
@@ -319,29 +319,26 @@ class BedIterator(TabixIterator):
             yield Item(rec.loc, rec)
 
 
-# VCF no-call genotypes
-gt2zyg_dict = {
-    './.': None,
-    '0/0': 0,
-    './0': 0,
-    '0/.': 0,
-    './1': 1,
-    '1/.': 1,
-    '0/1': 1,
-    '1/0': 1,
-    '1/1': 2,
-    './2': 1,
-    '2/.': 1,
-    '0/2': 1,
-    '2/0': 1,
-    '2/2': 2}
-
-
 def gt2zyg(gt):
-    if gt in gt2zyg_dict:
-        return gt2zyg_dict[gt]
-    dat = gt.split('/')
-    return 2 if dat[0] == dat[1] else 1
+    """
+    :returns zygosity of GT. 2: all called alleles are the same, 1: mixed called alleles, 0: no call
+    - GT : genotype, encoded as allele values separated by either of / or |. The allele values are 0 for the reference
+        allele (what is in the REF field), 1 for the first allele listed in ALT, 2 for the second allele list in ALT and
+        so on. For diploid calls examples could be 0/1, 1 | 0, or 1/2, etc.
+        For haploid calls, e.g. on Y, male nonpseudoautosomal X, or mitochondrion, only one allele value should be given;
+        a triploid call might look like 0/0/1. If a call cannot be made for a sample at a given locus, ‘.’ should be
+        specified for each missing allele in the GT field (for example ‘./.’ for a diploid genotype and ‘.’ for
+        haploid genotype). The meanings of the separators are as follows (see the PS field below for more details on
+        incorporating phasing information into thegenotypes):
+        ◦ / : genotype unphased
+        ◦ | : genotype phased
+    :param gt:
+    :return:
+    """
+    dat = gt.split('/') if '/' in gt else gt.split('|')
+    if set(dat)=={'.'}: # no call
+        return 0
+    return 2 if len(set([x for x in dat if x!='.']))==1 else 1
 
 
 class VcfRecord():
@@ -405,6 +402,9 @@ class VcfIterator(TabixIterator):
         self.shownsampleindices = [i for i, j in enumerate(self.header.samples) if j in samples] if (
                 samples is not None) else range(len(self.allsamples)) # list of all sammple indices to be considered
         self.filter_nocalls = filter_nocalls
+        # update refdict from VCF header, otherwise it is read from tabix index which would contain only the
+        # chroms that are contained in the actual file
+        self.refdict = get_reference_dict(vcf_file, fun_alias)
 
     def __iter__(self) -> Item(gi, VcfRecord):
         for pysam_var in self.file.fetch(reference=self.refdict.alias(self.chromosome),
@@ -572,7 +572,7 @@ class ReadIterator(LocationIterator):
                     assert r.has_tag("MD"), "BAM does not contain MD tag: cannot report mismatches"
                 mm = [(off, pos + 1, ref.upper(), r.query_sequence[off]) for (off, pos, ref) in
                       r.get_aligned_pairs(with_seq=True, matches_only=True) if ref.islower() and
-                      r.query_qualities[off] > self.min_base_quality]  # mask bases with low per-base quailty
+                      r.query_qualities[off] >= self.min_base_quality]  # mask bases with low per-base quailty
                 yield Item(self.location, (r, mm))  # yield read/mismatch tuple
             else:
                 yield Item(self.location, r)
@@ -583,6 +583,9 @@ class FastPileupIterator(LocationIterator):
         Fast pileup iterator that yields a complete pileup (w/o insertions) over a set of genomic positions. This is
         more lightweight and considerably faster than pysams pileup() but lacks some features (such as 'ignore_overlaps'
         or 'ignore_orphans'). By default, it basically reports what is seen in the default IGV view.
+
+        Performance:
+        - initial performance tests that used a synchronized iterator over a FASTA and 2 BAMs showed ~50kpos/sec
 
 
         :parameter reported_positions  either a range (start/end) or a set of genomic positions for which counts will be reported.
