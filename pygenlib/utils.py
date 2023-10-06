@@ -20,7 +20,9 @@ from enum import IntEnum
 from functools import reduce
 from itertools import zip_longest
 from pathlib import Path
-
+import ssl
+import urllib.request
+import tempfile
 import h5py
 import pysam
 from Bio import pairwise2
@@ -291,6 +293,16 @@ class ReferenceDict(abc.Mapping[str, int]):
 
     def __iter__(self):
         return iter(self.d)
+
+    def iter_blocks(self, block_size=int(1e6)):
+        """
+            Iterates in an ordered fashion over the reference dict, yielding genomic intervals of the given block_size
+            (or smaller at chromosome ends).
+        """
+        for chrom, chrlen in self.d.items():
+            chrom_gi=gi(chrom,1,chrlen)
+            for block in chrom_gi.split_by_maxwidth(block_size):
+                yield block
 
     def __repr__(self):
         # return f"Refset{'' if self.name is None else self.name} (len: {len(self.d)})"
@@ -604,6 +616,20 @@ def remove_extension(p, remove_gzip=True):
     return p.with_suffix('') # drop ext
 
 
+def download_file(url, filename, show_progress=True):
+    """ Downloads a file from the passed (https) url into a  file with the given path
+        To download intoa temporary file use:
+        with tempfile.TemporaryDirectory() as tempdirname:
+            fn=download_file(<my_url>, f"{tempdirname}/{filename}")
+            # do something with this file
+        #Note that the temporary dir will be removed once the context manager is closed.
+    """
+    def print_progress(block_num, block_size, total_size):
+        print(f"progress: {round(block_num * block_size / total_size * 100, 2)}%", end="\r")
+    ssl._create_default_https_context = ssl._create_unverified_context
+    urllib.request.urlretrieve(url, filename, print_progress if  show_progress else None)
+    return filename
+
 # --------------------------------------------------------------
 # Sequence handling
 # --------------------------------------------------------------
@@ -904,6 +930,17 @@ def get_softclip_seq(read: pysam.AlignedSegment):
         pos += l
     return left, right
 
+def read_aligns_to_loc(loc: gi, read: pysam.AlignedSegment):
+    """ Tests whether a read aligns to the passed location by checking the respective alignemnt block coordinates and
+        the read strand. Note that the chromosome is *not* checked.
+    """
+    if (loc.strand is not None) and (loc.strand != '-' if read.is_reverse else '+'):
+        return False # wrong strand
+    # chr is not checked
+    for read_start,read_end in read.get_blocks():
+        if (loc.start <= read_end) and (read_start < loc.end):
+            return True
+    return False
 
 def toggle_chr(s):
     """

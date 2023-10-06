@@ -273,21 +273,20 @@ class Transcriptome:
         but currently supports various popular gff 'flavours' as published by encode, ensembl, ucsc and flybase.
         As such this implementation will likely change in the future.
 
-        -   Model contains genes, transcripts and arbitrary sub-features (e.g., exons, intron, 3'/5'-UTRs, CDS) as defined
-            in the GFF file. Frozen dataclasses (derived from the 'Feature' class) are created for all parsed feature
-            types automatically and users may configure which GTF/GFF attributes will be added to those (and are thus
-            accessible via dot notation, e.g., gene.gene_type).
+        -   Model contains genes, transcripts and arbitrary sub-features (e.g., exons, intron, 3'/5'-UTRs, CDS) as
+            defined in the GFF file. Frozen dataclasses (derived from the 'Feature' class) are created for all parsed
+            feature types automatically and users may configure which GTF/GFF attributes will be added to those (and are
+            thus accessible via dot notation, e.g., gene.gene_type).
             The transcriptome implementation exploits the hierarchical relationship between genes and their sub-features
             to optimize storage and computational requirements.
-        -   A transcriptome maintains a dict mapping (frozen) features to dicts of arbitrary annotation values.
+        -   A transcriptome maintains a dict ('anno') mapping (frozen) features to dicts of arbitrary annotation values.
             This supports incremental annotation of transcriptome features. Values can directly be accessed via
-            <feature>.<attribute>. Note that for sequence/spliced_sequence this will call the respective access
-            methods.
+            dot notation <feature>.<attribute> and annotations can be stored/loaded to/from a file.
         -   Feature sequences can be added via load_sequences() which will extract the sequence of the top-level feature
             ('gene') from the configured reference genome. Sequences can then be accessed via get_sequence(). For
             sub-features (e.g., transcripts, exons, etc.) the respective sequence will be sliced from the gene sequence.
             If mode='rna' is passed, the sequence is returned in 5'-3' orientation, i.e., they are reverse-complemented
-            for minus-strand transcripts. The returned sequence will, hoever, still use the DNA alphabet (ACTG) to
+            for minus-strand transcripts. The returned sequence will, however, still use the DNA alphabet (ACTG) to
             enable direct alignment/comparison with genomic sequences.
             if mode='spliced', the spliced 5'-3' sequence will be returned.
             if mode='translated', the spliced 5'-3' CDS sequence will be returned.
@@ -461,7 +460,7 @@ class Transcriptome:
                 elif annotation_flavour == 'mirgenedb':
                     if info['feature_type'] in ['pre_miRNA', 'miRNA']:
                         # add gene
-                        gid, tid, gname, gene_type = info['ID'], info['ID'], info['Alias'], info['feature_type']
+                        gid, tid, gname, gene_type = info['ID'], info['ID'], info.get('Alias', info['ID']), info.get('feature_type', 'NA')
                         if self.txfilter.filter(loc, {'transcript_id': tid, 'gene_type': gene_type}):
                             self.log[f"filtered_{info['feature_type']}"] += 1
                             continue
@@ -548,6 +547,7 @@ class Transcriptome:
                 self.anno[g]['dna_seq'] = fasta.fetch(reference=g.chromosome,
                                                       start=g.start - genome_offsets.get(g.chromosome, 1),
                                                       end=g.end - genome_offsets.get(g.chromosome, 1) + 1)
+        self.has_seq = True
 
     def find_attr_rec(self, f, attr):
         """ recursively finds attribute from parent(s) """
@@ -704,11 +704,25 @@ class Transcriptome:
         print(f"Loaded {obj}")
         return obj
 
+    def clear_annotations(self):
+        """
+        Clears this transcriptome's annotations (except for 'dna_seq' annotations if loaded)
+        :param keys:
+        :return:
+        """
+        for a in self.anno:
+            if self.has_seq and a.feature_type=='gene':
+                for k in {k for k in self.anno.keys() if k != 'dna_seq'}:
+                    del self.anno[k]
+            else:
+                self.anno[a] = {}
+
+
     def save_annotations(self, out_file, keys=None):
         """
             Stores this transcriptome annotations as dill (pickle) object.
             Note that the data is stored not by object reference but by comparison
-            key so it can be assigned to newly created transcriptome objects
+            key, so it can be assigned to newly created transcriptome objects
         """
         print(f"Storing annotations of {self} to {out_file}")
         with open(out_file, 'wb') as out:

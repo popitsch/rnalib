@@ -105,7 +105,8 @@ class LocationIterator:
 
 class TranscriptomeIterator(LocationIterator):
     """
-        Iterates over features in a transcriptome object.
+        Iterates over features in a transcriptome object. Yielded items contain the respective feature (location) and
+        its transcriptome annotation (data).
         Note that no chromosome aliasing is possible with this iterator as returned features are immutable.
     """
 
@@ -536,10 +537,10 @@ class ReadIterator(LocationIterator):
 
     """
 
-    def __init__(self, bam_file, chromosome=None, start=None, end=None, location=None, file_format=None,
+    def __init__(self, bam_file, chromosome=None, start=None, end=None, region=None, file_format=None,
                  min_mapping_quality=0, flag_filter=DEFAULT_FLAG_FILTER, tag_filters=None, max_span=None,
                  report_mismatches=False, min_base_quality=0, fun_alias=None):
-        super().__init__(bam_file, chromosome, start, end, location, file_format, per_position=False,
+        super().__init__(bam_file, chromosome, start, end, region, file_format, per_position=False,
                          fun_alias=fun_alias)
         self.min_mapping_quality = min_mapping_quality
         self.flag_filter = flag_filter
@@ -582,6 +583,7 @@ class ReadIterator(LocationIterator):
             if self.report_mismatches:
                 if not md_check:
                     assert r.has_tag("MD"), "BAM does not contain MD tag: cannot report mismatches"
+                    md_check = True
                 mm = [(off, pos + 1, ref.upper(), r.query_sequence[off]) for (off, pos, ref) in
                       r.get_aligned_pairs(with_seq=True, matches_only=True) if ref.islower() and
                       r.query_qualities[off] >= self.min_base_quality]  # mask bases with low per-base quailty
@@ -910,7 +912,7 @@ class AnnotationIterator(LocationIterator):
         elif not isinstance(labels, list):
             labels = [labels]
         for x in [it] + anno_its:
-            assert issubclass(type(x), LocationIterator), f"Only implemented for LocationIterators {type(x)}"
+            assert issubclass(type(x), LocationIterator), f"Only implemented for LocationIterators but not for {type(x)}"
         self.it = it
         self.refdict = it.refdict if refdict is None else refdict
         self.anno_its=anno_its

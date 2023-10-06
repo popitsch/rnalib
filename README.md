@@ -45,3 +45,4 @@ using gene-based inteval trees.
 ## Related work
 
 - [Pygenomics](https://gitlab.com/gtamazian/pygenomics) A general python genomics library
+- [scikit-bio](https://github.com/biocore/scikit-bio) A general python library for working with biological data 

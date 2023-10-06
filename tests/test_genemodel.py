@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import os
 from pygenlib.genemodel import *
-from pygenlib.iterators import BedGraphIterator
+from pygenlib.iterators import BedGraphIterator, ReadIterator
 from pygenlib.utils import print_dir_tree
 from Bio.Seq import Seq
 
@@ -350,6 +350,33 @@ def test_annotate(base_path):
     ex = t.transcript['ENST00000473257.3'].exon[0] # check this exon
     assert t.anno[ex]['mappability'] == \
            sum([0.958 * 2 + 0.917 * 23 + 1 * (len(ex) - 25)]) / len(ex) # checked in IGV
+
+def test_annotate_read_counts(base_path):
+    config = {
+        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
+        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_flavour': 'gencode',
+        'load_sequences': False
+    }
+    t = Transcriptome(config)
+    # annotate genes with read counts
+    def count_reads(item):
+        """Read counter"""
+        loc, (anno, reads) = item
+        if 'rc' not in anno:
+            anno['rc']=Counter()
+        anno['rc']['reads']+=len(reads)
+        anno['rc']['reads_ss'] += len([r for l,r in reads if l.strand==loc.strand])
+        anno['rc']['reads_ss_tc'] += len([r for l, r in reads if l.strand == loc.strand and r.has_tag('xc') and r.get_tag('xc')>0])
+
+    t.annotate(iterators=ReadIterator('small.ACTB+SOX2.bam'),
+               fun_anno=count_reads)
+    # no reads in SOX2
+    assert t.gene['SOX2'].rc['reads'] == 0
+    # manually checked in IGV
+    # 13 reads (7 on minus strand and 3 of those have a t/c conversion) in 1st exon ACTB/ENST00000674681.1
+    assert t.transcript['ENST00000674681.1'].exon[0].rc == {'reads': 13, 'reads_ss': 7, 'reads_ss_tc': 3}
 
 
 def test_eq_PAR_genes(base_path): # needs access to /Volumes

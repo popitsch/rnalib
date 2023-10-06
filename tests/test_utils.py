@@ -18,6 +18,10 @@ def base_path() -> Path:
     os.chdir(testdir)
     return testdir
 
+
+def from_str(s):
+    return [gi.from_str(x) for x in s.split(',')]
+
 def test_reverse_complement():
     assert reverse_complement('ACTG') =="CAGT"
     assert reverse_complement('ACUG', TMAP['rna']) == "CAGU"
@@ -171,3 +175,7 @@ def test_reference_dict(base_path):
         ReferenceDict.merge_and_validate(r1, r4)
     print(f'Expected assertion: {e_info}')
     ReferenceDict.merge_and_validate(r1,None,r2)
+    # test iter_blocks()
+    r5 = ReferenceDict({'chr1': 10, 'chr2': 20, 'chrM': 23, 'chrX': 12}, "test_refdict", None)
+    assert list(r1.iter_blocks(10)) == from_str("chr1:1-10, chr2:1-10,  chr2:11-20, chrM:1-10,  chrM:11-20, chrM:21-23, chrX:1-10,  chrX:11-12")
+    r6 = ReferenceDict({'chr1': 10, 'chr2': 20, 'chrM': 23, 'chrX': 12}, "test_refdict", toggle_chr)
