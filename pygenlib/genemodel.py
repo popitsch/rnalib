@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from pygenlib.iterators import GFF3Iterator, AnnotationIterator, TranscriptomeIterator
 from pygenlib.utils import gi, reverse_complement, get_config, get_reference_dict, open_file_obj, ReferenceDict, to_str, \
-    bgzip_and_tabix
+    bgzip_and_tabix, toggle_chr
 
 
 # ------------------------------------------------------------------------
@@ -181,7 +181,7 @@ class Feature(gi):
             and child tuples
         """
         fields = [('feature_id', str, field(default=None)), ('feature_type', str, field(default=feature_type))]
-        fields += [(k, v, field(default=None)) for k, v in annotations.items()]
+        fields += [(k, v, field(default=None)) for k, v in annotations.items() if k not in ['feature_id', 'feature_type']]
         if child_feature_types is not None:
             fields += [(k, tuple, field(default=tuple(), hash=False, compare=False)) for k in child_feature_types]
         sub_class = make_dataclass(feature_type, fields=fields, bases=(cls,), frozen=True, repr=False, eq=False)
@@ -262,6 +262,8 @@ ftype_to_SO = {
     'CDS': 'CDS',
     'three_prime_UTR': 'three_prime_UTR', '3UTR': 'three_prime_UTR', 'UTR3': 'three_prime_UTR',
     'five_prime_UTR': 'five_prime_UTR', '5UTR': 'five_prime_UTR', 'UTR5': 'five_prime_UTR',
+    'three_prime_window': 'three_prime_window',
+    'five_prime_window': 'five_prime_window'
 }
 
 
@@ -308,12 +310,11 @@ class Transcriptome:
         self.merged_refdict = None
         self.gene = {}  # gid: gene
         self.transcript = {}  # tid: gene
-        self.gene_name = {}  # gene_name : gene
         self.cached = False  # if true then transcriptome was loaded from a pickled file
-        self.has_seq = False
-        self.anno = {}
-        self.chr2itree = {}
-        self.build()
+        self.has_seq = False # if true, then gene objects are annotated with the respective genomic (dna) sequences
+        self.anno = {} # a dict that holds annotation data for each feature
+        self.chr2itree = {} # a dict mapping chromosome ids to annotation interval trees.
+        self.build() # build the transcriptome object
 
     def build(self):
         """
@@ -327,6 +328,7 @@ class Transcriptome:
                 transcript_filter: optional transcript filter configuration (see @TranscriptFilter)
                 copied_fields: field names that will be copied from the GFF attributes section (including
                 GFF3 fields source, score and phase). Example: ['score', 'gene_type']. default: []
+                NOTE that feature_type and feature_id are always copied.
 
 
             Supported GFF flavours:
@@ -334,7 +336,10 @@ class Transcriptome:
             - encode
             - ucsc (gene entries are added automatically)
             - flybase (various transcript types are parsed and gff feature type (e.g., mRNA, tRNA, etc.) is set as genee_type)
-            - mirgenedb (pre_miRNA and miRNA are added as gene+transcripts with single exon; gene_type annotation is set)
+            - mirgenedb (pre_miRNA and miRNA are added as gene+transcripts; gene_type annotations are created from the
+                found GFF feature_type field)
+            - generic (assumes all annotations to be of type 'transcript' irrespective of the found feature_type.
+                Respective gene annotations are automatically added.
             TODO:
             - Add flavour autodetect (from gtf/gff header)?
 
@@ -345,13 +350,11 @@ class Transcriptome:
             get_config(self.config, 'gene_name_alias_file', default_value=None))
         # get GFF flavour
         annotation_flavour = get_config(self.config, 'annotation_flavour', required=True).lower()
-        assert annotation_flavour in ['gencode', 'ensembl', 'ucsc', 'mirgenedb', 'flybase']
+        assert annotation_flavour in ['gencode', 'ensembl', 'ucsc', 'mirgenedb', 'flybase', 'generic']
         # get GFF aliasing function
         annotation_fun_alias = get_config(self.config, 'annotation_fun_alias', default_value=None)
         if annotation_fun_alias is not None:
-            # import importlib
-            # importlib.import_module('pygenlib.utils')
-            assert annotation_fun_alias in globals(), f"fun_alias function {annotation_fun_alias} not defined in pygenlib.utils"
+            assert annotation_fun_alias in globals(), f"fun_alias function {annotation_fun_alias} undefined in globals()"
             annotation_fun_alias = globals()[annotation_fun_alias]
             print(f"Using aliasing function for annotation_gff: {annotation_fun_alias}")
         # estimate valid chrom
@@ -457,6 +460,7 @@ class Transcriptome:
                         feature = _mFeature(self, feature_type, feature_id, loc, parent=transcripts[tid], children={})
                         for field in get_config(self.config, 'copied_fields', default_value=[]):
                             feature.anno[field] = info.get(field, None)
+                # ---------------------------- MirGenDB format -----------------------------------
                 elif annotation_flavour == 'mirgenedb':
                     if info['feature_type'] in ['pre_miRNA', 'miRNA']:
                         # add gene
@@ -473,7 +477,24 @@ class Transcriptome:
                         transcripts[tid].anno['transcript_id'] = tid
                         for obj in [genes[gid], transcripts[tid]]:
                             for field in get_config(self.config, 'copied_fields', default_value=[]):
-                                setattr(obj, field, info.get(field, None))
+                                obj.anno[field] = info.get(field, None)
+                # ---------------------------- Generic format -----------------------------------
+                elif annotation_flavour == 'generic':
+                    assert 'ID' in info, f'Missing ID in feature {loc}'
+                    gid, tid, gname, gene_type = info['ID'], info['ID'], info['ID'], info['feature_type']
+                    if self.txfilter.filter(loc, {'transcript_id': tid, 'gene_type': gene_type}):
+                        self.log[f"filtered_{info['feature_type']}"] += 1
+                        continue
+                    # add gene
+                    genes[gid] = _mFeature(self, 'gene', gid, loc, parent=None, children={})
+                    genes[gid].anno['gene_id'] = gid
+                    genes[gid].anno['name'] = gname
+                    # add tx
+                    transcripts[tid] = _mFeature(self, 'transcript', tid, loc, parent=genes[gid])
+                    transcripts[tid].anno['transcript_id'] = tid
+                    for obj in [genes[gid], transcripts[tid]]:
+                        for field in get_config(self.config, 'copied_fields', default_value=['feature_type']):
+                            obj.anno[field] = info.get(field, None)
             # drop gene objs that were not resolved, probably due to tx filtering
             for unresolved_gid in [gid for gid in genes if genes[gid].loc is None]:
                 self.log['dropped_unresolved_genes'] += 1
@@ -664,7 +685,11 @@ class Transcriptome:
 
     def annotate(self, iterators, fun_anno, labels=None, chromosome=None, start=None, end=None, region=None,
                  feature_types=None):
-
+        """ Annotates all features of the configured type and in the configured genomic region using the passed fun_anno
+            function.
+            NOTE: consider removing previous annotations with the clear_annotations() functions before (re-)annotating
+            a transcriptome.
+        """
         with AnnotationIterator(TranscriptomeIterator(self, chromosome=chromosome, start=start, end=end, region=region,
                                                       feature_types=feature_types),
                                 iterators, labels) as it:
@@ -704,19 +729,16 @@ class Transcriptome:
         print(f"Loaded {obj}")
         return obj
 
-    def clear_annotations(self):
+    def clear_annotations(self, retain_keys=['dna_seq']):
         """
-        Clears this transcriptome's annotations (except for 'dna_seq' annotations if loaded)
-        :param keys:
-        :return:
+        Clears this transcriptome's annotations (except for retain_keys annotations (by default: 'dna_seq')).
         """
         for a in self.anno:
-            if self.has_seq and a.feature_type=='gene':
-                for k in {k for k in self.anno.keys() if k != 'dna_seq'}:
-                    del self.anno[k]
-            else:
+            if retain_keys is None:
                 self.anno[a] = {}
-
+            else:
+                for k in {k for k in self.anno[a].keys() if k not in retain_keys}:
+                    del self.anno[a][k]
 
     def save_annotations(self, out_file, keys=None):
         """
@@ -804,6 +826,14 @@ class Transcriptome:
         for f in self.anno.keys():
             if (not feature_types) or (f.feature_type in feature_types):
                 yield f
+
+    def get_struct(self):
+        subtypes=Counter()
+        for f in self.anno.keys():
+            if f.feature_type not in subtypes:
+                subtypes[f.feature_type] = set()
+            subtypes[f.feature_type].update(f.subfeature_types)
+        return subtypes
 
 
 # --------------------------------------------------------------

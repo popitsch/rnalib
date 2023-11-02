@@ -209,3 +209,11 @@ def test_empty():
     assert gi('chr1', 1,0).is_empty()
     assert not gi('chr1', 1,0).overlaps(gi('chr1', 1,0))
     assert gi('chr1', 1,0).overlap(gi('chr1', 1,0))==0
+
+
+def test_updownstream():
+    assert gi('chr1', 10, 20).get_upstream(3) is None # no strand: return None
+    assert [gi('chr1', 10, 20, '+').get_upstream(3)] == from_str("chr1:7-9(+)")
+    assert [gi('chr1', 10, 20, '+').get_downstream(3)] == from_str("chr1:21-23(+)")
+    assert [gi('chr1', 10, 20, '-').get_downstream(3)] == from_str("chr1:7-9(-)")
+    assert [gi('chr1', 10, 20, '-').get_upstream(3)] == from_str("chr1:21-23(-)")

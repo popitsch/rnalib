@@ -36,7 +36,7 @@ values and explicit lists of included transcript ids.
 _pygenlib_ explicitly models genes, transcripts, exons, introns, 5'UTRs and 3'UTRs. 
 Nucleotide sequences of these features can be loaded from a configured reference genome and will be 
 efficiently stored by _pygenlib_. Sorted features can be iterated/filtered or efficiently queried
-using gene-based inteval trees.
+using gene-based interval trees.
 
 ## Utility methods
 
@@ -45,4 +45,6 @@ using gene-based inteval trees.
 ## Related work
 
 - [Pygenomics](https://gitlab.com/gtamazian/pygenomics) A general python genomics library
-- [scikit-bio](https://github.com/biocore/scikit-bio) A general python library for working with biological data 
+- [scikit-bio](https://github.com/biocore/scikit-bio) A general python library for working with biological data
+- [RNAlysis](https://guyteichman.github.io/RNAlysis/build/index.html) Python based RNA-seq analysis software 
+- [Pyranges](https://pyranges.readthedocs.io/en/latest/index.html) Python library for efficient and intuitive manipulation of genomic intervals 

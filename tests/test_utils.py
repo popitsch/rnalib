@@ -47,10 +47,10 @@ def test_get_config():
 def test_parse_gff_attributes(base_path):
     """ shallow test of GFF/GTF infor parsing.
     """
-    for fn in ['gencode.v39.ACTB+SOX2.gff3.gz',
-                          'UCSC.hg38.ncbiRefSeq.ACTB+SOX2.sorted.gtf.gz',
-                          'ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz',
-                          'flybase.dmel-all-r6.51.sorted.gtf.gz']:
+    for fn in ['gff/gencode.v39.ACTB+SOX2.gff3.gz',
+               'gff/UCSC.hg38.ncbiRefSeq.ACTB+SOX2.sorted.gtf.gz',
+               'gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz',
+               'gff/flybase.dmel-all-r6.51.sorted.gtf.gz']:
         with pysam.TabixFile(fn, mode="r") as f:
             for row in f.fetch(parser=pysam.asTuple()):
                 reference, source, ftype, fstart, fend, score, strand, phase, info = row
@@ -63,18 +63,18 @@ def test_parse_gff_attributes(base_path):
 
 def test_get_reference_dict(base_path):
     """Test reference dict implementation and aliasing"""
-    assert get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).keys() == {'chr3','chr7'}
-    assert get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz').orig.keys() == \
-           get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).orig.keys()
-    assert get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).alias('1')=='chr1'
+    assert get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).keys() == {'chr3','chr7'}
+    assert get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz').orig.keys() == \
+           get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).orig.keys()
+    assert get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).alias('1')=='chr1'
     # compare 2 refsets, one w/o chr prefix (ensembl) and one with (fasta file)
     assert ReferenceDict.merge_and_validate(
-        get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr),
-        get_reference_dict('ACTB+SOX2.fa.gz')
+        get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr),
+        get_reference_dict('fasta/ACTB+SOX2.fa.gz')
     ).keys()=={'chr3', 'chr7'}
     assert ReferenceDict.merge_and_validate(
-        get_reference_dict('ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz'),
-        get_reference_dict('ACTB+SOX2.fa.gz', fun_alias=toggle_chr)
+        get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz'),
+        get_reference_dict('fasta/ACTB+SOX2.fa.gz', fun_alias=toggle_chr)
     ).keys()=={'3', '7'}
 
 
@@ -142,7 +142,7 @@ def test_bgzip_and_tabix(base_path):
     # create temp dir, gunzip a GFF3 file and bgzip+tabix via pysam.
     # just asserts that file exists.
     with tempfile.TemporaryDirectory() as tmp:
-        gene_gff_file = 'gencode.v39.ACTB+SOX2.gff3.gz'  # 275 records
+        gene_gff_file = 'gff/gencode.v39.ACTB+SOX2.gff3.gz'  # 275 records
         gunzip(gene_gff_file, tmp+'/test.gff3')
         print('created temporary file', tmp+'/test.gff3')
         bgzip_and_tabix(tmp+'/test.gff3')
@@ -150,8 +150,8 @@ def test_bgzip_and_tabix(base_path):
         print_dir_tree(tmp)
 
 def test_count_reads(base_path):
-    assert count_lines('Test01_L001_R1_001.top20.fastq'), 80
-    assert count_reads('Test01_L001_R1_001.top20.fastq'), 20
+    assert count_lines('fastq/Test01_L001_R1_001.top20.fastq'), 80
+    assert count_reads('fastq/Test01_L001_R1_001.top20.fastq'), 20
 
 def test_write_data():
     assert write_data([1,2,['a','b', None], None], sep=';'), "1;2;a,b,NA;NA"
@@ -177,5 +177,4 @@ def test_reference_dict(base_path):
     ReferenceDict.merge_and_validate(r1,None,r2)
     # test iter_blocks()
     r5 = ReferenceDict({'chr1': 10, 'chr2': 20, 'chrM': 23, 'chrX': 12}, "test_refdict", None)
-    assert list(r1.iter_blocks(10)) == from_str("chr1:1-10, chr2:1-10,  chr2:11-20, chrM:1-10,  chrM:11-20, chrM:21-23, chrX:1-10,  chrX:11-12")
-    r6 = ReferenceDict({'chr1': 10, 'chr2': 20, 'chrM': 23, 'chrX': 12}, "test_refdict", toggle_chr)
+    assert list(r5.iter_blocks(10)) == from_str("chr1:1-10, chr2:1-10,  chr2:11-20, chrM:1-10,  chrM:11-20, chrM:21-23, chrX:1-10,  chrX:11-12")

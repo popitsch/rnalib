@@ -346,7 +346,22 @@ def gt2zyg(gt) -> (int, int):
 
 
 class VcfRecord():
-    """Parsed version of pysam VCFProxy, no type conversions for performance reasons"""
+    """
+        Parsed version of pysam VCFProxy, no type conversions for performance reasons.
+        features:
+        - is_indel: true if this is an INDEL
+        - pos: 1-based genomic (start) position. For deletions, this is the first deleted genomic position
+        - location: genomic interval representing this record
+        - ref/alt: reference/alternate allele string
+        - qual: variant call quality
+        - info: dict of info fields/values
+        - genotype (per-sample) dicts: for each FORMAT field (including 'GT'), a {sample_id: value} dict will be created.
+        - zyg: zygosity information per sample. Created by mapping genotypes to zygosity values using gt2zyg()
+            (0=nocall, 1=heterozygous call, 2=homozygous call).
+        - n_calls: number of calles alleles (among all considered samples)
+
+        @see https://samtools.github.io/hts-specs/VCFv4.2.pdf
+    """
     location: gi = None
 
     def parse_info(self, info):
@@ -391,8 +406,18 @@ class VcfRecord():
 
 class VcfIterator(TabixIterator):
     """
-        Iterates a VCF file and yields 1-based coordinates and pysam VcfProxy objects
+        Iterates a VCF file and yields 1-based coordinates and VcfRecord objects (wrapping pysam VcfProxy object)
         @see https://pysam.readthedocs.io/en/latest/api.html#pysam.asVCF
+        
+        Besides coordinate-related filtering, users cam also pass a list of sample ids to be considered (samples).
+        The iterator will by default report only records with at least 1 call in one of the configured samples.
+        To force reporting of all records, set filter_nocalls=False.
+        
+        Features:
+        - header: the pysam VariantFile header
+        - allsamples: list of all comtained samples
+        - shownsampleindices: indices of all configured samples
+        - stats: dict reporting on number of reported records and filtered nocalls since iterator instantiation.
     """
 
     def __init__(self, vcf_file, chromosome=None, start=None, end=None,
@@ -435,6 +460,9 @@ class GFF3Iterator(TabixIterator):
         the respective info sections. The feature_type, source, score and phase fields from the GFF/GTF entries are
         copied to this dict (NOTE: attribute fields with the same name will be overloaded).
         @see https://pysam.readthedocs.io/en/latest/api.html#pysam.asGTF
+
+        features:
+        - stats: dict reporting on the number of reported records since iterator instantiation
     """
 
     def __init__(self, gtf_file, chromosome=None, start=None, end=None,

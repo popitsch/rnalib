@@ -222,6 +222,22 @@ class gi:
         a, b = (self.end + 1, other.start) if self.end < other.end else (other.end + 1, self.start)
         return a == b
 
+    def get_downstream(self, width=100):
+        """Returns an upstream genomic interval """
+        if self.is_stranded():
+            s, e = (self.end + 1, self.end + width) if self.strand == '+' else (self.start - width, self.start - 1)
+            return gi(self.chromosome, s, e, self.strand)
+        else:
+            return None
+
+    def get_upstream(self, width=100):
+        """Returns an upstream genomic interval """
+        if self.is_stranded():
+            s, e = (self.end + 1, self.end + width) if self.strand == '-' else (self.start - width, self.start - 1)
+            return gi(self.chromosome, s, e, self.strand)
+        else:
+            return None
+
     def split_by_maxwidth(self, maxwidth):
         """ Splits this into n intervals of maximum width """
         k, m = divmod(self.end - self.start + 1, maxwidth)

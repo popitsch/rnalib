@@ -65,7 +65,7 @@ def test_DictIterator(base_path, testdata):
     assert DictIterator(d, 'chr2', 10, 20, fun_alias=toggle_chr).take() == [(gi.from_str('chr2:1-50'), 'f')]
 
 def test_FastaIterator(base_path):
-    fasta_file='ACTB+SOX2.fa.gz'
+    fasta_file='fasta/ACTB+SOX2.fa.gz'
     # read seq via pysam
     with pysam.Fastafile(fasta_file) as fh:
         ref={c:fh.fetch(c) for c in fh.references}
@@ -93,9 +93,9 @@ def test_FastaIterator(base_path):
 
 
 def test_TabixIterator(base_path):
-    vcf_file = 'test_snps.vcf.gz'
-    bed_file = 'test.bed.gz'
-    bedg_file = 'test.bedgraph.gz'  # includes track header
+    vcf_file = 'vcf/test_snps.vcf.gz'
+    bed_file = 'bed/test.bed.gz'
+    bedg_file = 'bed/test.bedgraph.gz'  # includes track header
     # read VCF file as TSV
     ti=TabixIterator(vcf_file, region='1:1-10', coord_inc=[0, 0], pos_indices=[0, 1, 1])
     assert(merge_yields(ti.take())[0] == gi('1', 1, 10))
@@ -116,13 +116,13 @@ def test_TabixIterator(base_path):
     assert len(TabixIterator(bed_file, region=gi('1'), coord_inc=[0, 0], pos_indices=[0, 1, 1]).take()) == 2
 
 def test_GFF3Iterator(base_path):
-    gff_file='gencode.v39.ACTB+SOX2.gff3.gz'
+    gff_file='gff/gencode.v39.ACTB+SOX2.gff3.gz'
     stats=Counter()
     for loc, info in GFF3Iterator(gff_file):
         stats[info['feature_type']]+=1
     assert stats == {'exon': 106, 'CDS': 60, 'five_prime_UTR': 33, 'transcript': 24, 'three_prime_UTR': 20, 'start_codon': 17, 'stop_codon': 13, 'gene': 2}
     # GTF with aliasing
-    gtf_file = 'ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz'
+    gtf_file = 'gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz'
     stats = Counter()
     for loc, info in GFF3Iterator(gtf_file, 'chr7', fun_alias=toggle_chr):
         stats[info['feature_type']] += 1
@@ -138,7 +138,7 @@ def test_PandasIterator(base_path, testdata):
     assert {k:v for v,k in it}==d1
 
 def test_BlockLocationIterator(base_path, testdata):
-    with BlockLocationIterator(TabixIterator('test.bed.gz', coord_inc = [1, 0], fun_alias=toggle_chr), strategy=BlockStrategy.OVERLAP) as it:
+    with BlockLocationIterator(TabixIterator('bed/test.bed.gz', coord_inc = [1, 0], fun_alias=toggle_chr), strategy=BlockStrategy.OVERLAP) as it:
         locs=[l for l,_ in it]
         assert locs == loc_list('chr1:6-15,chr2:10-150')
     d, df = testdata
@@ -181,8 +181,8 @@ def test_AnnotationIterator(base_path, testdata):
                [['A', ['D1', 'D2'], ['D1', 'D2']], [ 'B', ['D1', 'D2'], ['D1', 'D2']], ['C', ['F'], ['F']]]
 
     # Annotate intervals from a bed file with values from a bedgraph file
-    bed_file = 'test.bed.gz' # anno
-    bedg_file = 'test.bedgraph.gz' #scores
+    bed_file = 'bed/test.bed.gz' # anno
+    bedg_file = 'bed/test.bedgraph.gz' #scores
     # overlap with bedgraph file, calculate overlap and sum scores
     # NOTE bedgraph file contains interval (1:7-10, 0.3)
     with AnnotationIterator(BedIterator(bed_file), BedGraphIterator(bedg_file), labels=['scores']) as it:
@@ -393,12 +393,12 @@ def test_TagFilter():
     assert not TagFilter('xx', [12], False, inverse=True).filter(MockRead({'xx':12})) # inverse filter: filter if values is not found!
 
 def test_ReadIterator(base_path):
-    with ReadIterator('rogue_read.bam', 'SIRVomeERCCome') as it:
+    with ReadIterator('bam/rogue_read.bam', 'SIRVomeERCCome') as it:
         for l,r in it:
             pass
         assert it.stats['n_reads', 'SIRVomeERCCome']==1
     stats={x:Counter() for x in ['all', 'def', 'mq20', 'tag']}
-    with open_file_obj('small_example.bam') as bam:
+    with open_file_obj('bam/small_example.bam') as bam:
         for chrom in get_reference_dict(bam):
             with ReadIterator(bam, chrom, flag_filter=0) as it:
                 it.take()
@@ -419,7 +419,7 @@ def test_ReadIterator(base_path):
     assert stats['tag']['n_reads', '1'] == 7388  # samtools view  small_example.bam -F 3844 | grep -v "MD:Z:100" | wc -l -> 7388
     # count t/c mismatches
     tc_conv={}
-    for l,(r,mm) in ReadIterator('small_example.bam',report_mismatches=True, min_base_quality=10):
+    for l,(r,mm) in ReadIterator('bam/small_example.bam',report_mismatches=True, min_base_quality=10):
         if len(mm)>0:
             is_rev = not r.is_reverse if r.is_read2 else r.is_reverse
             refc = "A" if is_rev else "T"
@@ -433,7 +433,7 @@ def test_ReadIterator(base_path):
     #  a read with 2 A/G conversions
     assert tc_conv['HWI-ST466_135068617:8:2316:4251:54002', False]==[(2, 22443997, 'A', 'G'), (5, 22444000, 'A', 'G')]
     # test aliasing
-    res=ReadIterator('small_example.bam', 'chr1',fun_alias=toggle_chr).take()
+    res=ReadIterator('bam/small_example.bam', 'chr1',fun_alias=toggle_chr).take()
     assert len(res)==21932
     assert res[0].location.chromosome=='chr1'
     # TODO add data from /groups/.../ref/testdata/smallbams/
@@ -459,7 +459,7 @@ def slow_pileup(bam, chrom,start,stop):
 
 
 def test_FastPileupIterator(base_path):
-    with open_file_obj('small_example.bam') as bam:
+    with open_file_obj('bam/small_example.bam') as bam:
         # A T/C SNP
         assert [(l.start,c) for l,c in FastPileupIterator(bam, '1', {22432587})]==[(22432587, Counter({'C': 4}))]
         # 2 positions with  single MM
@@ -477,11 +477,11 @@ def test_FastPileupIterator(base_path):
             (22418244, Counter({'T': 136, None: 1}))]
 
 def test_FastqIterator(base_path):
-    fastq_file='test.fq.gz'
+    fastq_file='fastq/test.fq.gz'
     assert len(FastqIterator(fastq_file))==4
     assert [len(x[1]) for x in FastqIterator(fastq_file)]==[34, 26, 24, 37]
     # iterate PE reads and assert names contain 1/2
-    for r1,r2 in zip(FastqIterator('Test01_L001_R1_001.top20.fastq'), FastqIterator('Test01_L001_R2_001.top20.fastq')):
+    for r1,r2 in zip(FastqIterator('fastq/Test01_L001_R1_001.top20.fastq'), FastqIterator('fastq/Test01_L001_R2_001.top20.fastq')):
         n1=r1.name.split(' ')[1].split(':')[0]
         n2 = r2.name.split(' ')[1].split(':')[0]
         assert n1=='1' and n2=='2'
@@ -497,7 +497,7 @@ def test_gt2zyg(base_path):
 
 def test_VcfIterator(base_path):
     """TODO: test INDELs"""
-    vcf_file = 'test.vcf.gz'
+    vcf_file = 'vcf/test.vcf.gz'
     with VcfIterator(vcf_file) as it:
         assert [v.GT for _,v in it.take()]==[{'SAMPLE':'1/1'}]*4
         assert [v.CS for _,v in it.take()]==[{'SAMPLE':'A'},{'SAMPLE':'B'},{'SAMPLE':'C'},{'SAMPLE':'D'}]
@@ -505,7 +505,7 @@ def test_VcfIterator(base_path):
         assert [l.start for l,_ in it.take()]==[100001,200001,300001, 1000] # first 3 are deletions, so the genomic pos is +1
 
     # with sample filtering
-    vcf_file='dmelanogaster_6_exported_20230523.vcf.gz'
+    vcf_file='vcf/dmelanogaster_6_exported_20230523.vcf.gz'
     with VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721'], filter_nocalls=True) as it:
         dat=it.take()
         assert len(dat)==25 # there are 25 variants called in at least one of the 3 samples
@@ -513,18 +513,18 @@ def test_VcfIterator(base_path):
         assert [v.data.zyg['DGRP-208'] for v in dat] == [2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
 
     # test missing chromosome, i.e., a chrom that is in the refdict but not in the tabix index!
-    vcf_file='test_snps.vcf.gz'
+    vcf_file='vcf/test_snps.vcf.gz'
     assert VcfIterator(vcf_file, region=gi('3')).take()==[]
 def test_BedIterator(base_path):
-    bed_file='test.bed.gz'
-    bedg_file = 'test.bedgraph.gz'
+    bed_file='bed/test.bed.gz'
+    bedg_file = 'bed/test.bedgraph.gz'
     # simple test
     assert len(BedIterator(bed_file).take()) == 3
 
 def test_vcf_and_gff_it(base_path):
     """TODO: expand"""
-    gff_file = 'flybase.dmel-all-r6.51.sorted.gtf.gz'
-    vcf_file = 'dmelanogaster_6_exported_20230523.vcf.gz'
+    gff_file = 'gff/flybase.dmel-all-r6.51.sorted.gtf.gz'
+    vcf_file = 'vcf/dmelanogaster_6_exported_20230523.vcf.gz'
     for x in AnnotationIterator(GFF3Iterator(gff_file, '2L', 574299, 575733),
                                 VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721'])):
         #print(x)
@@ -532,10 +532,10 @@ def test_vcf_and_gff_it(base_path):
 
 def test_set_chrom(base_path, testdata):
     d, df = testdata
-    its=[BedIterator('test.bed.gz'),
-         BedGraphIterator('test.bedgraph.gz'),
+    its=[BedIterator('bed/test.bed.gz'),
+         BedGraphIterator('bed/test.bedgraph.gz'),
          DictIterator(d),
-         GFF3Iterator('gencode.v39.ACTB+SOX2.gff3.gz'),
+         GFF3Iterator('gff/gencode.v39.ACTB+SOX2.gff3.gz'),
          PandasIterator(df, 'Name')]
     for it in its:
         all=it.take()

@@ -5,7 +5,7 @@ import pytest
 import os
 from pygenlib.genemodel import *
 from pygenlib.iterators import BedGraphIterator, ReadIterator
-from pygenlib.utils import print_dir_tree
+from pygenlib.utils import print_dir_tree, toggle_chr
 from Bio.Seq import Seq
 
 @pytest.fixture(autouse=True)
@@ -20,9 +20,9 @@ def base_path() -> Path:
 @pytest.fixture(autouse=True)
 def testdata() -> dict:
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_gff': 'gff/gencode.v39.ACTB+SOX2.gff3.gz',
         'annotation_flavour': 'gencode'
     }
     return config
@@ -89,8 +89,8 @@ def test_genemodel(base_path, testdata):
     # assert that links are correct
 
     config = {
-        'genome_fa': 'dmel_r6.36.fa.gz',
-        'annotation_gff': 'flybase.dmel-all-r6.51.sorted.gtf.gz',
+        'genome_fa': 'fasta/dmel_r6.36.fa.gz',
+        'annotation_gff': 'gff/flybase.dmel-all-r6.51.sorted.gtf.gz',
         'annotation_flavour': 'flybase',
         'transcript_filter': {
             'included_chrom': ['2L'],
@@ -122,6 +122,27 @@ def test_itree(base_path, testdata):
     # check edges
     assert [len(t.query(gi('chr7', pos, pos), 'gene')) for pos in [5526408, 5526409, 5563902, 5563903]] == [0, 1, 1, 0]
 
+
+def test_clear_annotations(base_path, testdata):
+    t = Transcriptome(testdata)
+
+    # there should be no annotation keys
+    assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])}=={0}
+    # load seqeunces, now each gene should have 1 annotation key 'dna_seq'
+    t.load_sequences()
+    assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])}=={1}
+    # now, let's annotate each gene with its length
+    def anno_len(item):
+        loc, (anno, overlapping) = item
+        anno['len']=len(loc)
+    t.annotate(iterators=TranscriptomeIterator(t, feature_types=['gene']), fun_anno=anno_len, feature_types=['gene'])
+    assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])} == {2}
+    # now we clear all annotations but keep the dna_seq anno (default behaviour)
+    t.clear_annotations()
+    assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])}=={1}
+    # now lets clear all annotations
+    t.clear_annotations(retain_keys=None)
+    assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])}=={0}
 
 #@pytest.mark.skip(reason="Currently broken")
 def test_genmodel_persistence(base_path, testdata):
@@ -179,9 +200,9 @@ def test_genmodel_anno_persistence(base_path, testdata):
 def test_genmodel_gff3(base_path, testdata):
     """ Write to GFF3, load and compare"""
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_gff': 'gff/gencode.v39.ACTB+SOX2.gff3.gz',
         'annotation_flavour': 'gencode',
         'copied_fields': ['gene_type', 'tag'],
         'transcript_filter': {
@@ -203,9 +224,9 @@ def test_genmodel_gff3(base_path, testdata):
 
 def test_filter(base_path, testdata):
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_gff': 'gff/gencode.v39.ACTB+SOX2.gff3.gz',
         'annotation_flavour': 'gencode',
         'transcript_filter': {
             'included_tids': ['ENST00000325404.3', 'ENST00000674681.1']
@@ -216,9 +237,9 @@ def test_filter(base_path, testdata):
                      'filtered_three_prime_UTR': 18, 'filtered_CDS': 54}
     assert len(t.transcripts) == 2
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_gff': 'gff/gencode.v39.ACTB+SOX2.gff3.gz',
         'annotation_flavour': 'gencode',
         'copied_fields': ['gene_type'],
         'transcript_filter': {
@@ -251,24 +272,39 @@ def test_utility_functions(base_path, testdata):
         assert calc_3end(tx) is None or sum([len(x) for x in calc_3end(tx)]) == 200
 
 
+
+
 def test_gff_flavours(base_path):
-    # Ensembl with chrom aliasing
+    # generic format
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz',
+        'annotation_gff': 'gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz',
         'annotation_flavour': 'ensembl',
         'annotation_fun_alias': 'toggle_chr',
         '#transcript_filter': { 'included_tids': ['ENST00000676319']}
     }
+    from pygenlib.utils import toggle_chr
+    t = Transcriptome(config)
+
+    # Ensembl with chrom aliasing
+    config = {
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
+        'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
+        'annotation_gff': 'gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz',
+        'annotation_flavour': 'ensembl',
+        'annotation_fun_alias': 'toggle_chr',
+        '#transcript_filter': { 'included_tids': ['ENST00000676319']}
+    }
+    from pygenlib.utils import toggle_chr
     t = Transcriptome(config)
     assert len(t.genes) == 2
-    assert t.genes[0].gene_id=='ENSG00000181449'
+    assert 'ENSG00000181449' in t.gene
     # UCSC with tx filtering
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'UCSC.hg38.ncbiRefSeq.ACTB+SOX2.sorted.gtf.gz',
+        'annotation_gff': 'gff/UCSC.hg38.ncbiRefSeq.ACTB+SOX2.sorted.gtf.gz',
         'annotation_flavour': 'ucsc',
         'transcript_filter': {
             'included_tids': ['NM_001101.5']
@@ -280,8 +316,8 @@ def test_gff_flavours(base_path):
     assert len(t.genes) == 1
     # Mirgenedb
     config = {
-        'genome_fa': 'dmel_r6.36.fa.gz',
-        'annotation_gff': 'mirgenedb.dme.sorted.gff3.gz',
+        'genome_fa': 'fasta/dmel_r6.36.fa.gz',
+        'annotation_gff': 'gff/mirgenedb.dme.sorted.gff3.gz',
         'annotation_flavour': 'mirgenedb',
         '#transcript_filter': {
             'included_regions': ['X:4368325-4368346']
@@ -291,8 +327,8 @@ def test_gff_flavours(base_path):
     assert Counter([f.feature_type for f in t.anno]) == {'gene': 483, 'transcript': 483}
     # flybase
     config = {
-        'genome_fa': 'dmel_r6.36.fa.gz',
-        'annotation_gff': 'flybase.dmel-all-r6.51.sorted.gtf.gz',
+        'genome_fa': 'fasta/dmel_r6.36.fa.gz',
+        'annotation_gff': 'gff/flybase.dmel-all-r6.51.sorted.gtf.gz',
         'annotation_flavour': 'flybase',
         'transcript_filter': {
             'included_chrom': ['2L'],
@@ -305,13 +341,24 @@ def test_gff_flavours(base_path):
          'intron': 1}
     assert Counter([tx.transcript_type for tx in t.transcripts]) == {'mRNA': 11, 'pseudogene': 1}
     assert {l.chromosome for l in t.transcripts} == {'2L'}
+    # Generic
+    config = {
+        'genome_fa': 'fasta/dmel_r6.36.fa.gz',
+        'annotation_gff': 'gff/generic.gff3.gz',
+        'annotation_flavour': 'generic',
+        'copied_fields': ['Alias', 'ID']
+    }
+    t = Transcriptome(config)
+    assert 'Alias' in t.genes[0].__dict__, "Did not copy Alias field"
+    assert 'feature_type' in t.genes[0].__dict__, "Did not copy feature_type field"
+    assert len(t.genes) == 4 and len(t.transcripts)==4
 
 
 def test_iterator(base_path):
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_gff': 'gff/gencode.v39.ACTB+SOX2.gff3.gz',
         'annotation_flavour': 'gencode'
     }
     t = Transcriptome(config)
@@ -319,9 +366,9 @@ def test_iterator(base_path):
 
 def test_annotate(base_path):
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_gff': 'gff/gencode.v39.ACTB+SOX2.gff3.gz',
         'annotation_flavour': 'gencode',
         'transcript_filter': {
             'included_tids': ['ENST00000473257.3']
@@ -342,7 +389,7 @@ def test_annotate(base_path):
     # annotate exons and introns with mappability scores
     # this is just an example, it would be more efficient to annotate genes with
     # mappability score arrays and calculate for each exon from there (as for sequences)
-    t.annotate(iterators=BedGraphIterator('GRCh38.k24.umap.ACTB_ex1+2.bedgraph.gz'),
+    t.annotate(iterators=BedGraphIterator('bed/GRCh38.k24.umap.ACTB_ex1+2.bedgraph.gz'),
                fun_anno=calc_mean_score('mappability'),
                feature_types=['exon', 'intron'])
     # for f, anno in TranscriptomeIterator(t, feature_types=['exon', 'intron']):
@@ -353,9 +400,9 @@ def test_annotate(base_path):
 
 def test_annotate_read_counts(base_path):
     config = {
-        'genome_fa': 'ACTB+SOX2.fa.gz',
+        'genome_fa': 'fasta/ACTB+SOX2.fa.gz',
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-        'annotation_gff': 'gencode.v39.ACTB+SOX2.gff3.gz',
+        'annotation_gff': 'gff/gencode.v39.ACTB+SOX2.gff3.gz',
         'annotation_flavour': 'gencode',
         'load_sequences': False
     }
@@ -370,7 +417,7 @@ def test_annotate_read_counts(base_path):
         anno['rc']['reads_ss'] += len([r for l,r in reads if l.strand==loc.strand])
         anno['rc']['reads_ss_tc'] += len([r for l, r in reads if l.strand == loc.strand and r.has_tag('xc') and r.get_tag('xc')>0])
 
-    t.annotate(iterators=ReadIterator('small.ACTB+SOX2.bam'),
+    t.annotate(iterators=ReadIterator('bam/small.ACTB+SOX2.bam'),
                fun_anno=count_reads)
     # no reads in SOX2
     assert t.gene['SOX2'].rc['reads'] == 0
