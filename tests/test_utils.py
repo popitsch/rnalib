@@ -8,7 +8,7 @@ import pysam
 import pytest
 
 from pygenlib.utils import *
-
+from pygenlib.testdata import get_resource
 
 @pytest.fixture(autouse=True)
 def base_path() -> Path:
@@ -45,36 +45,38 @@ def test_get_config():
 
 
 def test_parse_gff_attributes(base_path):
-    """ shallow test of GFF/GTF infor parsing.
+    """ shallow test of GFF/GTF info field parsing.
     """
-    for fn in ['gff/gencode.v39.ACTB+SOX2.gff3.gz',
-               'gff/UCSC.hg38.ncbiRefSeq.ACTB+SOX2.sorted.gtf.gz',
-               'gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz',
-               'gff/flybase.dmel-all-r6.51.sorted.gtf.gz']:
+    from pygenlib.genemodel import gff_flavours
+    for fn,dialect in [(get_resource('gencode_gff'), gff_flavours['gencode','gff'] ),
+                       (get_resource('ucsc_gtf'), gff_flavours['ucsc','gtf'] ),
+                       (get_resource('ensembl_gff'), gff_flavours['ensembl','gff'] ),
+                       (get_resource('flybase_gtf'), gff_flavours['flybase','gtf'] )
+                       ]:
+        expected_fields= {v for k,v in dialect.items() if k in ['gid','tid', 'tx_gid', 'feat_tid'] and v is not None}
+        parsed_attributes=set()
         with pysam.TabixFile(fn, mode="r") as f:
             for row in f.fetch(parser=pysam.asTuple()):
                 reference, source, ftype, fstart, fend, score, strand, phase, info = row
-                pattributes = parse_gff_attributes(info, fmt=guess_file_format(fn))
-                min_exp_fields = set('gene_id'.split(','))
-                shared, _, _ = cmp_sets(set(pattributes.keys()), min_exp_fields)
-                assert shared == min_exp_fields, f"error parsing {info} in file {fn}"
-
+                parsed_attributes |= parse_gff_attributes(info, fmt=guess_file_format(fn)).keys()
+        shared, _, _ = cmp_sets(set(parsed_attributes), expected_fields)
+        assert shared == expected_fields, f"missing fields in {fn}"
 
 
 def test_get_reference_dict(base_path):
     """Test reference dict implementation and aliasing"""
-    assert get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).keys() == {'chr3','chr7'}
-    assert get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz').orig.keys() == \
-           get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).orig.keys()
-    assert get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr).alias('1')=='chr1'
+    assert get_reference_dict(get_resource('ensembl_gff'), fun_alias=toggle_chr).keys() == {'chr3','chr7'}
+    assert get_reference_dict(get_resource('ensembl_gff')).orig.keys() == \
+           get_reference_dict(get_resource('ensembl_gff'), fun_alias=toggle_chr).orig.keys()
+    assert get_reference_dict(get_resource('ensembl_gff'), fun_alias=toggle_chr).alias('1')=='chr1'
     # compare 2 refsets, one w/o chr prefix (ensembl) and one with (fasta file)
     assert ReferenceDict.merge_and_validate(
-        get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz', fun_alias=toggle_chr),
-        get_reference_dict('fasta/ACTB+SOX2.fa.gz')
+        get_reference_dict(get_resource('ensembl_gff'), fun_alias=toggle_chr),
+        get_reference_dict(get_resource('ACTB+SOX2_genome'))
     ).keys()=={'chr3', 'chr7'}
     assert ReferenceDict.merge_and_validate(
-        get_reference_dict('gff/ensembl_Homo_sapiens.GRCh38.109.ACTB+SOX2.gtf.gz'),
-        get_reference_dict('fasta/ACTB+SOX2.fa.gz', fun_alias=toggle_chr)
+        get_reference_dict(get_resource('ensembl_gff')),
+        get_reference_dict(get_resource('ACTB+SOX2_genome'), fun_alias=toggle_chr)
     ).keys()=={'3', '7'}
 
 
@@ -142,8 +144,7 @@ def test_bgzip_and_tabix(base_path):
     # create temp dir, gunzip a GFF3 file and bgzip+tabix via pysam.
     # just asserts that file exists.
     with tempfile.TemporaryDirectory() as tmp:
-        gene_gff_file = 'gff/gencode.v39.ACTB+SOX2.gff3.gz'  # 275 records
-        gunzip(gene_gff_file, tmp+'/test.gff3')
+        gunzip(get_resource('gencode_gff'), tmp+'/test.gff3')
         print('created temporary file', tmp+'/test.gff3')
         bgzip_and_tabix(tmp+'/test.gff3')
         assert os.path.isfile(tmp+'/test.gff3.gz') and os.path.isfile(tmp+'/test.gff3.gz.tbi')

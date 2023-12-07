@@ -210,6 +210,8 @@ def test_empty():
     assert not gi('chr1', 1,0).overlaps(gi('chr1', 1,0))
     assert gi('chr1', 1,0).overlap(gi('chr1', 1,0))==0
 
+def test_unbounded():
+    assert gi().is_unbounded()
 
 def test_updownstream():
     assert gi('chr1', 10, 20).get_upstream(3) is None # no strand: return None

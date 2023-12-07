@@ -12,18 +12,20 @@ import os
 import random
 import re
 import shutil
+import ssl
 import sys
+import timeit
 import unicodedata
+import urllib.request
 from collections import Counter, abc
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import reduce
-from itertools import zip_longest
+from itertools import zip_longest, groupby
 from pathlib import Path
-import ssl
-import urllib.request
-import tempfile
+
 import h5py
+import pybedtools
 import pysam
 from Bio import pairwise2
 from tqdm import tqdm
@@ -94,6 +96,9 @@ class gi:
         """ returns a sluggified string representation "<chrom>_<start>_<end>_<strand>"        """
         return f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
 
+    def is_unbounded(self):
+        return [self.chromosome, self.start, self.end, self.strand] == [None, -math.inf, math.inf, None]
+
     def is_empty(self):
         return self.start > self.end
 
@@ -107,7 +112,7 @@ class gi:
         """
         if strand_specific and self.strand != other.strand:
             return False
-        if (self.chromosome) and (other.chromosome) and (self.chromosome != other.chromosome):
+        if self.chromosome and other.chromosome and (self.chromosome != other.chromosome):
             return False
         if self.is_empty():
             return False
@@ -174,6 +179,8 @@ class gi:
         """ Tests whether this interval overlaps the passed one.
             Supports unrestricted start/end coordinates and optional strand check
         """
+        if self.is_unbounded():  # overlaps all
+            return True
         if not self.cs_match(other, strand_specific):
             return False
         return self.start <= other.end and other.start <= self.end
@@ -185,7 +192,7 @@ class gi:
             return False
         return self.start <= other.start and self.end >= other.end
 
-    def overlap(self, other, strand_specific=False) -> int:
+    def overlap(self, other, strand_specific=False) -> float:
         """Calculates the overlap with the passed one"""
         if not self.cs_match(other, strand_specific):
             return 0
@@ -195,17 +202,19 @@ class gi:
         return self.chromosome, self.start, self.end
 
     @classmethod
-    def merge(cls, l):
+    def merge(cls, loc):
         """ Merges a list of intervals.
             If intervals are not on the same chromosome or if strand is not matching, None is returned
             The resulting interval will inherit the chromosome and strand of the first passed one.
         """
-        if l is None:
+        if loc is None:
             return None
-        if len(l) == 1:
-            return l[0]
+        if len(loc) == 1:
+            return loc[0]
         merged = None
-        for x in l:
+        for x in loc:
+            if x is None:
+                continue
             if merged is None:
                 merged = [x.chromosome, x.start, x.end, x.strand]
             else:
@@ -265,6 +274,24 @@ class gi:
             return other.start - self.end if other > self else other.end - self.start
         return None
 
+    def to_pybedtools(self):
+        """
+            Returns a corresponding pybedtools interval object.
+            Note that this will fail on open or empty intervals as those are not supported by pygenlib.
+            Examples:
+                gi('chr1',1,10).to_pybt_interval()
+                gi('chr1',1,10, strand='-').to_pybt_interval()
+
+                gi('chr1').to_pybt_interval() # fails with OverflowError: cannot convert float infinity to integer
+                len(gi('chr1',12,10).to_pybt_interval()) # reports wrong length 4294967295
+        """
+        # pybedtools cannot deal with unbounded intervals, so we replace with [0; maxint]
+        start = 1 if self.start == -math.inf else self.start
+        end = 2 ** 31 - 1 if self.end == math.inf else self.end # 32 bit int
+        # pybedtools: `start` is *always* the 0-based start coordinate
+        return pybedtools.Interval(self.chromosome, start - 1, end,
+                                   strand='.' if self.strand is None else self.strand)
+
     def __iter__(self):
         for pos in range(self.start, self.end + 1):
             yield gi(self.chromosome, pos, pos, self.strand)
@@ -316,7 +343,7 @@ class ReferenceDict(abc.Mapping[str, int]):
             (or smaller at chromosome ends).
         """
         for chrom, chrlen in self.d.items():
-            chrom_gi=gi(chrom,1,chrlen)
+            chrom_gi = gi(chrom, 1, chrlen)
             for block in chrom_gi.split_by_maxwidth(block_size):
                 yield block
 
@@ -324,10 +351,10 @@ class ReferenceDict(abc.Mapping[str, int]):
         # return f"Refset{'' if self.name is None else self.name} (len: {len(self.d)})"
         return f"Refset (size: {len(self.d.keys())}): {self.d.keys()}{f' (aliased from {self.orig.keys()})' if self.fun_alias else ''}, {self.d.values()} name: {self.name} "
 
-    def alias(self, chr):
+    def alias(self, chrom):
         if self.fun_alias:
-            return self.fun_alias(chr)
-        return chr
+            return self.fun_alias(chrom)
+        return chrom
 
     def index(self, chrom):
         """ Index of the passed chromosome, None if chromosome not in refdict or -1 if None was passed.
@@ -379,16 +406,16 @@ def parse_args(args, parser_dict, usage):
         2) the respective mode
         3) commandline arguments
     """
-    MODES = parser_dict.keys()
+    modes = parser_dict.keys()
     if len(args) <= 1 or args[1] in ['-h', '--help']:
-        print(usage.replace("MODE", "[" + ",".join(MODES) + "]"))
+        print(usage.replace("MODE", "[" + ",".join(modes) + "]"))
         sys.exit(1)
     mode = args[1]
-    if mode not in MODES:
-        print("No/invalid mode %s provided. Please use one of %s" % (mode, ",".join(MODES)))
+    usage = usage.replace("MODE", mode)
+    if mode not in modes:
+        print("No/invalid mode %s provided. Please use one of %s" % (mode, ",".join(modes)))
         print(usage)
         sys.exit(1)
-    usage = usage.replace("MODE", mode)
     return mode, parser_dict[mode].parse_args(args[2:])
 
 
@@ -432,11 +459,12 @@ def ensure_outdir(outdir=None) -> os.PathLike:
 
 def check_list(lst, mode='inc1') -> bool:
     """
-        Tests whether the numeric (comparable) items in a list are
+        Tests whether the (numeric, comparable) items in a list are
         mode=='inc': increasing
         mode=='dec': decreasing
         mode=='inc1': increasing by one
         mode=='dec1': decreasing by one
+        mode=='eq': all equal
     """
     if mode == 'inc':
         return all(x < y for x, y in zip(lst, lst[1:]))
@@ -446,10 +474,17 @@ def check_list(lst, mode='inc1') -> bool:
         return all(x > y for x, y in zip(lst, lst[1:]))
     elif mode == 'dec1':
         return all(x - 1 == y for x, y in zip(lst, lst[1:]))
+    elif mode=='eq':
+        g = groupby(lst) # see itertools
+        return next(g, True) and not next(g, False)
     return None
 
 
-def split_list(l, n, is_chunksize=False) -> list:
+def all_equal(iterable):
+    g = groupby(iterable)
+    return next(g, True) and not next(g, False)
+
+def split_list(lst, n, is_chunksize=False) -> list:
     """
         Splits a list into sublists.
         if is_chunksize is True: splits into chunks of length n
@@ -462,13 +497,13 @@ def split_list(l, n, is_chunksize=False) -> list:
 
         TODO: replace by more_iterools chunked and chunked_even
     """
-    if not isinstance(l, list):
-        l = list(l)
+    if not isinstance(lst, list):
+        lst = list(lst)
     if is_chunksize:
-        return [l[i * n:(i + 1) * n] for i in range((len(l) + n - 1) // n)]
+        return [lst[i * n:(i + 1) * n] for i in range((len(lst) + n - 1) // n)]
     else:
-        k, m = divmod(len(l), n)
-        return (l[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
+        k, m = divmod(len(lst), n)
+        return (lst[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
 
 
 def intersect_lists(*lists, check_order=False) -> list:
@@ -488,10 +523,10 @@ def intersect_lists(*lists, check_order=False) -> list:
         return list(filter(lambda x: x in list1, list2))
 
     isec = reduce(intersect_lists_, lists)
-    for l in lists:
+    for lst in lists:
         if check_order:
-            assert [x for x in l if x in isec] == isec, f"Input list have differing order of shared elements {isec}"
-        elif [x for x in l if x in isec] != isec:
+            assert [x for x in lst if x in isec] == isec, f"Input list have differing order of shared elements {isec}"
+        elif [x for x in lst if x in isec] != isec:
             print(f"WARN: Input list have differing order of shared elements {isec}")
     return isec
 
@@ -523,7 +558,7 @@ def to_str(*args, sep=',', na='NA') -> str:
         return na
     if len(args) == 1:
         args = args[0]
-    if (args is None):
+    if args is None:
         return na
     if hasattr(args, '__len__') and callable(getattr(args, '__len__')) and len(args) == 0:
         return na
@@ -580,7 +615,7 @@ def print_dir_tree(root: Path, max_lines=10, glob=None):
 
 def count_lines(file) -> int:
     """Counts lines in (gzipped) files. Slow."""
-    if (file.endswith(".gz")):
+    if file.endswith(".gz"):
         with gzip.open(file, 'rb') as f:
             for i, l in enumerate(f):
                 pass
@@ -628,8 +663,8 @@ def remove_extension(p, remove_gzip=True):
     """
     p = Path(p).resolve()
     if remove_gzip and '.gz' in p.suffixes:
-        p = p.with_suffix('') # drop '.gz'
-    return p.with_suffix('') # drop ext
+        p = p.with_suffix('')  # drop '.gz'
+    return p.with_suffix('')  # drop ext
 
 
 def download_file(url, filename, show_progress=True):
@@ -640,11 +675,14 @@ def download_file(url, filename, show_progress=True):
             # do something with this file
         #Note that the temporary dir will be removed once the context manager is closed.
     """
+
     def print_progress(block_num, block_size, total_size):
         print(f"progress: {round(block_num * block_size / total_size * 100, 2)}%", end="\r")
+
     ssl._create_default_https_context = ssl._create_unverified_context
-    urllib.request.urlretrieve(url, filename, print_progress if  show_progress else None)
+    urllib.request.urlretrieve(url, filename, print_progress if show_progress else None)
     return filename
+
 
 # --------------------------------------------------------------
 # Sequence handling
@@ -697,11 +735,11 @@ def pad_n(seq, minlen, padding_char='N') -> str:
         Adds up-/downstream padding with the configured padding character to ensure a given minimum length of the passed sequence
     """
     ret = seq
-    if (len(ret) < minlen):
+    if len(ret) < minlen:
         pad0 = padding_char * int((minlen - len(ret)) / 2)
         pad1 = padding_char * int(minlen - (len(ret) + len(pad0)))
         ret = ''.join([pad0, ret, pad1])
-    return (ret)
+    return ret
 
 
 def rnd_seq(n, alpha='ACTG', m=1):
@@ -773,7 +811,7 @@ def longest_GC_len(seq) -> int:
     return max(c.values())
 
 
-def align_sequence(query, target, print_alignment=False) -> (float, int, int):
+def align_sequence(query, target, report_alignment=False) -> (float, int, int):
     """
         Global alignment of query to target sequence with default scoring.
         Returns a length-normalized alignment score and the start and end positions of the alignment.
@@ -791,8 +829,8 @@ def align_sequence(query, target, print_alignment=False) -> (float, int, int):
     score = score / len(query)
     startpos = len(aln[0]) - len(aln[0].lstrip('-'))
     endpos = len([x for x in aln[1][:len(aln[0].rstrip('-'))] if x != '-'])
-    if print_alignment:
-        print(pairwise2.format_alignment(*aln))
+    if report_alignment:
+        return score, startpos, endpos, pairwise2.format_alignment(*aln)
     return score, startpos, endpos
 
 
@@ -847,11 +885,11 @@ def parse_gff_attributes(info, fmt='gff3'):
     if fmt.lower() == 'gtf':
         return {k: v.translate({ord(c): None for c in '"'}) for k, v in
                 [a.strip().split(' ', 1) for a in info.split(';') if ' ' in a]}
-    return {k: v for k, v in [a.split('=') for a in info.split(';') if '=' in a]}
+    return {k.strip(): v for k, v in [a.split('=') for a in info.split(';') if '=' in a]}
 
 
 def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=True,
-                    preset='auto', seq_col=0, start_col=1, end_col=1, line_skip=0, zerobased=False, csi=False):
+                    preset='auto', seq_col=0, start_col=1, end_col=1, line_skip=0, zerobased=False):
     """
         Will BGZIP the passed file and creates a tabix index with the given params if create_index is True
         presets:
@@ -861,6 +899,8 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
             'sam' : (TBX_SAM, 3, 4, 0, ord('@'), 0),
             'vcf' : (TBX_VCF, 1, 2, 0, ord('#'), 0),
             'auto': guess from file extension
+
+        TODO add csi support
     """
     if out_file is None:
         out_file = in_file + '.gz'
@@ -931,7 +971,6 @@ class TagFilter:
             return value_exists != self.inverse
         else:
             return self.filter_if_no_tag
-        return False
 
 
 def get_softclip_seq(read: pysam.AlignedSegment):
@@ -946,17 +985,19 @@ def get_softclip_seq(read: pysam.AlignedSegment):
         pos += l
     return left, right
 
+
 def read_aligns_to_loc(loc: gi, read: pysam.AlignedSegment):
     """ Tests whether a read aligns to the passed location by checking the respective alignemnt block coordinates and
         the read strand. Note that the chromosome is *not* checked.
     """
     if (loc.strand is not None) and (loc.strand != '-' if read.is_reverse else '+'):
-        return False # wrong strand
+        return False  # wrong strand
     # chr is not checked
-    for read_start,read_end in read.get_blocks():
+    for read_start, read_end in read.get_blocks():
         if (loc.start <= read_end) and (read_start < loc.end):
             return True
     return False
+
 
 def toggle_chr(s):
     """
@@ -972,7 +1013,7 @@ def toggle_chr(s):
         return f'chr{s}'
 
 
-def get_reference_dict(fh, fun_alias=None) -> dict:
+def get_reference_dict(fh, fun_alias=None) -> ReferenceDict:
     """ Extracts chromosome names, order and (where possible) length from pysam objects.
 
     Parameters
@@ -1009,12 +1050,12 @@ def get_reference_dict(fh, fun_alias=None) -> dict:
 
 default_file_extensions = {
     'fasta': ('.fa', '.fasta', '.fna', '.fa.gz', '.fasta.gz'),
-    'sam': ('.sam'),
-    'bam': ('.bam'),
+    'sam': ('.sam',),
+    'bam': ('.bam',),
     'tsv': ('.tsv', '.tsv.gz'),
     'bed': ('.bed', '.bed.gz', '.bedgraph', '.bedgraph.gz'),
     'vcf': ('.vcf', '.vcf.gz'),
-    'bcf': ('.bcf'),
+    'bcf': ('.bcf',),
     'gff': ('.gff3', '.gff3.gz'),
     'gtf': ('.gtf', '.gtf.gz'),
     'fastq': ('.fq', '.fastq', '.fq.gz', '.fastq.gz'),
@@ -1039,11 +1080,12 @@ def guess_file_format(file_name, file_extensions=default_file_extensions):
     return None
 
 
-def open_file_obj(fh, file_format=None, file_extensions=default_file_extensions) -> (object):
+def open_file_obj(fh, file_format=None, file_extensions=default_file_extensions) -> object:
     """ Opens a file object.
 
     If a pysam compatible file format was detected, the respcetive pysam object is instantiated.
 
+    :param file_extensions: a dict of file extension mappings
     :parameter fh : str or file path object
     :parameter file_format : str
         Can be any <supported_formats> or None for auto-detection from filename (valid file extensions can be configured).
@@ -1056,13 +1098,10 @@ def open_file_obj(fh, file_format=None, file_extensions=default_file_extensions)
     # instantiate pysam object
     if file_format == 'fasta':
         fh = pysam.Fastafile(fh)  # @UndefinedVariable
-        was_opened = True
     elif file_format == 'sam':
         fh = pysam.AlignmentFile(fh, "r")  # @UndefinedVariable
-        was_opened = True
     elif file_format == 'bam':
         fh = pysam.AlignmentFile(fh, "rb")  # @UndefinedVariable
-        was_opened = True
     elif file_format == 'bed':
         fh = pysam.TabixFile(fh, mode="r")  # @UndefinedVariable
     elif file_format == 'gtf':
@@ -1120,7 +1159,7 @@ def move_id_to_info_field(vcf_in, info_field_name, vcf_out, desc=None):
     for record in vcf.fetch():
         record.info[info_field_name] = ','.join(record.id.split(';'))
         record.id = '.'
-        written = out.write(record)
+        out.write(record)
     out.close()
 
 
@@ -1135,7 +1174,7 @@ def add_contig_headers(vcf_in, ref_fasta, vcf_out):
         header.add_line("##contig=<ID=%s,length=%i" % (c, fa.get_reference_length(c)))
     with pysam.VariantFile(vcf_out, mode="w", header=header) as out:
         for record in vcf.fetch():
-            written = out.write(record)
+            out.write(record)
 
 
 # --------------------------------------------------------------
@@ -1143,7 +1182,7 @@ def add_contig_headers(vcf_in, ref_fasta, vcf_out):
 # --------------------------------------------------------------
 
 def _fast5_tree(h5node, prefix: str = '', space='    ', branch='│   ', tee='├── ', last='└── ', max_lines=10,
-                show_attrs=True, show_values=True):
+                show_attrs=True):
     """ Recursively yielding strings describing the structure of an h5 file """
     if hasattr(h5node, 'keys'):
         contents = list(h5node.keys())
@@ -1196,3 +1235,27 @@ def get_bcgs(fast5_file):
     with h5py.File(fast5_file, 'r') as f:
         first_rn = next(iter(f.keys()))
         return [a for a in list(f[first_rn]['Analyses']) if a.startswith("Basecall_")]
+
+
+class Timer:
+    """ Simple class for collecting timings of code blocks.
+        Example usage:
+            times=Counter()
+            with Timer(times, "sleep1") as t:
+                time.sleep(.1)
+                print('executed ', t.name)
+            with Timer(times, "sleep2") as t:
+                time.sleep(.2)
+            print(times)
+    """
+
+    def __init__(self, tdict, name):
+        self.tdict = tdict
+        self.name = name
+
+    def __enter__(self):
+        self.tdict[self.name] = timeit.default_timer()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.tdict[self.name] = timeit.default_timer() - self.tdict[self.name]

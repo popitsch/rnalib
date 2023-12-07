@@ -28,7 +28,7 @@ jupyter notebook for detailed usage examples.
 ## Gene model
 
 _pygenlib_ can instantiate a gene annotation model from a GTF/GFF3 file and currently supports the various GFF flavours
-from the following annotation sources: gencode, ensembl, ucsc, flybase, mirgenedb. It supports transcript filtering based on location, attribute 
+from the following annotation sources: gencode, ensembl, ucsc, chess, flybase, mirgenedb. It supports transcript filtering based on location, attribute 
 values and explicit lists of included transcript ids.
 
 ![transcriptome datamodel](notebooks/pygenlib_transcriptome.png "Transcriptome datamodel")
@@ -44,7 +44,10 @@ using gene-based interval trees.
 
 ## Related work
 
-- [Pygenomics](https://gitlab.com/gtamazian/pygenomics) A general python genomics library
 - [scikit-bio](https://github.com/biocore/scikit-bio) A general python library for working with biological data
+- [Pyranges](https://pyranges.readthedocs.io/en/latest/index.html) Python library for efficient and intuitive manipulation of genomic intervals
+- [Bioframe](https://bioframe.readthedocs.io/) A python library enabling flexible and scalable operations on genomic intervals built on top of pandas dataframes 
+- [cyvcf2](https://brentp.github.io/cyvcf2/) A fast python VCF parser
+- [Pygenomics](https://gitlab.com/gtamazian/pygenomics) A general python genomics library
+- [BioNumPy](https://bionumpy.github.io/bionumpy/) A python library for efficient representation and analysis of biological data byuilt on top of NumPy
 - [RNAlysis](https://guyteichman.github.io/RNAlysis/build/index.html) Python based RNA-seq analysis software 
-- [Pyranges](https://pyranges.readthedocs.io/en/latest/index.html) Python library for efficient and intuitive manipulation of genomic intervals 
