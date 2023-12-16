@@ -6,7 +6,6 @@ General (low-level) utility methods
 @author: niko.popitsch@univie.ac.at
 """
 import gzip
-import math
 import numbers
 import os
 import random
@@ -30,11 +29,12 @@ import pysam
 from Bio import pairwise2
 from tqdm import tqdm
 
+MAX_INT = 2 ** 31 - 1  # assuming 32-bit ints
+
 
 # ------------------------------------------------------------------------
 # genomic interval implementation
 # ------------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class gi:
     """
@@ -56,22 +56,27 @@ class gi:
         TODO: test overlap/etc for empty intervals (start>end)
     """
     chromosome: str = None
-    start: int = -math.inf
-    end: int = math.inf
+    start: int = 0  # unbounded, ~-inf
+    end: int = MAX_INT  # unbounded, ~+inf
     strand: str = None
 
     def __post_init__(self):
         """ Some sanity checks and default values """
-        object.__setattr__(self, 'start', -math.inf if self.start is None else self.start)
-        object.__setattr__(self, 'end', math.inf if self.end is None else self.end)
+        object.__setattr__(self, 'start', 0 if self.start is None else self.start)
+        object.__setattr__(self, 'end', MAX_INT if self.end is None else self.end)
         object.__setattr__(self, 'strand', self.strand if self.strand != '.' else None)
+        if self.start > self.end:  # empty interval, set start/end to 0/-1
+            object.__setattr__(self, 'start', 0)
+            object.__setattr__(self, 'end', -1)
         assert isinstance(self.start, numbers.Number)
         assert isinstance(self.end, numbers.Number)
         assert self.strand in [None, '+', '-']
 
     def __len__(self):
-        if self.is_empty():
+        if self.is_empty():  # empty intervals have zero length
             return 0
+        if self.start == 0 or self.end == MAX_INT:
+            return MAX_INT  # length of (partially) unbounded intervals is always max_int.
         return self.end - self.start + 1
 
     @classmethod
@@ -85,7 +90,15 @@ class gi:
         strand = None if strand == '' else strand
         return cls(chromosome, int(start), int(end), strand)
 
+    @staticmethod
+    def sort(intervals, refdict):
+        """ Returns a chromosome + coordinate sorted iterable over the passed intervals. Chromosome order is defined by
+        the passed reference dict."""
+        return sorted(intervals, key=lambda x: (refdict.index(x.chromosome), x))
+
     def __repr__(self):
+        if self.is_empty():
+            return f"{self.chromosome}:<empty>"
         return f"{self.chromosome}:{self.start}-{self.end}{'' if self.strand is None else f' ({self.strand})'}"
 
     def get_stranded(self, strand):
@@ -97,7 +110,7 @@ class gi:
         return f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
 
     def is_unbounded(self):
-        return [self.chromosome, self.start, self.end, self.strand] == [None, -math.inf, math.inf, None]
+        return [self.chromosome, self.start, self.end, self.strand] == [None, 0, MAX_INT, None]
 
     def is_empty(self):
         return self.start > self.end
@@ -113,8 +126,6 @@ class gi:
         if strand_specific and self.strand != other.strand:
             return False
         if self.chromosome and other.chromosome and (self.chromosome != other.chromosome):
-            return False
-        if self.is_empty():
             return False
         return True
 
@@ -175,25 +186,35 @@ class gi:
     def right_pos(self):
         return gi(self.chromosome, self.end, self.end, strand=self.strand)
 
-    def overlaps(self, other, strand_specific=False) -> bool:
-        """ Tests whether this interval overlaps the passed one.
-            Supports unrestricted start/end coordinates and optional strand check
-        """
-        if self.is_unbounded():  # overlaps all
-            return True
-        if not self.cs_match(other, strand_specific):
-            return False
-        return self.start <= other.end and other.start <= self.end
-
     def envelops(self, other, strand_specific=False) -> bool:
         """ Tests whether this interval envelops the passed one.
         """
+        if self.is_unbounded():  # envelops all
+            return True
+        if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
+            return False
         if not self.cs_match(other, strand_specific):
             return False
         return self.start <= other.start and self.end >= other.end
 
+    def overlaps(self, other, strand_specific=False) -> bool:
+        """ Tests whether this interval overlaps the passed one.
+            Supports unrestricted start/end coordinates and optional strand check
+        """
+        if self.is_unbounded() or other.is_unbounded():  # overlaps all
+            return True
+        if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
+            return False
+        if not self.cs_match(other, strand_specific):
+            return False
+        return self.start <= other.end and other.start <= self.end
+
     def overlap(self, other, strand_specific=False) -> float:
         """Calculates the overlap with the passed one"""
+        if self.is_unbounded() or other.is_unbounded():  # overlaps all
+            return MAX_INT
+        if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
+            return 0
         if not self.cs_match(other, strand_specific):
             return 0
         return min(self.end, other.end) - max(self.start, other.start) + 1.
@@ -201,8 +222,8 @@ class gi:
     def split_coordinates(self) -> (str, int, int):
         return self.chromosome, self.start, self.end
 
-    @classmethod
-    def merge(cls, loc):
+    @staticmethod
+    def merge(loc):
         """ Merges a list of intervals.
             If intervals are not on the same chromosome or if strand is not matching, None is returned
             The resulting interval will inherit the chromosome and strand of the first passed one.
@@ -279,17 +300,17 @@ class gi:
             Returns a corresponding pybedtools interval object.
             Note that this will fail on open or empty intervals as those are not supported by pygenlib.
             Examples:
-                gi('chr1',1,10).to_pybt_interval()
-                gi('chr1',1,10, strand='-').to_pybt_interval()
+                gi('chr1',1,10).to_pybedtools()
+                gi('chr1',1,10, strand='-').to_pybedtools()
 
-                gi('chr1').to_pybt_interval() # fails with OverflowError: cannot convert float infinity to integer
-                len(gi('chr1',12,10).to_pybt_interval()) # reports wrong length 4294967295
+                gi('chr1').to_pybedtools() # uses maxint as end coordinate
+                NOTE that
+                len(gi('chr1',12,10).to_pybedtools()) # reports wrong length 4294967295 for this empty interval!
         """
         # pybedtools cannot deal with unbounded intervals, so we replace with [0; maxint]
-        start = 1 if self.start == -math.inf else self.start
-        end = 2 ** 31 - 1 if self.end == math.inf else self.end # 32 bit int
+        start = 1 if self.start == 0 else self.start
         # pybedtools: `start` is *always* the 0-based start coordinate
-        return pybedtools.Interval(self.chromosome, start - 1, end,
+        return pybedtools.Interval(self.chromosome, start - 1, self.end,
                                    strand='.' if self.strand is None else self.strand)
 
     def __iter__(self):
@@ -343,7 +364,7 @@ class ReferenceDict(abc.Mapping[str, int]):
             (or smaller at chromosome ends).
         """
         for chrom, chrlen in self.d.items():
-            chrom_gi = gi(chrom, 1, chrlen)
+            chrom_gi = gi(chrom, 1, chrlen) # will use maxint if chrlen is None!
             for block in chrom_gi.split_by_maxwidth(block_size):
                 yield block
 
@@ -368,8 +389,8 @@ class ReferenceDict(abc.Mapping[str, int]):
             print(f"{chrom} not in refdict")
             return None
 
-    @classmethod
-    def merge_and_validate(cls, *refsets, check_order=False, included_chrom=[]):
+    @staticmethod
+    def merge_and_validate(*refsets, check_order=False, included_chrom=[]):
         """
             Checks whether the passed reference sets are compatible and returns the
             merged reference set containing the intersection of common references
@@ -474,8 +495,8 @@ def check_list(lst, mode='inc1') -> bool:
         return all(x > y for x, y in zip(lst, lst[1:]))
     elif mode == 'dec1':
         return all(x - 1 == y for x, y in zip(lst, lst[1:]))
-    elif mode=='eq':
-        g = groupby(lst) # see itertools
+    elif mode == 'eq':
+        g = groupby(lst)  # see itertools
         return next(g, True) and not next(g, False)
     return None
 
@@ -483,6 +504,7 @@ def check_list(lst, mode='inc1') -> bool:
 def all_equal(iterable):
     g = groupby(iterable)
     return next(g, True) and not next(g, False)
+
 
 def split_list(lst, n, is_chunksize=False) -> list:
     """
@@ -534,6 +556,16 @@ def intersect_lists(*lists, check_order=False) -> list:
 def cmp_sets(a, b) -> (bool, bool, bool):
     """ Set comparison. Returns shared, unique(a) and unique(b) items """
     return a & b, a.difference(b), b.difference(a)
+
+
+def get_unique_keys(dict_of_dicts):
+    """ Returns all unique key names from a dict of dicts.
+        Example: get_unique_keys({'a':{'1':12,'2':13}, 'b': {'1':14,'3':43}})
+    """
+    keys = set()
+    for d in dict_of_dicts.values():
+        keys |= d.keys()
+    return keys
 
 
 # --------------------------------------------------------------
@@ -911,9 +943,9 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
             preset = guess_file_format(in_file)
             if preset == 'gtf':
                 preset = 'gff'  # pysam default
-            if preset not in ['gff', 'bed', 'psltbl', 'sam', 'vcf']:  # currerntly supported by tabix
+            if preset not in ['gff', 'bed', 'psltbl', 'sam', 'vcf']:  # currently supported by tabix
                 preset = None
-            print(f"Detected file format for index creation: {preset}")
+            # print(f"Detected file format for index creation: {preset}")
         pysam.tabix_index(out_file, preset=preset, force=True, seq_col=seq_col, start_col=start_col, end_col=end_col,
                           meta_char='#', line_skip=line_skip, zerobased=zerobased)  # @UndefinedVariable
     if del_uncompressed:
@@ -1013,7 +1045,7 @@ def toggle_chr(s):
         return f'chr{s}'
 
 
-def get_reference_dict(fh, fun_alias=None) -> ReferenceDict:
+def get_reference_dict(fh, fun_alias=None, calc_chromlen=False) -> ReferenceDict:
     """ Extracts chromosome names, order and (where possible) length from pysam objects.
 
     Parameters
@@ -1030,26 +1062,39 @@ def get_reference_dict(fh, fun_alias=None) -> ReferenceDict:
     NotImplementedError
         if input type is not supported yet
     """
-    if isinstance(fh, str):
-        fh = open_file_obj(fh)
-    if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
-        return ReferenceDict({c: fh.get_reference_length(c) for c in fh.references},
-                             name=f'References from FASTA file {fh.filename}', fun_alias=fun_alias)
-    elif isinstance(fh, pysam.AlignmentFile):  # @UndefinedVariable
-        return ReferenceDict({c: fh.header.get_reference_length(c) for c in fh.references},
-                             name=f'References from SAM/BAM file {fh.filename}', fun_alias=fun_alias)
-    elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
-        return ReferenceDict({c: None for c in fh.contigs}, name=f'References from TABIX file {fh.filename}',
-                             fun_alias=fun_alias)  # no ref length info in tabix
-    elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
-        return ReferenceDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
-                             name=f'References from VCF file {fh.filename}', fun_alias=fun_alias)
-    else:
-        raise NotImplementedError(f"Unknown input object type {type(fh)}")
+    try:
+        was_opened = False
+        if isinstance(fh, str):
+            was_opened=True
+            fh = open_file_obj(fh)
+        if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
+            return ReferenceDict({c: fh.get_reference_length(c) for c in fh.references},
+                                 name=f'References from FASTA file {fh.filename}', fun_alias=fun_alias)
+        elif isinstance(fh, pysam.AlignmentFile):  # @UndefinedVariable
+            return ReferenceDict({c: fh.header.get_reference_length(c) for c in fh.references},
+                                 name=f'References from SAM/BAM file {fh.filename}', fun_alias=fun_alias)
+        elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
+            if calc_chromlen: # no ref length info in tabix, we need to iterate :-(
+                refdict={}
+                for c in fh.contigs:
+                    for i,line in enumerate(fh.fetch(c)):
+                        pass
+                    refdict[c]=int(line.split('\t')[2])
+            else:
+                refdict = {c: None for c in fh.contigs} # no ref length info in tabix...
+            return ReferenceDict(refdict, name=f'References from TABIX file {fh.filename}',fun_alias=fun_alias)
+        elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
+            return ReferenceDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
+                                 name=f'References from VCF file {fh.filename}', fun_alias=fun_alias)
+        else:
+            raise NotImplementedError(f"Unknown input object type {type(fh)}")
+    finally:
+        if was_opened:
+            fh.close()
 
 
 default_file_extensions = {
-    'fasta': ('.fa', '.fasta', '.fna', '.fa.gz', '.fasta.gz'),
+    'fasta': ('.fa',  '.fasta', '.fna', '.fas', '.fa.gz', '.fasta.gz', '.fna.gz', '.fas.gz'),
     'sam': ('.sam',),
     'bam': ('.bam',),
     'tsv': ('.tsv', '.tsv.gz'),

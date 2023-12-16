@@ -116,6 +116,11 @@ test_resources = {
             "uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/static_files/generic.gff3.gz",
             "filename": "gff/generic.gff3.gz"
         },
+        "pybedtools_gff": {
+            "uri": f"file:///{pybedtools.filenames.example_filename('hg19.gff')}",
+            "format": "gff",
+            "filename": "gff/pybedtools_gff.gff3.gz",
+        },
         # -------------- FASTQ -------------------------------
         "small_fastq": {
             "uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/static_files/test.fq.gz",
@@ -197,8 +202,8 @@ test_resources = {
             "filename": "bed/test.bedgraph.gz"
         },
         "human_umap_k24": {
-            "#uri": "https://bismap.hoffmanlab.org/raw/hg38/k24.umap.bedgraph.gz",
-            "uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/static_files/GRCh38.chr7.k24.umap.bedgraph.gz",
+            "uri": "https://bismap.hoffmanlab.org/raw/hg38/k24.umap.bedgraph.gz",
+            "#uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/static_files/GRCh38.chr7.k24.umap.bedgraph.gz",
             "format": "bed",
             "regions": ["chr7:5529160-5531863"],  # actb ex1+2
             "filename": "bed/GRCh38.k24.umap.ACTB_ex1+2.bedgraph.gz",
@@ -209,10 +214,9 @@ test_resources = {
             "format": "bed",
             "filename": "bed/pybedtools_snps.bed.gz",
         },
-        "pybedtools_gff": {
-            "uri": f"file:///{pybedtools.filenames.example_filename('hg19.gff')}",
-            "format": "gff",
-            "filename": "gff/pybedtools_gff.gff3.gz",
+        "dmel_randomvalues": {
+            "uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/static_files/dmel_randomvalues.bedgraph.gz",
+            "filename": "bed/dmel_randomvalues.bedgraph.gz",
         },
         # -------------- FASTA -------------------------------
         "ACTB+SOX2_genome": {
@@ -222,6 +226,11 @@ test_resources = {
         "dmel_genome": {
             "uri": "https://ftp.flybase.net/genomes/Drosophila_melanogaster/dmel_r6.36_FB2020_05/fasta/dmel-all-chromosome-r6.36.fasta.gz",
             "filename": "fasta/dmel_r6.36.fa.gz"
+        },
+        # -------------- DIV -------------------------------
+        "hgnc_gene_aliases": {
+            "uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/static_files/hgnc_complete_set.head.txt.gz",
+            "filename": "div/hgnc_complete_set.head.txt.gz"
         }
     }
 }

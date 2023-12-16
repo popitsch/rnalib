@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pygenlib.utils import gi, ReferenceDict
+from pygenlib.utils import gi, ReferenceDict, MAX_INT
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +26,6 @@ def merge_result_lists(l):
 
 def from_str(s):
     return [gi.from_str(x) for x in s.split(',')]
-
 
 
 def test_loc_simple():
@@ -188,33 +187,51 @@ def test_regexp():
 
 
 def test_dict():
-    f=from_str('1:1-10 (+),1:1-10 (-),1:10-20 (+),1:25-30 (-),1:1-10 (+),2:1-10,2:11-12')
-    d={k:str(k) for k in f}
+    f = from_str('1:1-10 (+),1:1-10 (-),1:10-20 (+),1:25-30 (-),1:1-10 (+),2:1-10,2:11-12')
+    d = {k: str(k) for k in f}
     assert all(k in d for k in f) and all(k in f for k in f)
 
+
 def test_overlap():
-    assert gi.from_str('1:1-10 (+)').overlap(gi.from_str('1:1-10 (+)'))==10
+    assert gi.from_str('1:1-10 (+)').overlap(gi.from_str('1:1-10 (+)')) == 10
     assert gi.from_str('1:1-10 (+)').overlap(gi.from_str('1:1-10 (-)')) == 10
     assert gi.from_str('1:1-10 (+)').overlap(gi.from_str('1:1-10 (-)'), strand_specific=True) == 0
     assert gi.from_str('1:1-10').overlap(gi.from_str('1:10-15')) == 1
     assert gi.from_str('1:5-10 (+)').overlap(gi.from_str('1:1-5 (-)'), strand_specific=True) == 0
 
+
 def test_sort():
-    locs = from_str("1:1-10(+),3:5-100,1:1-10 (-), chr2:1-10,1:30-40(+)") + [gi(None, 200,300)]
-    #sorted(locs) # no chrom order!
-    refdict=ReferenceDict({'1':None, 'chr2':None, '3':None}, name='test')
-    assert sorted(locs, key=lambda x: (refdict.index(x.chromosome), x)), [locs[x] for x in [4, 0,2,3,1]]
+    """Assert sort order including empty and unbounded intervals"""
+    locs = from_str("1:1-10(+),3:5-100,1:1-10 (-), chr2:1-10,1:30-40(+)") + \
+           [gi(None, 200, 300), gi('1', end=10), gi('chr2', 2, 1)] # empty
+    # sorted(locs) # no chrom order!
+    refdict = ReferenceDict({'1': None, 'chr2': None, '3': None}, name='test')
+    assert sorted(locs, key=lambda x: (refdict.index(x.chromosome), x)), [locs[x] for x in [4, 5, 0, 2, 6, 3, 1]]
+
+
+def test_len():
+    assert len(gi('chr1', 1, 2)) == 2  # interval
+    assert len(gi('chr1', 1, 1)) == 1 # point
+    assert gi('chr1', 20, 10).is_empty() and len(gi('chr1', 20, 10)) == 0 # empty interval
+    assert len(gi()) == MAX_INT # None:-inf-inf # unbounded intervals
+    assert len(gi('chr1', 1)) == MAX_INT # chr1:1-inf
+    assert len(gi('chr1', None, 1)) == MAX_INT # chr1:-inf-1
+
 
 def test_empty():
-    assert gi('chr1', 1,0).is_empty()
-    assert not gi('chr1', 1,0).overlaps(gi('chr1', 1,0))
-    assert gi('chr1', 1,0).overlap(gi('chr1', 1,0))==0
+    assert gi('chr1', 1, 0).is_empty()
+    assert not gi('chr1', 1, 0).overlaps(gi('chr1', 1, 0))
+    assert gi('chr1', 1, 0).overlap(gi('chr1', 1, 0)) == 0
+    assert gi('chr1', 1, 0) == gi('chr1', 1000, 999)  # empty intervals are equal if on same chrom
+    assert gi('chr1', 1, 0) != gi('chr2', 1000, 999)
+
 
 def test_unbounded():
     assert gi().is_unbounded()
 
+
 def test_updownstream():
-    assert gi('chr1', 10, 20).get_upstream(3) is None # no strand: return None
+    assert gi('chr1', 10, 20).get_upstream(3) is None  # no strand: return None
     assert [gi('chr1', 10, 20, '+').get_upstream(3)] == from_str("chr1:7-9(+)")
     assert [gi('chr1', 10, 20, '+').get_downstream(3)] == from_str("chr1:21-23(+)")
     assert [gi('chr1', 10, 20, '-').get_downstream(3)] == from_str("chr1:7-9(-)")

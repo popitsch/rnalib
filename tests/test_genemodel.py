@@ -339,7 +339,8 @@ def test_gff_flavours(base_path):
     }
     t = Transcriptome(config)
     assert 'feature_type' in t.genes[0].__dict__, "Did not copy feature_type field"
-    assert Counter([f.feature_type for f in t.anno]) == {'exon': 2, 'gene': 1, 'transcript': 1, 'intron': 1}
+    # NOTE there should be *no* intron as the exons are directly adjacent to each other
+    assert Counter([f.feature_type for f in t.anno]) == {'exon': 2, 'gene': 1, 'transcript': 1}#, 'intron': 1}
 
     # Chess 3 GFF/GTF
     config = {
@@ -379,7 +380,7 @@ def test_iterator(base_path):
         'annotation_flavour': 'gencode'
     }
     t = Transcriptome(config)
-    assert len(TranscriptomeIterator(t, 'chr3', feature_types=['gene']).take()) == 2 # 2 annotated genes on chr3
+    assert len(TranscriptomeIterator(t, 'chr3', feature_types=['gene']).to_list()) == 2 # 2 annotated genes on chr3
 
 
 def test_annotate(base_path):
@@ -482,3 +483,8 @@ def test_eq_PAR_genes(base_path):  # needs access to /Volumes
 #         'annotation_flavour': 'ensembl'
 #     }
 #     t = Transcriptome(config)
+
+def test_read_alias_file(base_path):
+    aliases, current_symbols = read_alias_file(get_resource('hgnc_gene_aliases'))
+    assert [norm_gn(g, current_symbols, aliases) for g in ['A2MP', 'FLJ23569', 'p170']] == \
+           ['A2MP1', 'A1BG-AS1', 'A2ML1']

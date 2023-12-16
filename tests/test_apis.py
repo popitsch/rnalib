@@ -8,6 +8,7 @@ import pytest
 
 from pygenlib.iterators import AnnotationIterator, GFF3Iterator, BedIterator
 from pygenlib.testdata import get_resource
+from pygenlib.utils import gi
 
 
 @pytest.fixture(autouse=True)
@@ -43,31 +44,47 @@ def test_pybedtools_pitfall_example():
     nearby = genes.closest(intergenic_snps, d=True, stream=True).saveas()
     nbgenes = [gene.name for gene in nearby if int(gene[-1]) < 5000]
     assert len(nbgenes) == 4217, "does this work with this pybedtools version now?"
+
     # now re-run with sorted input files
     gff_file = get_resource("pybedtools_gff")  # this is a sorted, bgzipped and indexed version of the gff file
-    snp_file = get_resource("pybedtools_snps")  # this is a sorted, bgzipped and version versino of the bed file
+    snp_file = get_resource("pybedtools_snps")  # this is a sorted, bgzipped and indexed version of the bed file
     snps = pybedtools.BedTool(snp_file)
     genes = pybedtools.BedTool(gff_file)
     intergenic_snps = snps.subtract(genes).saveas()
     nearby = genes.closest(intergenic_snps, d=True, stream=True).saveas()
     nbgenes = [gene.name for gene in nearby if int(gene[-1]) < 5000]
     assert len(nbgenes) == 2422, "does this work with this pybedtools version now?"
-    # now we recreate with pygenlib methods. We use an intervaltree for querying nearby gene(s)
-    itree = GFF3Iterator(gff_file).build_intervaltrees()
-    # now we collect intergenic snps, i.e., we use an annotationiterator and save all snps with no overlapping gene(s)
+
+    # NOTE: the snps BED file contains 800000 lines with 799218 unique locations of which 1564
+    # share the same start and stop coordinate (i.e., empty intervals). proof:
+    # cat bed/pybedtools_snps.bed.gz | gunzip | cut -f1-3  | awk '{if($2==$3){print $1"\t"$2"\t"$3 }}' | wc -l
+    esnp=[x for loc,x in BedIterator(snp_file).to_list() if loc.is_empty()] # count 'empty' intervals in this BED file
+    assert len(esnp)==1564
+    assert len([loc for loc, _ in BedIterator(snp_file)]) == 800000
+    assert len([loc for loc, x in BedIterator(snp_file) if not loc.is_empty()]) == 800000-1564
+
+    # now we recreate with pygenlib methods.
+    # first we collect intergenic snps, i.e., we use an AnnotationIterator and save all snps with no overlapping gene(s)
     isnp = []
-    gsnp = Counter()
+    gsnp, esnp = Counter(), Counter()
     with AnnotationIterator(BedIterator(snp_file), GFF3Iterator(gff_file)) as it:
         for loc, (v1, v2) in it:
-            if len(v2) == 0:
+            if loc.is_empty():
+                esnp['empty'] += 1
+            elif len(v2) == 0:
                 isnp.append(loc)
             else:
                 for g in v2:
                     gsnp[g.data['ID']] += 1
+
+    pbt_loc = {gi(pi.chrom, pi.start, pi.end) for pi in intergenic_snps if pi.start!=pi.end} # manually remove these wrong entries
+    pgl_loc = {gi(loc.chromosome, loc.start-1, loc.end) for loc in isnp}
     # assert we found the same number of intergenic SNPs
-    assert len(intergenic_snps) == len(isnp)
-    # now we query for genes +/- 5kb. Note that this would report *all* genes within this genomic window, not just the closest one.
+    assert len(pbt_loc), len(pgl_loc)
+
+    # now we query for genes +/- 5kb using an interval tree. Note that this would report *all* genes within this genomic window, not just the closest one.
     # However, we assume that this is the intended behaviour of this analysis and it does not make a difference for this dataset.
+    itree = GFF3Iterator(gff_file).to_intervaltrees()  # will drop empty intervals
     close_genes = set()
     for snp in isnp:
         for g in itree[snp.chromosome][snp.start - 5000:snp.end + 5000]:

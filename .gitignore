@@ -6,3 +6,5 @@
 /testdata/gff/
 /testdata/vcf/
 /testdata/README
+/testdata/div/
+!/testdata/static_files/GRCh38.chr7.k24.umap.bedgraph.gz

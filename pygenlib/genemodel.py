@@ -63,12 +63,15 @@ def read_alias_file(gene_name_alias_file) -> (dict, set):
         tab = pd.read_csv(gene_name_alias_file, sep='\t',
                           dtype={'alias_symbol': str, 'prev_symbol': str, 'symbol': str}, low_memory=False,
                           keep_default_na=False)
-        for _, r in tqdm(tab.iterrows(), desc='load gene aliases', total=tab.shape[0]):
-            current_symbols.add(r['symbol'].strip())
-            for a in r['alias_symbol'].split("|"):
-                aliases[a.strip()] = r['symbol'].strip()
-            for a in r['prev_symbol'].split("|"):
-                aliases[a.strip()] = r['symbol'].strip()
+        for r in tqdm(tab.itertuples(), desc='load gene aliases', total=tab.shape[0]):
+            sym = r.symbol.strip()
+            current_symbols.add(sym)
+            for a in r.alias_symbol.split("|"):
+                if len(a.strip())>0:
+                    aliases[a.strip()] =sym
+            for a in r.prev_symbol.split("|"):
+                if len(a.strip())>0:
+                    aliases[a.strip()] = sym
     return aliases, current_symbols
 
 
@@ -511,31 +514,33 @@ class Transcriptome:
                 strand = tx.loc.strand
                 for rnk, (ex0, ex1) in enumerate(pairwise(tx.children['exon'])):
                     loc = gi(tx.loc.chromosome, ex0.loc.end + 1, ex1.loc.start - 1, strand)
+                    if loc.is_empty():
+                        continue # TODO: what happens to rnk?!
                     feature_type = 'intron'
                     feature_id = f"{tid}_{feature_type}_{len(tx.children[feature_type])}"
                     intron = _mFeature(self, feature_type, feature_id, loc, parent=tx, children={})
                     # copy fields from previous exon
                     intron.anno = ex0.anno.copy()
-                    # add to transcript
+                    # add to transcript only if this is non-empty
                     ex0.parent.children[feature_type].append(intron)
         # log filtered PAR IDs
         if len(filtered_PAR_ids) > 0:
             self.log['filtered_PAR_features'] = len(filtered_PAR_ids)
 
         # step1: create custom dataclasses
-        ft2anno_class = {}
-        ft2child_ftype = {}
+        self._ft2anno_class = {} # contains annotation fields parsed from GFF
+        self._ft2child_ftype = {} # feature 2 child feature types
         fts = set()
         for g in genes.values():
             a, t, s = g.get_anno_rec()
-            ft2anno_class.update(a)
-            ft2child_ftype.update(t)
+            self._ft2anno_class.update(a)
+            self._ft2child_ftype.update(t)
             fts.update(s)
-        ft2class = {
-            ft: Feature.create_sub_class(ft, ft2anno_class.get(ft, {}), ft2child_ftype.get(ft, [])) for ft in fts
+        self._ft2class = {
+            ft: Feature.create_sub_class(ft, self._ft2anno_class.get(ft, {}), self._ft2child_ftype.get(ft, [])) for ft in fts
         }
         # step2: freeze and add to auxiliary data structures
-        self.genes = [g.freeze(ft2class) for g in genes.values()]
+        self.genes = [g.freeze(self._ft2class) for g in genes.values()]
         all_features = list()
         for g in self.genes:
             all_features.append(g)
@@ -849,12 +854,8 @@ class Transcriptome:
                 yield f
 
     def get_struct(self):
-        subtypes = Counter()
-        for f in self.anno.keys():
-            if f.feature_type not in subtypes:
-                subtypes[f.feature_type] = set()
-            subtypes[f.feature_type].update(f.subfeature_types)
-        return subtypes
+        """Return a dict mapping feature to child feature types"""
+        return self._ft2child_ftype
 
 
 # --------------------------------------------------------------
