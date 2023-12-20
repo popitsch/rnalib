@@ -847,7 +847,7 @@ def align_sequence(query, target, report_alignment=False) -> (float, int, int):
     """
         Global alignment of query to target sequence with default scoring.
         Returns a length-normalized alignment score and the start and end positions of the alignment.
-        TODO replace with Bio.Align.PairwiseAligner and expose parameters
+        TODO replace with Bio.Align.PairwiseAligner or biotite and expose parameters
     """
     aln = pairwise2.align.globalxs(  # globalxs(sequenceA, sequenceB, open, extend) -> alignments
         query,

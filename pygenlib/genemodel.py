@@ -94,224 +94,6 @@ def norm_gn(g, current_symbols=None, aliases=None) -> str:
 # ------------------------------------------------------------------------
 # Transcriptome model
 # ------------------------------------------------------------------------
-@dataclass(frozen=True, repr=False)
-class Feature(gi):
-    """
-        A (frozen) genomic feature. Equality of features is defined by comparing their genomic coordinates and strand,
-        as well as their feature_type (e.g., transcript, exon, five_prime_UTR) and feature_id (which should be unique
-        within a transcriptome), as returned by the key() method.
-
-        Features are typically associated with the `Transcriptome` object used to create them and (mutable) annotations
-        stored in the respective transcriptome's `anno` dict can be directly accessed via <feature>.<annotation>.
-
-        This includes some annotations that will actually be calculated (derived) on the fly such as sequences data that
-        will be sliced from a feature's predecessor via the get_sequence() method.
-        For example, if the sequence of an exon is requested via `exon.sequence` then the Feature implementation will
-        search for a 'sequence' annotation in the exons super-features by recursively traversing 'parent' relationships.
-        The exon sequence will then be sliced form this sequence by comparing the respective genomic coordinates (which
-        works only if parent intervals always envelop their children as asserted by the transcriptome implementation).
-    """
-    transcriptome: object = None  # parent transcriptome
-    feature_id: str = None  # unique feature id
-    feature_type: str = None  # a feature type (e.g., exon, intron, etc.)
-    parent: object = field(default=None, hash=False, compare=False)  # an optional parent
-    subfeature_types: tuple = tuple()  # sub-feature types
-
-    def __repr__(self) -> str:
-        return f"{self.feature_type}@{self.chromosome}:{self.start}-{self.end}"
-
-    def key(self) -> tuple:
-        """ Returns a tuple containing feature_id, feature_type and genomic coordinates including strand """
-        return (self.feature_id, self.feature_type, self.chromosome, self.start, self.end, self.strand)
-
-    def __eq__(self, other):
-        """ Compares two features by key. """
-        # if issubclass(other.__class__, Feature): # we cannot check for subclass as pickle/unpickle by ref will
-        # result in different parent classes
-        return self.key() == other.key()
-
-    def __getattr__(self, attr):
-        if attr == 'location':
-            return self.get_location()
-        elif attr == 'rnk':
-            return self.get_rnk()
-        elif self.transcriptome:  # get value from transcriptome anno dict
-            if attr == 'sequence':
-                return self.transcriptome.get_sequence(self)
-            elif attr == 'spliced_sequence':
-                return self.transcriptome.get_sequence(self, mode='spliced')
-            elif attr == 'translated_sequence':
-                return self.transcriptome.get_sequence(self, mode='translated')
-            if attr in self.transcriptome.anno[self]:
-                return self.transcriptome.anno[self][attr]
-        raise AttributeError(f"{self.feature_type} has no attribute/magic function {attr}")
-
-    def get(self, attr, default_value=None, slice_from_parent=False):
-        """ Safe getter supporting default value and slice-from-parent """
-        if slice_from_parent and (self.transcriptome is not None):
-            return self.transcriptome.slice_from_parent(self, attr, default_value=default_value)
-        else:
-            return getattr(self, attr, default_value)
-
-    @classmethod
-    def from_gi(cls, loc, ):
-        """ Init from gi """
-        return cls(loc.chromosome, loc.start, loc.end, loc.strand)
-
-    def get_location(self):
-        """Returns a genomic interval representing the genomic location of this feature."""
-        return gi(self.chromosome, self.start, self.end, self.strand)
-
-    def get_rnk(self):
-        """Rank (1-based index) of feature in this feature's parent children list"""
-        if not self.parent:
-            return None
-        return self.parent.__dict__[self.feature_type].index(self) + 1
-
-    def features(self, feature_types=None):
-        """ Iterates over all sub-features (no sorted)"""
-        for ft in self.subfeature_types:
-            for f in self.__dict__[ft]:
-                if (not feature_types) or (f.feature_type in feature_types):
-                    yield f
-                for sf in f.features():  # recursion
-                    if (not feature_types) or (sf.feature_type in feature_types):
-                        yield sf
-
-    # dynamic feature class creation
-    @classmethod
-    def create_sub_class(cls, feature_type, annotations: dict = None, child_feature_types: list = None):
-        """ Create a subclass of feature with additional fields (as defined in the annotations dict)
-            and child tuples
-        """
-        fields = [('feature_id', str, field(default=None)), ('feature_type', str, field(default=feature_type))]
-        fields += [(k, v, field(default=None)) for k, v in annotations.items() if
-                   k not in ['feature_id', 'feature_type']]
-        if child_feature_types is not None:
-            fields += [(k, tuple, field(default=tuple(), hash=False, compare=False)) for k in child_feature_types]
-        sub_class = make_dataclass(feature_type, fields=fields, bases=(cls,), frozen=True, repr=False, eq=False)
-        return sub_class
-
-
-class _mFeature():
-    """
-        A mutable genomic (annotation) feature that is used only for building a transcriptome.
-    """
-
-    def __init__(self, transcriptome, feature_type, feature_id, loc=None, parent=None, children={}):
-        self.transcriptome = transcriptome
-        self.loc = loc
-        self.ftype = feature_type
-        self.feature_id = feature_id
-        self.parent = parent
-        self.children = children
-        self.anno = {}
-
-    def get_anno_rec(self):
-        """compiles a dict containing all annotations of this feature and all its children per feature_type"""
-        a = {self.ftype: {k: type(v) for k, v in self.anno.items()}}
-        t = {self.ftype: set()}
-        s = {self.ftype}
-        if self.children:
-            for cat in self.children:
-                t[self.ftype].add(cat)
-                s.add(cat)
-                for c in self.children[cat]:
-                    x, y, z = c.get_anno_rec()
-                    a.update(x)
-                    t.update(y)
-                    s.update(z)
-        return a, t, s
-
-    def set_location(self, loc):
-        self.loc = loc
-
-    def __repr__(self):
-        return f"{self.ftype}@{super().__repr__()} ({ {k: len(v) for k, v in self.children.items()} if self.children else 'NA'})"
-
-    def freeze(self, ft2class):
-        """Create a frozen instance (recursively)"""
-        # print(f"Freeze {self}")
-        f = ft2class[self.ftype].from_gi(self.loc)
-        object.__setattr__(f, 'transcriptome', self.transcriptome)
-        object.__setattr__(f, 'feature_id', self.feature_id)
-        for k, v in self.anno.items():
-            object.__setattr__(f, k, v)
-        if self.children:
-            object.__setattr__(f, 'subfeature_types', tuple(self.children))
-            for k in self.children:
-                children = [x.freeze(ft2class) for x in self.children[k]]
-                if self.loc.strand == '-':  # reverse order if on neg strand
-                    children = list(reversed(children))
-                for c in children:
-                    object.__setattr__(c, 'parent', f)
-                object.__setattr__(f, k, tuple(children))
-        return f
-
-
-"""
-    Lists valid sub-feature types (e.g., 'exon', 'CDS') and maps their different string representations in various
-    GFF3 flavours to the corresponding sequence ontology term (e.g., '3UTR' -> 'three_prime_UTR').
-"""
-default_ftype_to_SO = {
-    'gene': 'gene', 'ncRNA_gene': 'gene',
-    'transcript': 'transcript', 'mRNA': 'transcript', 'ncRNA': 'transcript', 'lnc_RNA': 'transcript',
-    'pseudogenic_transcript': 'transcript', 'pre_miRNA': 'transcript', 'rRNA': 'transcript',
-    'snRNA': 'transcript', 'snoRNA': 'transcript', 'tRNA': 'transcript', 'miRNA': 'transcript',
-    'exon': 'exon',
-    'intron': 'intron',
-    'CDS': 'CDS',
-    'three_prime_UTR': 'three_prime_UTR', '3UTR': 'three_prime_UTR', 'UTR3': 'three_prime_UTR',
-    'five_prime_UTR': 'five_prime_UTR', '5UTR': 'five_prime_UTR', 'UTR5': 'five_prime_UTR'
-}
-
-"""
-    List of supported gff flavours and the respective GFF field names.
-"""
-gff_flavours = {
-    ('gencode', 'gff'): {
-        'gid': 'ID', 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent', 'gene_name': 'gene_name',
-        'ftype_to_SO': default_ftype_to_SO
-    },
-    ('gencode', 'gtf'): {
-        'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
-        'gene_name': 'gene_name',
-        'ftype_to_SO': default_ftype_to_SO
-    },
-    ('ensembl', 'gff'): {
-        'gid': 'ID', 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent', 'gene_name': 'Name',
-        'ftype_to_SO': default_ftype_to_SO | {'pseudogene': 'gene'}
-        # 'pseudogene': maps to 'gene' in ensembl but to tx in flybase
-    },
-    ('flybase', 'gtf'): {
-        'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
-        'gene_name': 'gene_symbol',
-        'ftype_to_SO': default_ftype_to_SO | {'pseudogene': 'transcript'}
-        # 'pseudogene': maps to 'gene' in ensembl but to tx in flybase
-    },
-    ('ucsc', 'gtf'): {
-        'gid': None, 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id', 'gene_name': 'gene_name',
-        'ftype_to_SO': default_ftype_to_SO
-    },
-    ('chess', 'gff'): {
-        'gid': None, 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent', 'gene_name': 'gene_name',
-        'ftype_to_SO': default_ftype_to_SO
-    },
-    ('chess', 'gtf'): {
-        'gid': None, 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id', 'gene_name': 'gene_name',
-        'ftype_to_SO': default_ftype_to_SO
-    },
-    ('mirgenedb', 'gff'): {
-        'gid': None, 'tid': 'ID', 'tx_gid': None, 'feat_tid': None, 'gene_name': 'Alias',
-        'ftype_to_SO': {'pre_miRNA': 'transcript', 'miRNA': 'transcript'}
-    },
-    ('generic', 'gff'): {'gid': 'ID', 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent',
-                         'gene_name': 'gene_name', 'ftype_to_SO': default_ftype_to_SO},
-    ('generic', 'gtf'): {'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
-                         'gene_name': 'gene_name', 'ftype_to_SO': default_ftype_to_SO}
-}
-
-
 class Transcriptome:
     """
         Represents a transcriptome as modelled by a GTF/GFF file.
@@ -581,9 +363,7 @@ class Transcriptome:
                 if start < 0:  # add 'N' prefix if coordinates start before (offset-corrected) FASTA
                     prefix = 'N' * abs(start)
                     start = 0
-                self.anno[g]['dna_seq'] = prefix + fasta.fetch(reference=g.chromosome,
-                                                               start=start,
-                                                               end=end)
+                self.anno[g]['dna_seq'] = prefix + fasta.fetch(reference=g.chromosome, start=start, end=end)
                 # add 'N' postfix if coordinates exceed available sequence in fasta
                 self.anno[g]['dna_seq'] += 'N' * (len(g) - len(self.anno[g]['dna_seq']))
                 # print(start,end, len(prefix), len(self.anno[g]['dna_seq']), len(g))
@@ -856,6 +636,226 @@ class Transcriptome:
     def get_struct(self):
         """Return a dict mapping feature to child feature types"""
         return self._ft2child_ftype
+
+
+@dataclass(frozen=True, repr=False)
+class Feature(gi):
+    """
+        A (frozen) genomic feature. Equality of features is defined by comparing their genomic coordinates and strand,
+        as well as their feature_type (e.g., transcript, exon, five_prime_UTR) and feature_id (which should be unique
+        within a transcriptome), as returned by the key() method.
+
+        Features are typically associated with the `Transcriptome` object used to create them and (mutable) annotations
+        stored in the respective transcriptome's `anno` dict can be directly accessed via <feature>.<annotation>.
+
+        This includes some annotations that will actually be calculated (derived) on the fly such as sequences data that
+        will be sliced from a feature's predecessor via the get_sequence() method.
+        For example, if the sequence of an exon is requested via `exon.sequence` then the Feature implementation will
+        search for a 'sequence' annotation in the exons super-features by recursively traversing 'parent' relationships.
+        The exon sequence will then be sliced form this sequence by comparing the respective genomic coordinates (which
+        works only if parent intervals always envelop their children as asserted by the transcriptome implementation).
+    """
+    transcriptome: Transcriptome = None  # parent transcriptome
+    feature_id: str = None  # unique feature id
+    feature_type: str = None  # a feature type (e.g., exon, intron, etc.)
+    parent: object = field(default=None, hash=False, compare=False)  # an optional parent
+    subfeature_types: tuple = tuple()  # sub-feature types
+
+    def __repr__(self) -> str:
+        return f"{self.feature_type}@{self.chromosome}:{self.start}-{self.end}"
+
+    def key(self) -> tuple:
+        """ Returns a tuple containing feature_id, feature_type and genomic coordinates including strand """
+        return (self.feature_id, self.feature_type, self.chromosome, self.start, self.end, self.strand)
+
+    def __eq__(self, other):
+        """ Compares two features by key. """
+        # if issubclass(other.__class__, Feature): # we cannot check for subclass as pickle/unpickle by ref will
+        # result in different parent classes
+        return self.key() == other.key()
+
+    def __getattr__(self, attr):
+        if attr == 'location':
+            return self.get_location()
+        elif attr == 'rnk':
+            return self.get_rnk()
+        elif self.transcriptome:  # get value from transcriptome anno dict
+            if attr == 'sequence':
+                return self.transcriptome.get_sequence(self)
+            elif attr == 'spliced_sequence':
+                return self.transcriptome.get_sequence(self, mode='spliced')
+            elif attr == 'translated_sequence':
+                return self.transcriptome.get_sequence(self, mode='translated')
+            if attr in self.transcriptome.anno[self]:
+                return self.transcriptome.anno[self][attr]
+        raise AttributeError(f"{self.feature_type} has no attribute/magic function {attr}")
+
+    def get(self, attr, default_value=None, slice_from_parent=False):
+        """ Safe getter supporting default value and slice-from-parent """
+        if slice_from_parent and (self.transcriptome is not None):
+            return self.transcriptome.slice_from_parent(self, attr, default_value=default_value)
+        else:
+            return getattr(self, attr, default_value)
+
+    @classmethod
+    def from_gi(cls, loc, ):
+        """ Init from gi """
+        return cls(loc.chromosome, loc.start, loc.end, loc.strand)
+
+    def get_location(self):
+        """Returns a genomic interval representing the genomic location of this feature."""
+        return gi(self.chromosome, self.start, self.end, self.strand)
+
+    def get_rnk(self):
+        """Rank (1-based index) of feature in this feature's parent children list"""
+        if not self.parent:
+            return None
+        return self.parent.__dict__[self.feature_type].index(self) + 1
+
+    def features(self, feature_types=None):
+        """ Iterates over all sub-features (no sorted)"""
+        for ft in self.subfeature_types:
+            for f in self.__dict__[ft]:
+                if (not feature_types) or (f.feature_type in feature_types):
+                    yield f
+                for sf in f.features():  # recursion
+                    if (not feature_types) or (sf.feature_type in feature_types):
+                        yield sf
+
+    # dynamic feature class creation
+    @classmethod
+    def create_sub_class(cls, feature_type, annotations: dict = None, child_feature_types: list = None):
+        """ Create a subclass of feature with additional fields (as defined in the annotations dict)
+            and child tuples
+        """
+        fields = [('feature_id', str, field(default=None)), ('feature_type', str, field(default=feature_type))]
+        fields += [(k, v, field(default=None)) for k, v in annotations.items() if
+                   k not in ['feature_id', 'feature_type']]
+        if child_feature_types is not None:
+            fields += [(k, tuple, field(default=tuple(), hash=False, compare=False)) for k in child_feature_types]
+        sub_class = make_dataclass(feature_type, fields=fields, bases=(cls,), frozen=True, repr=False, eq=False)
+        return sub_class
+
+
+class _mFeature():
+    """
+        A mutable genomic (annotation) feature that is used only for building a transcriptome.
+    """
+
+    def __init__(self, transcriptome, feature_type, feature_id, loc=None, parent=None, children={}):
+        self.transcriptome = transcriptome
+        self.loc = loc
+        self.ftype = feature_type
+        self.feature_id = feature_id
+        self.parent = parent
+        self.children = children
+        self.anno = {}
+
+    def get_anno_rec(self):
+        """compiles a dict containing all annotations of this feature and all its children per feature_type"""
+        a = {self.ftype: {k: type(v) for k, v in self.anno.items()}}
+        t = {self.ftype: set()}
+        s = {self.ftype}
+        if self.children:
+            for cat in self.children:
+                t[self.ftype].add(cat)
+                s.add(cat)
+                for c in self.children[cat]:
+                    x, y, z = c.get_anno_rec()
+                    a.update(x)
+                    t.update(y)
+                    s.update(z)
+        return a, t, s
+
+    def set_location(self, loc):
+        self.loc = loc
+
+    def __repr__(self):
+        return f"{self.ftype}@{super().__repr__()} ({ {k: len(v) for k, v in self.children.items()} if self.children else 'NA'})"
+
+    def freeze(self, ft2class):
+        """Create a frozen instance (recursively)"""
+        # print(f"Freeze {self}")
+        f = ft2class[self.ftype].from_gi(self.loc)
+        object.__setattr__(f, 'transcriptome', self.transcriptome)
+        object.__setattr__(f, 'feature_id', self.feature_id)
+        for k, v in self.anno.items():
+            object.__setattr__(f, k, v)
+        if self.children:
+            object.__setattr__(f, 'subfeature_types', tuple(self.children))
+            for k in self.children:
+                children = [x.freeze(ft2class) for x in self.children[k]]
+                if self.loc.strand == '-':  # reverse order if on neg strand
+                    children = list(reversed(children))
+                for c in children:
+                    object.__setattr__(c, 'parent', f)
+                object.__setattr__(f, k, tuple(children))
+        return f
+
+
+"""
+    Lists valid sub-feature types (e.g., 'exon', 'CDS') and maps their different string representations in various
+    GFF3 flavours to the corresponding sequence ontology term (e.g., '3UTR' -> 'three_prime_UTR').
+"""
+default_ftype_to_SO = {
+    'gene': 'gene', 'ncRNA_gene': 'gene',
+    'transcript': 'transcript', 'mRNA': 'transcript', 'ncRNA': 'transcript', 'lnc_RNA': 'transcript',
+    'pseudogenic_transcript': 'transcript', 'pre_miRNA': 'transcript', 'rRNA': 'transcript',
+    'snRNA': 'transcript', 'snoRNA': 'transcript', 'tRNA': 'transcript', 'miRNA': 'transcript',
+    'exon': 'exon',
+    'intron': 'intron',
+    'CDS': 'CDS',
+    'three_prime_UTR': 'three_prime_UTR', '3UTR': 'three_prime_UTR', 'UTR3': 'three_prime_UTR',
+    'five_prime_UTR': 'five_prime_UTR', '5UTR': 'five_prime_UTR', 'UTR5': 'five_prime_UTR'
+}
+
+"""
+    List of supported gff flavours and the respective GFF field names.
+"""
+gff_flavours = {
+    ('gencode', 'gff'): {
+        'gid': 'ID', 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent', 'gene_name': 'gene_name',
+        'ftype_to_SO': default_ftype_to_SO
+    },
+    ('gencode', 'gtf'): {
+        'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
+        'gene_name': 'gene_name',
+        'ftype_to_SO': default_ftype_to_SO
+    },
+    ('ensembl', 'gff'): {
+        'gid': 'ID', 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent', 'gene_name': 'Name',
+        'ftype_to_SO': default_ftype_to_SO | {'pseudogene': 'gene'}
+        # 'pseudogene': maps to 'gene' in ensembl but to tx in flybase
+    },
+    ('flybase', 'gtf'): {
+        'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
+        'gene_name': 'gene_symbol',
+        'ftype_to_SO': default_ftype_to_SO | {'pseudogene': 'transcript'}
+        # 'pseudogene': maps to 'gene' in ensembl but to tx in flybase
+    },
+    ('ucsc', 'gtf'): {
+        'gid': None, 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id', 'gene_name': 'gene_name',
+        'ftype_to_SO': default_ftype_to_SO
+    },
+    ('chess', 'gff'): {
+        'gid': None, 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent', 'gene_name': 'gene_name',
+        'ftype_to_SO': default_ftype_to_SO
+    },
+    ('chess', 'gtf'): {
+        'gid': None, 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id', 'gene_name': 'gene_name',
+        'ftype_to_SO': default_ftype_to_SO
+    },
+    ('mirgenedb', 'gff'): {
+        'gid': None, 'tid': 'ID', 'tx_gid': None, 'feat_tid': None, 'gene_name': 'Alias',
+        'ftype_to_SO': {'pre_miRNA': 'transcript', 'miRNA': 'transcript'}
+    },
+    ('generic', 'gff'): {'gid': 'ID', 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent',
+                         'gene_name': 'gene_name', 'ftype_to_SO': default_ftype_to_SO},
+    ('generic', 'gtf'): {'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
+                         'gene_name': 'gene_name', 'ftype_to_SO': default_ftype_to_SO}
+}
+
+
 
 
 # --------------------------------------------------------------

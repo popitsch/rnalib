@@ -4,10 +4,10 @@ from pathlib import Path
 import pytest
 import os
 import copy
+import biotite.sequence as seq
 from pygenlib.genemodel import *
 from pygenlib.iterators import BedGraphIterator, ReadIterator
 from pygenlib.utils import print_dir_tree, toggle_chr
-from Bio.Seq import Seq
 from pygenlib.testdata import get_resource
 
 
@@ -70,7 +70,7 @@ def test_genemodel(base_path, default_testdata):
     assert t.gene['SOX2'].sequence[-10:] == 'GACACTGAAA'
 
     # translate
-    assert str(Seq(t.gene['SOX2'].transcript[0].translated_sequence).translate()) == \
+    assert str(seq.NucleotideSequence(t.gene['SOX2'].transcript[0].translated_sequence).translate(complete=True)) == \
            'MYNMMETELKPPGPQQTSGGGGGNSTAAAAGGNQKNSPDRVKRPMNAFMVWSRGQRRKMAQENPKMHNSEISKRLGAEWKLLSETEKRPFIDEAKRLRALHMKEHPDYKYRPRRKTKTLMKKDKYTLPGGLLAPGGNSMASGVGVGAGLGAGVNQRMDSYAHMNGWSNGSYSMMQDQLGYPQHPGLNAHGAAQMQPMHRYDVSALQYNSMTSSQTYMNGSPTYSMSYSQQGTPGMALGSMGSVVKSEASSSPPVVTSSSHSRAPCQAGDLRDMISMYLPGAEVPEPAAPSRLHMSQHYQSGPVPGTAINGTLPLSHM*'
 
     # length of spliced tx seq = sum of length of exon locations
@@ -114,7 +114,7 @@ def test_genemodel(base_path, default_testdata):
     for tx in t.transcripts[:10]:
         # check for premature stop codons which indicate wrong in-silico splicing/translation
         # note that this is not a safe test for any annotated tx as there are special cases, see e.g., FBtr0329895
-        assert len(Seq(tx.translated_sequence).translate(to_stop=True)) == len(tx.translated_sequence) // 3
+        assert len(seq.NucleotideSequence(tx.translated_sequence).translate(complete=True)) == len(tx.translated_sequence) // 3
 
 
 def test_itree(base_path, default_testdata):
