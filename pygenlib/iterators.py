@@ -63,7 +63,7 @@ class LocationIterator:
         self._stats = Counter()  # counter for collecting stats
         self.location = None
         self.per_position = per_position
-        if isinstance(file, str) or isinstance(file, PathLike):
+        if isinstance(file, (str, PathLike)):
             self.file = open_file_obj(file, file_format=file_format)  # open new object
             self.was_opened = True
         else:
@@ -213,9 +213,11 @@ class TranscriptomeIterator(LocationIterator):
 
     def to_dataframe(self,
                      fun=lambda loc, item, fun_col, default_value: [loc.get(col, default_value) for col in fun_col],
+                     fun_col=None,
+                     coord_inc=(0, 0),
+                     coord_colnames=['Chromosome', 'Start', 'End', 'Strand'],
                      excluded_columns={'dna_seq'},
                      included_columns=None,
-                     coord_inc=(0, 0), coord_colnames=['Chromosome', 'Start', 'End', 'Strand'],
                      dtypes=None,
                      default_value=None):
         """ Consumes iterator and returns results in a dataframe.
@@ -225,6 +227,8 @@ class TranscriptomeIterator(LocationIterator):
             fun_col column values in the created dataframe
         """
         # mandatory fields; we use a dict to keep column order nice
+        if fun_col is None:
+            fun_col = ['Value']
         fun_col = {'feature_id': None, 'feature_type': None}
         # add all annotation keys from the anno dict
         fun_col.update(dict.fromkeys(get_unique_keys(self.t.anno), None))

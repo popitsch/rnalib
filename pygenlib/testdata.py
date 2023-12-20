@@ -35,34 +35,9 @@ import pybedtools
 import numpy as np
 import pandas as pd
 
-
-def list_resources():
-    """returns a List of all available test resources"""
-    l = [k for k in test_resources['resources'].keys()]
-    l += [f'pybedtools::{k}' for k in pybedtools.filenames.list_example_files()]
-    return l
-
-
-def get_resource(k):
-    """
-        Return a file link to the test resource with the passed key.
-        If the passed key starts with 'pybedtools::<filename>', then the respective pybedtools test file will be
-        returned.
-
-
-
-        Examples:
-            get_resource("gencode_gff")
-            get_resource("pybedtools::snps.bed.gz")
-
-    """
-    if k.startswith('pybedtools::'):
-        k = k[len('pybedtools::'):]
-        return pybedtools.filenames.example_filename(k)
-    assert k in test_resources['resources'], f"No test resource with key {k} defined in testdata.py"
-    return f"{test_resources['outdir']}/{test_resources['resources'][k]['filename']}"
-
-
+"""
+    Predefined test resources.
+"""
 test_resources = {
     "outdir": f"{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/",
     "resources": {
@@ -236,6 +211,35 @@ test_resources = {
 }
 
 
+def list_resources():
+    """returns a List of all available test resources"""
+    l = [k for k in test_resources['resources'].keys()]
+    l += [f'pybedtools::{k}' for k in pybedtools.filenames.list_example_files()]
+    return l
+
+
+def get_resource(k, conf=test_resources):
+    """
+        Return a file link to the test resource with the passed key.
+        If the passed key starts with 'pybedtools::<filename>', then the respective pybedtools test file will be
+        returned.
+
+
+
+        Examples:
+            get_resource("gencode_gff")
+            get_resource("pybedtools::snps.bed.gz")
+
+    """
+    if k.startswith('pybedtools::'):
+        k = k[len('pybedtools::'):]
+        return pybedtools.filenames.example_filename(k)
+    assert k in conf['resources'], f"No test resource with key {k} defined in passed config"
+    return f"{conf['outdir']}/{conf['resources'][k]['filename']}"
+
+
+
+
 def download_bgzip_slice(config, resname, view_tempdir=False):
     res = config['resources'][resname]
     outfile = f"{config['outdir']}/{res['filename']}"
@@ -272,7 +276,7 @@ def download_bgzip_slice(config, resname, view_tempdir=False):
             if ff in ['gff', 'gtf', 'bed', 'vcf']:  # use bgzip and index with tabix, sort, slice
                 tmpfile = f"{tempdirname}/sorted.{ff}.gz"
                 subprocess.call(f'bedtools sort -header -i {f} | bgzip > {tmpfile}', shell=True)  # index
-                subprocess.call(f'tabix {tmpfile}', shell=True)  # index
+                subprocess.call(f'tabix {res.get("tabix_options","")} {tmpfile}', shell=True)  # index
                 f = tmpfile
             if ff == "fasta":
                 if outfile.endswith(".gz"):
