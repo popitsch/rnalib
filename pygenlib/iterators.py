@@ -56,7 +56,7 @@ class LocationIterator:
 
         region genomic region to iterate; overrides chromosome/start/end/strand params
     """
-
+    @abstractmethod
     def __init__(self, file, chromosome=None, start=None, end=None, region=None, strand=None, file_format=None,
                  chunk_size=1024, per_position=False,
                  fun_alias=None, refdict=None, calc_chromlen=False):
@@ -303,7 +303,7 @@ class TranscriptomeIterator(LocationIterator):
                  fun_col=('Value',),
                  coord_inc=(0, 0),
                  coord_colnames=('Chromosome', 'Start', 'End', 'Strand'),
-                 excluded_columns={'dna_seq'},
+                 excluded_columns=('dna_seq',),
                  included_columns=None,
                  dtypes=None,
                  default_value=None,
@@ -599,7 +599,7 @@ class VcfRecord:
             self.is_indel = True
             start, end = pysam_var.pos + 2, pysam_var.pos + len(pysam_var.alt)  # 0-based in pysam
         self.pos = start
-        self.location = gi(refdict.alias(pysam_var.contig), start, end, None)
+        self.location = gi(refdict.alias(pysam_var.contig), start, end, None)  # noinspection PyTypeChecker
         self.id = pysam_var.id if pysam_var.id != '.' else None
         self.ref = pysam_var.ref
         self.alt = pysam_var.alt
@@ -1376,6 +1376,7 @@ class AnnotationIterator(LocationIterator):
         self.chromosomes = it.chromosomes
         self.disable_progressbar = disable_progressbar
         self.Result = namedtuple('Result', ['anno'] + labels)  # result type
+        self.current = None
 
     @LocationIterator.stats.getter
     def stats(self):

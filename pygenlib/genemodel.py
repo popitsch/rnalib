@@ -17,8 +17,8 @@ from more_itertools import pairwise, triplewise
 from tqdm.auto import tqdm
 
 from pygenlib.iterators import GFF3Iterator, AnnotationIterator, TranscriptomeIterator
-from pygenlib.utils import gi, reverse_complement, get_config, get_reference_dict, open_file_obj, ReferenceDict, to_str, \
-    bgzip_and_tabix, toggle_chr, guess_file_format
+from pygenlib.utils import gi, reverse_complement, get_config, get_reference_dict, open_file_obj, ReferenceDict, \
+    to_str, bgzip_and_tabix, toggle_chr, guess_file_format
 
 
 # ------------------------------------------------------------------------
@@ -67,10 +67,10 @@ def read_alias_file(gene_name_alias_file, disable_progressbar=False) -> (dict, s
             sym = r.symbol.strip()
             current_symbols.add(sym)
             for a in r.alias_symbol.split("|"):
-                if len(a.strip())>0:
-                    aliases[a.strip()] =sym
+                if len(a.strip()) > 0:
+                    aliases[a.strip()] = sym
             for a in r.prev_symbol.split("|"):
-                if len(a.strip())>0:
+                if len(a.strip()) > 0:
                     aliases[a.strip()] = sym
     return aliases, current_symbols
 
@@ -110,15 +110,15 @@ class Transcriptome:
             sub-features to optimize storage and computational requirements, see the `Feature` documentation for
             examples. To enable this, however, parent features *must* envelop (i.e., completely contain) child feature
             locations and this requirement is asserted when building the `transcriptome`.
-        -   A `transcriptome` maintains an `anno` dict mapping (frozen) features to dicts of arbitrary annotation values.
-            This supports incremental and flexible annotation of `transcriptome` features. Values can directly be
-            accessed via dot notation <feature>.<attribute> and can be stored/loaded to/from a (pickled) file.
+        -   A `transcriptome` maintains an `anno` dict mapping (frozen) features to dicts of arbitrary annotation
+            values. This supports incremental and flexible annotation of `transcriptome` features. Values can directly
+            be accessed via dot notation <feature>.<attribute> and can be stored/loaded to/from a (pickled) file.
         -   `Feature` sequences can be added via `load_sequences()` which will extract the sequence of the top-level
-            feature ('gene') from the configured reference genome. Sequences can then be accessed via get_sequence(). For
-            sub-features (e.g., transcripts, exons, etc.) the respective sequence will be sliced from the gene sequence.
-            If mode='rna' is passed, the sequence is returned in 5'-3' orientation, i.e., they are reverse-complemented
-            for minus-strand transcripts. The returned sequence will, however, still use the DNA alphabet (ACTG) to
-            enable direct alignment/comparison with genomic sequences.
+            feature ('gene') from the configured reference genome. Sequences can then be accessed via get_sequence().
+            For sub-features (e.g., transcripts, exons, etc.) the respective sequence will be sliced from the gene
+            sequence. If mode='rna' is passed, the sequence is returned in 5'-3' orientation, i.e., they are
+            reverse-complemented for minus-strand transcripts. The returned sequence will, however, still use the DNA
+            alphabet (ACTG) to enable direct alignment/comparison with genomic sequences.
             if mode='spliced', the spliced 5'-3' sequence will be returned.
             if mode='translated', the spliced 5'-3' CDS sequence will be returned.
         -   Genomic range queries via `query()` are supported by a combination of interval and linear search queries.
@@ -143,13 +143,13 @@ class Transcriptome:
         self.has_seq = False  # if true, then gene objects are annotated with the respective genomic (dna) sequences
         self.anno = {}  # a dict that holds annotation data for each feature
         self.chr2itree = {}  # a dict mapping chromosome ids to annotation interval trees.
-        self.genes = [] # list of genes
-        self.transcripts = [] # list of transcripts
+        self.genes = []  # list of genes
+        self.transcripts = []  # list of transcripts
         self.build()  # build the transcriptome object
 
     def build(self):
         # show or hide progressbar
-        disable_progressbar =get_config(self.config,'disable_progressbar', False)
+        disable_progressbar = get_config(self.config, 'disable_progressbar', False)
         # read gene aliases (optional)
         aliases, current_symbols = (None, None) if get_config(self.config, 'gene_name_alias_file',
                                                               default_value=None) is None else read_alias_file(
@@ -166,13 +166,13 @@ class Transcriptome:
         # get GFF aliasing function
         annotation_fun_alias = get_config(self.config, 'annotation_fun_alias', default_value=None)
         if annotation_fun_alias is not None:
-            assert annotation_fun_alias in globals(), f"fun_alias function {annotation_fun_alias} undefined in globals()"
+            assert annotation_fun_alias in globals(), f"fun_alias func {annotation_fun_alias} undefined in globals()"
             annotation_fun_alias = globals()[annotation_fun_alias]
             print(f"Using aliasing function for annotation_gff: {annotation_fun_alias}")
         # estimate valid chrom
 
-        rd = [get_reference_dict(
-            open_file_obj(get_config(self.config, 'genome_fa', required=True)))] if 'genome_fa' in self.config else []
+        rd = [get_reference_dict(open_file_obj(get_config(self.config, 'genome_fa', required=True)))] \
+            if 'genome_fa' in self.config else []
         rd += [get_reference_dict(open_file_obj(get_config(self.config, 'annotation_gff', required=True)),
                                   fun_alias=annotation_fun_alias)]
         self.merged_refdict = ReferenceDict.merge_and_validate(*rd, check_order=False,
@@ -184,7 +184,8 @@ class Transcriptome:
         genes = {}
         transcripts = {}
         line_number = 0
-        for chrom in tqdm(self.merged_refdict, f"Building transcriptome ({self.txfilter})", disable=disable_progressbar):
+        for chrom in tqdm(self.merged_refdict, f"Building transcriptome ({self.txfilter})",
+                          disable=disable_progressbar):
             # PASS 1: build gene objects
             with GFF3Iterator(get_config(self.config, 'annotation_gff', required=True), chrom,
                               fun_alias=annotation_fun_alias) as it:
@@ -195,8 +196,7 @@ class Transcriptome:
                         if ftype == 'gene':  # build gene object
                             gid = info.get(fmt['gid'], 'None')
                             if gid is None:
-                                print(
-                                    f"Skipping {annotation_flavour} {file_format} line {line_number + 1} ({info['feature_type']}), info:\n\t{info} as no gene_id found.")
+                                print(f"Skipping {annotation_flavour} {file_format} line {line_number + 1} ({info['feature_type']}), info:\n\t{info} as no gene_id found.")
                                 continue
                             genes[gid] = _mFeature(self, 'gene', gid, loc, parent=None, children={'transcript': []})
                             for cf in copied_fields:
@@ -300,7 +300,7 @@ class Transcriptome:
                 for rnk, (ex0, ex1) in enumerate(pairwise(tx.children['exon'])):
                     loc = gi(tx.loc.chromosome, ex0.loc.end + 1, ex1.loc.start - 1, strand)
                     if loc.is_empty():
-                        continue # TODO: what happens to rnk?!
+                        continue  # TODO: what happens to rnk?!
                     feature_type = 'intron'
                     feature_id = f"{tid}_{feature_type}_{len(tx.children[feature_type])}"
                     intron = _mFeature(self, feature_type, feature_id, loc, parent=tx, children={})
@@ -313,8 +313,8 @@ class Transcriptome:
             self.log['filtered_PAR_features'] = len(filtered_PAR_ids)
 
         # step1: create custom dataclasses
-        self._ft2anno_class = {} # contains annotation fields parsed from GFF
-        self._ft2child_ftype = {} # feature 2 child feature types
+        self._ft2anno_class = {}  # contains annotation fields parsed from GFF
+        self._ft2child_ftype = {}  # feature 2 child feature types
         fts = set()
         for g in genes.values():
             a, t, s = g.get_anno_rec()
@@ -322,7 +322,8 @@ class Transcriptome:
             self._ft2child_ftype.update(t)
             fts.update(s)
         self._ft2class = {
-            ft: Feature.create_sub_class(ft, self._ft2anno_class.get(ft, {}), self._ft2child_ftype.get(ft, [])) for ft in fts
+            ft: Feature.create_sub_class(ft, self._ft2anno_class.get(ft, {}), self._ft2child_ftype.get(ft, [])) for ft
+            in fts
         }
         # step2: freeze and add to auxiliary data structures
         self.genes = [g.freeze(self._ft2class) for g in genes.values()]
@@ -358,7 +359,7 @@ class Transcriptome:
             Requires a 'genome_fa' config entry.
         """
         genome_offsets = get_config(self.config, 'genome_offsets', default_value={})
-        disable_progressbar = get_config(self.config, 'disable_progressbar', False) # show or hide progressbar
+        disable_progressbar = get_config(self.config, 'disable_progressbar', False)  # show or hide progressbar
         with pysam.Fastafile(get_config(self.config, 'genome_fa', required=True)) as fasta:
             for g in tqdm(self.genes, desc='Load sequences', total=len(self.genes), disable=disable_progressbar):
                 start = g.start - genome_offsets.get(g.chromosome, 1)
@@ -541,7 +542,7 @@ class Transcriptome:
         print(f"Loaded {obj}")
         return obj
 
-    def clear_annotations(self, retain_keys=['dna_seq']):
+    def clear_annotations(self, retain_keys=('dna_seq',)):
         """
         Clears this transcriptome's annotations (except for retain_keys annotations (by default: 'dna_seq')).
         """
@@ -583,7 +584,7 @@ class Transcriptome:
                     self.anno[k2o[k]] = v
 
     def to_gff3(self, out_file, bgzip=True,
-                feature_types=['gene', 'transcript', 'exon', 'intron', 'CDS', 'three_prime_UTR', 'five_prime_UTR']):
+                feature_types=('gene', 'transcript', 'exon', 'intron', 'CDS', 'three_prime_UTR', 'five_prime_UTR')):
         """
             Writes a GFF3 file with all features of the configured types.
             The output file will be bgzipped and tabixed if bgzip=True.
@@ -746,13 +747,13 @@ class _mFeature():
         A mutable genomic (annotation) feature that is used only for building a transcriptome.
     """
 
-    def __init__(self, transcriptome, feature_type, feature_id, loc=None, parent=None, children={}):
+    def __init__(self, transcriptome, feature_type, feature_id, loc=None, parent=None, children=None):
         self.transcriptome = transcriptome
         self.loc = loc
         self.ftype = feature_type
         self.feature_id = feature_id
         self.parent = parent
-        self.children = children
+        self.children = set() if children is None else children
         self.anno = {}
 
     def get_anno_rec(self):
@@ -858,8 +859,6 @@ gff_flavours = {
     ('generic', 'gtf'): {'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
                          'gene_name': 'gene_name', 'ftype_to_SO': default_ftype_to_SO}
 }
-
-
 
 
 # --------------------------------------------------------------

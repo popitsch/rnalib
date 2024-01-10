@@ -28,12 +28,17 @@
     * htslib (bgzip, tabix)
 
 """
-import os, tempfile, shutil, subprocess, traceback
-from urllib.parse import urlparse
-from pygenlib.utils import download_file, print_dir_tree, guess_file_format
-import pybedtools
+import os
+import shutil
+import subprocess
+import tempfile
+import traceback
+
 import numpy as np
 import pandas as pd
+import pybedtools
+
+from pygenlib.utils import download_file, print_dir_tree, guess_file_format
 
 """
     Predefined test resources.
@@ -218,7 +223,7 @@ def list_resources():
     return l
 
 
-def get_resource(k, conf=test_resources):
+def get_resource(k, conf=None):
     """
         Return a file link to the test resource with the passed key.
         If the passed key starts with 'pybedtools::<filename>', then the respective pybedtools test file will be
@@ -231,6 +236,8 @@ def get_resource(k, conf=test_resources):
             get_resource("pybedtools::snps.bed.gz")
 
     """
+    if conf is None:
+        conf = test_resources
     if k.startswith('pybedtools::'):
         k = k[len('pybedtools::'):]
         return pybedtools.filenames.example_filename(k)
@@ -342,7 +349,7 @@ def download_bgzip_slice(config, resname, view_tempdir=False):
 
 
 def make_random_intervals(n=1000,
-                          chroms=['chr1'],
+                          chroms=('chr1',),
                           max_coord=None,
                           max_length=100):
     """Adapted from bioframe's make_random_intervals method"""

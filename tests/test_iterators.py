@@ -12,9 +12,9 @@ from pygenlib.testdata import get_resource
 from pygenlib.utils import TagFilter, toggle_chr, gi
 
 
-def merge_yields(l) -> (gi, tuple):
+def merge_yields(lst) -> (gi, tuple):
     """ Takes an enumeration of (loc,payload) tuples and returns a tuple (merged location, payloads) """
-    l1, l2 = zip(*l)
+    l1, l2 = zip(*lst)
     mloc = gi.merge(list(l1))
     return mloc, l2
 
@@ -64,7 +64,7 @@ def loc_list(s):
     return [gi.from_str(x) for x in s.split(',')]
 
 
-def stest_MemoryIterator(base_path, testdata):
+def test_MemoryIterator(base_path, testdata):
     d, df = testdata
     assert len(MemoryIterator(d).to_list()) == len(d)
     assert MemoryIterator(d, '2', 10, 20).to_list() == [(gi.from_str('2:1-50'), 'f')]
@@ -94,11 +94,11 @@ def test_FastaIterator(base_path):
     with pysam.Fastafile(fasta_file) as fh:
         ref = {c: fh.fetch(c) for c in fh.references}
     # consume all
-    all = ''.join([s for _, s in FastaIterator(fasta_file, 'chr3', width=1, step=1).to_list()])
-    assert (all == ref['chr3'])
+    all_chrom = ''.join([s for _, s in FastaIterator(fasta_file, 'chr3', width=1, step=1).to_list()])
+    assert (all_chrom == ref['chr3'])
     # with aliasing
-    all = ''.join([s for _, s in FastaIterator(fasta_file, '3', width=1, step=1, fun_alias=toggle_chr).to_list()])
-    assert (all == ref['chr3'])
+    all_chrom = ''.join([s for _, s in FastaIterator(fasta_file, '3', width=1, step=1, fun_alias=toggle_chr).to_list()])
+    assert (all_chrom == ref['chr3'])
     # some edge cases where the provided sequence is shorter than the requested window size
     assert FastaIterator(fasta_file, 'chr7', 3, 6, width=5, step=3, padding=False).to_list() == [
         (gi('chr7', 3, 7), 'GTGCN')]  # 5-mer from region of size 4, wo padding
@@ -132,7 +132,7 @@ def test_TabixIterator(base_path):
     ti = TabixIterator(vcf_file, chromosome='1', coord_inc=[0, 0], pos_indices=[0, 1, 1])
     assert (merge_yields(ti.to_list())[0] == gi('1', 1, 20))
     ti = TabixIterator(vcf_file, chromosome='2', coord_inc=[0, 0], pos_indices=[0, 1, 1])
-    assert len([(l, t) for l, t in ti.to_list()]) == 1
+    assert len([(loc, t) for loc, t in ti.to_list()]) == 1
     with pytest.raises(AssertionError) as e_info:
         TabixIterator(vcf_file, 'unknown_contig', 5, 10)
     print(f'Expected assertion: {e_info}')
@@ -142,7 +142,7 @@ def test_TabixIterator(base_path):
     # bedgraph file but parsed as Tabixfile
     # 0.042+0.083+0.125+0.167+0.208+4*0.3+0.7*2+0.8*2+0.1*20 == 6.824999999999999
     assert sum(
-        [float(r[3]) * len(l) for l, r in TabixIterator(bedg_file, coord_inc=[1, 0]).to_list()]) == pytest.approx(
+        [float(r[3]) * len(loc) for loc, r in TabixIterator(bedg_file, coord_inc=[1, 0]).to_list()]) == pytest.approx(
         6.825)
     # test open intervals
     assert len(TabixIterator(bed_file, region=gi('1'), coord_inc=[0, 0], pos_indices=[0, 1, 1]).to_list()) == 2
@@ -187,12 +187,12 @@ def test_PandasIterator(base_path, testdata):
 def test_BlockLocationIterator(base_path, testdata):
     with BlockLocationIterator(TabixIterator(get_resource('test_bed'), coord_inc=[1, 0], fun_alias=toggle_chr),
                                strategy=BlockStrategy.OVERLAP) as it:
-        locs = [l for l, _ in it]
+        locs = [loc for loc, _ in it]
         assert locs == loc_list('chr1:6-15,chr2:10-150')
     d, df = testdata
     with PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'],
                         coord_off=(0, 0)) as it:
-        assert [l for l, _ in BlockLocationIterator(it, strategy=BlockStrategy.OVERLAP)] == loc_list(
+        assert [loc for loc, _ in BlockLocationIterator(it, strategy=BlockStrategy.OVERLAP)] == loc_list(
             '1:1-20,1:30-40 ,2:1-50')
         assert BlockLocationIterator(it).to_list()[-1][1][1] == ['e', 'g', 'h']  # same start coord
         assert BlockLocationIterator(it, strategy=BlockStrategy.RIGHT).to_list()[-2][1][1] == ['e',
@@ -224,8 +224,8 @@ def test_AnnotationIterator(base_path, testdata):
         'G': gi('chr4', 5, 6),
     }
 
-    def format_results(l):
-        return [(anno, [x[1] for x in i2]) for loc, (anno, i2) in l]
+    def format_results(lst):
+        return [(anno, [x[1] for x in i2]) for loc, (anno, i2) in lst]
 
     assert format_results(AnnotationIterator(MemoryIterator(a), MemoryIterator(b)).to_list()) == \
            [('A', ['D1', 'D2']),
@@ -342,7 +342,7 @@ def test_SyncPerPositionIterator(base_path, testdata):
             """Returns a genomic interval representing the genomic location of this feature."""
             return gi(self.chromosome, self.start, self.end, self.strand)
 
-    class SyncPerPositionIteratorTestDataset():
+    class SyncPerPositionIteratorTestDataset:
         """ 2nd, slow implementation of the sync algorithm for testing"""
 
         def __init__(self, seed=None, n_it=3, n_pos=10, n_chr=2, n_int=5):
@@ -438,7 +438,7 @@ def test_PyrangesIterator(base_path):
     # get exons with same start but different end coords
     res = []
     for mloc, (locs, ex) in BlockLocationIterator(PandasIterator(exons.df, 'Name')):
-        endpos = {l.end for l in locs}
+        endpos = {loc.end for loc in locs}
         if len(endpos) > 1:
             res += [(mloc, (locs, ex))]
     assert len(res) == 5
@@ -489,7 +489,7 @@ def test_ReadIterator(base_path):
                'yielded_items', '1'] == 7388  # samtools view small_example.bam -F 3844 | grep -v "MD:Z:100" | wc -l -> 7388
     # count t/c mismatches
     tc_conv = {}
-    for l, (r, mm) in ReadIterator('bam/small_example.bam', report_mismatches=True, min_base_quality=10):
+    for _, (r, mm) in ReadIterator('bam/small_example.bam', report_mismatches=True, min_base_quality=10):
         if len(mm) > 0:
             is_rev = not r.is_reverse if r.is_read2 else r.is_reverse
             refc = "A" if is_rev else "T"
@@ -535,7 +535,7 @@ def test_FastPileupIterator(base_path):
         assert [(loc.start, c) for loc, c in FastPileupIterator(bam, '1', {22432587})] == \
                [(22432587, Counter({'C': 4}))]
         # 2 positions with  single MM
-        assert [(locl.start, c) for loc, c in FastPileupIterator(bam, '1', {22433446, 22433447})] == [
+        assert [(loc.start, c) for loc, c in FastPileupIterator(bam, '1', {22433446, 22433447})] == [
             (22433446, Counter({'G': 3, 'T': 1})), (22433447, Counter({'C': 3, 'G': 1}))]
         # A G/T SNP with 3 low-quality bases
         assert [(loc.start, c) for loc, c in FastPileupIterator(bam, '1', {22418286}, min_base_quality=10)] \

@@ -26,8 +26,6 @@ from pathlib import Path
 import h5py
 import pybedtools
 import pysam
-from Bio import pairwise2
-from Bio.Align import PairwiseAligner
 from tqdm import tqdm
 
 MAX_INT = 2 ** 31 - 1  # assuming 32-bit ints
@@ -53,8 +51,8 @@ class gi:
         -------
         Chromosomes group intervals and the order of intervals from different groups (chromosomes) is left undefined.
         To sort also by chromosome, one can use a @ReferenceDict which defined the chromosome order:
-        sorted(gis, key=lambda x: (refdict.index(x.chromosome), x)) # note that the index of chromosome 'None' is always 0
-        TODO: test overlap/etc for empty intervals (start>end)
+        sorted(gis, key=lambda x: (refdict.index(x.chromosome), x))
+        Note that the index of chromosome 'None' is always 0
     """
     chromosome: str = None
     start: int = 0  # unbounded, ~-inf
@@ -365,7 +363,7 @@ class ReferenceDict(abc.Mapping[str, int]):
             (or smaller at chromosome ends).
         """
         for chrom, chrlen in self.d.items():
-            chrom_gi = gi(chrom, 1, chrlen) # will use maxint if chrlen is None!
+            chrom_gi = gi(chrom, 1, chrlen)  # will use maxint if chrlen is None!
             for block in chrom_gi.split_by_maxwidth(block_size):
                 yield block
 
@@ -391,7 +389,7 @@ class ReferenceDict(abc.Mapping[str, int]):
             return None
 
     @staticmethod
-    def merge_and_validate(*refsets, check_order=False, included_chrom=[]):
+    def merge_and_validate(*refsets, check_order=False, included_chrom=()):
         """
             Checks whether the passed reference sets are compatible and returns the
             merged reference set containing the intersection of common references
@@ -723,11 +721,12 @@ def download_file(url, filename, show_progress=True):
 
 class ParseMap(dict):
     """
-        Extends default dict to return 'missing char' for missing keys (similar to defaultdict, but doies not enter new values).
-        Should be used with translate()Should be used with translate()
+        Extends default dict to return 'missing char' for missing keys (similar to defaultdict, but does not
+        enter new values). Should be used with translate()
     """
 
     def __init__(self, *args, **kwargs):
+        super().__init__()
         self.missing_char = kwargs.get('missing_char', 'N')
         kwargs.pop('missing_char', None)
         self.update(*args, **kwargs)
@@ -796,7 +795,7 @@ def count_gc(s) -> (int, float):
     return ngc, ngc / len(s)
 
 
-def count_rest(s, rest=['GGTACC', 'GAATTC', 'CTCGAG', 'CATATG', 'ACTAGT']) -> int:
+def count_rest(s, rest=('GGTACC', 'GAATTC', 'CTCGAG', 'CATATG', 'ACTAGT')) -> int:
     """ Counts number of restriction sites, see https://portals.broadinstitute.org/gpp/public/resources/rules """
     return sum([r in s for r in rest])
 
@@ -842,6 +841,7 @@ def longest_GC_len(seq) -> int:
         last_char = base
     # get max base:return max(c, key=c.get)
     return max(c.values())
+
 
 def find_all(a, sub) -> int:
     """Finds all indices of the passed substring"""
@@ -1039,10 +1039,10 @@ def get_reference_dict(fh, fun_alias=None, calc_chromlen=False) -> ReferenceDict
     NotImplementedError
         if input type is not supported yet
     """
+    was_opened = False
     try:
-        was_opened = False
         if isinstance(fh, str):
-            was_opened=True
+            was_opened = True
             fh = open_file_obj(fh)
         if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
             return ReferenceDict({c: fh.get_reference_length(c) for c in fh.references},
@@ -1051,15 +1051,16 @@ def get_reference_dict(fh, fun_alias=None, calc_chromlen=False) -> ReferenceDict
             return ReferenceDict({c: fh.header.get_reference_length(c) for c in fh.references},
                                  name=f'References from SAM/BAM file {fh.filename}', fun_alias=fun_alias)
         elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
-            if calc_chromlen: # no ref length info in tabix, we need to iterate :-(
-                refdict={}
+            if calc_chromlen:  # no ref length info in tabix, we need to iterate :-(
+                refdict = {}
                 for c in fh.contigs:
-                    for i,line in enumerate(fh.fetch(c)):
-                        pass
-                    refdict[c]=int(line.split('\t')[2])
+                    line = ('', '', '0')  # default
+                    for _, line in enumerate(fh.fetch(c)):
+                        pass  # move to last line
+                    refdict[c] = int(line.split('\t')[2])
             else:
-                refdict = {c: None for c in fh.contigs} # no ref length info in tabix...
-            return ReferenceDict(refdict, name=f'References from TABIX file {fh.filename}',fun_alias=fun_alias)
+                refdict = {c: None for c in fh.contigs}  # no ref length info in tabix...
+            return ReferenceDict(refdict, name=f'References from TABIX file {fh.filename}', fun_alias=fun_alias)
         elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
             return ReferenceDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
                                  name=f'References from VCF file {fh.filename}', fun_alias=fun_alias)
@@ -1071,7 +1072,7 @@ def get_reference_dict(fh, fun_alias=None, calc_chromlen=False) -> ReferenceDict
 
 
 default_file_extensions = {
-    'fasta': ('.fa',  '.fasta', '.fna', '.fas', '.fa.gz', '.fasta.gz', '.fna.gz', '.fas.gz'),
+    'fasta': ('.fa', '.fasta', '.fna', '.fas', '.fa.gz', '.fasta.gz', '.fna.gz', '.fas.gz'),
     'sam': ('.sam',),
     'bam': ('.bam',),
     'tsv': ('.tsv', '.tsv.gz'),
@@ -1084,13 +1085,15 @@ default_file_extensions = {
 }
 
 
-def guess_file_format(file_name, file_extensions=default_file_extensions):
+def guess_file_format(file_name, file_extensions=None):
     """
     Guesses the file format from the file extension
     :param file_name:
     :param file_extensions:
     :return:
     """
+    if file_extensions is None:
+        file_extensions = default_file_extensions
     if file_name is not None:
         for ff, ext in file_extensions.items():  # TODO: make faster
             if file_name.endswith(ext):
@@ -1098,7 +1101,7 @@ def guess_file_format(file_name, file_extensions=default_file_extensions):
     return None
 
 
-def open_file_obj(fh, file_format=None, file_extensions=default_file_extensions) -> object:
+def open_file_obj(fh, file_format=None, file_extensions=None) -> object:
     """ Opens a file object.
 
     If a pysam compatible file format was detected, the respcetive pysam object is instantiated.
@@ -1110,6 +1113,8 @@ def open_file_obj(fh, file_format=None, file_extensions=default_file_extensions)
 
     :returns file_handle : instance (file/pysam object)
     """
+    if file_extensions is None:
+        file_extensions = default_file_extensions
     fh = str(fh)  # convert path to str
     if file_format is None:  # auto detect via file extension
         file_format = guess_file_format(fh, file_extensions)

@@ -16,9 +16,9 @@ def base_path() -> Path:
     return testdir
 
 
-def merge_result_lists(l):
+def merge_result_lists(lst):
     """ helper function """
-    l1, l2 = zip(*l)
+    l1, l2 = zip(*lst)
     m = gi.merge(list(l1))
     seq = ''.join([str(x) for x in l2])
     return m, seq
@@ -123,7 +123,7 @@ def test_loc_merge():
         'f': gi('2', 1, 50)
     }
     d_plus = {x: d[x].get_stranded('+') for x in d}
-    d_minus = {x: d[x].get_stranded('-') for x in d}
+    # d_minus = {x: d[x].get_stranded('-') for x in d}
     assert gi.merge([d_plus['a'], d_plus['a']]) == d_plus['a']
     assert gi.merge([d['a'], d['a']]) == d['a']
     assert gi.merge([d['a'], d['b']]) == gi('1', 1, 20)
@@ -168,11 +168,6 @@ def test_distance():
     assert dist == [0, 0, 5, -15, None, 1]
 
 
-def test_sort():
-    a = from_str('1:1-10 (+),1:1-10 (-),1:10-20 (+),1:25-30 (-),1:1-10 (+),2:1-10,2:11-12')
-    list(sorted(a))
-
-
 def test_eq():
     a = from_str('1:1-10')
     assert a[0] in a
@@ -202,8 +197,7 @@ def test_overlap():
 
 def test_sort():
     """Assert sort order including empty and unbounded intervals"""
-    locs = from_str("1:1-10(+),3:5-100,1:1-10 (-), chr2:1-10,1:30-40(+)") + \
-           [gi(None, 200, 300), gi('1', end=10), gi('chr2', 2, 1)] # empty
+    locs = from_str("1:1-10(+),3:5-100,1:1-10 (-), chr2:1-10,1:30-40(+)") + [gi(None, 200, 300), gi('1', end=10), gi('chr2', 2, 1)]  # empty
     # sorted(locs) # no chrom order!
     refdict = ReferenceDict({'1': None, 'chr2': None, '3': None}, name='test')
     assert sorted(locs, key=lambda x: (refdict.index(x.chromosome), x)), [locs[x] for x in [4, 5, 0, 2, 6, 3, 1]]
@@ -211,11 +205,11 @@ def test_sort():
 
 def test_len():
     assert len(gi('chr1', 1, 2)) == 2  # interval
-    assert len(gi('chr1', 1, 1)) == 1 # point
-    assert gi('chr1', 20, 10).is_empty() and len(gi('chr1', 20, 10)) == 0 # empty interval
-    assert len(gi()) == MAX_INT # None:-inf-inf # unbounded intervals
-    assert len(gi('chr1', 1)) == MAX_INT # chr1:1-inf
-    assert len(gi('chr1', None, 1)) == MAX_INT # chr1:-inf-1
+    assert len(gi('chr1', 1, 1)) == 1  # point
+    assert gi('chr1', 20, 10).is_empty() and len(gi('chr1', 20, 10)) == 0  # empty interval
+    assert len(gi()) == MAX_INT  # None:-inf-inf # unbounded intervals
+    assert len(gi('chr1', 1)) == MAX_INT  # chr1:1-inf
+    assert len(gi('chr1', None, 1)) == MAX_INT  # chr1:-inf-1
 
 
 def test_empty():
