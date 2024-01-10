@@ -51,3 +51,4 @@ using gene-based interval trees.
 - [Pygenomics](https://gitlab.com/gtamazian/pygenomics) A general python genomics library
 - [BioNumPy](https://bionumpy.github.io/bionumpy/) A python library for efficient representation and analysis of biological data byuilt on top of NumPy
 - [RNAlysis](https://guyteichman.github.io/RNAlysis/build/index.html) Python based RNA-seq analysis software 
+- [biotite](https://www.biotite-python.org/) Python genomics library

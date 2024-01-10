@@ -27,6 +27,7 @@ import h5py
 import pybedtools
 import pysam
 from Bio import pairwise2
+from Bio.Align import PairwiseAligner
 from tqdm import tqdm
 
 MAX_INT = 2 ** 31 - 1  # assuming 32-bit ints
@@ -842,30 +843,6 @@ def longest_GC_len(seq) -> int:
     # get max base:return max(c, key=c.get)
     return max(c.values())
 
-
-def align_sequence(query, target, report_alignment=False) -> (float, int, int):
-    """
-        Global alignment of query to target sequence with default scoring.
-        Returns a length-normalized alignment score and the start and end positions of the alignment.
-        TODO replace with Bio.Align.PairwiseAligner or biotite and expose parameters
-    """
-    aln = pairwise2.align.globalxs(  # globalxs(sequenceA, sequenceB, open, extend) -> alignments
-        query,
-        target,
-        -2,
-        -1,
-        penalize_end_gaps=(False, False),  # do not penalize starting/ending gaps
-        score_only=False,
-        one_alignment_only=True)[0]
-    _, _, score, _, _ = aln
-    score = score / len(query)
-    startpos = len(aln[0]) - len(aln[0].lstrip('-'))
-    endpos = len([x for x in aln[1][:len(aln[0].rstrip('-'))] if x != '-'])
-    if report_alignment:
-        return score, startpos, endpos, pairwise2.format_alignment(*aln)
-    return score, startpos, endpos
-
-
 def find_all(a, sub) -> int:
     """Finds all indices of the passed substring"""
     start = 0
@@ -1114,14 +1091,10 @@ def guess_file_format(file_name, file_extensions=default_file_extensions):
     :param file_extensions:
     :return:
     """
-    # fn, ext = os.path.splitext(file_name.lower())
-    # if ext == '.gz':
-    #     fn, ext = os.path.splitext(fn)
-    #     ext += '.gz'
-    # return file_extensions.get(ext, )
-    for ff, ext in file_extensions.items():  # TODO: make faster
-        if file_name.endswith(ext):
-            return ff
+    if file_name is not None:
+        for ff, ext in file_extensions.items():  # TODO: make faster
+            if file_name.endswith(ext):
+                return ff
     return None
 
 

@@ -116,6 +116,9 @@ def test_genemodel(base_path, default_testdata):
         # note that this is not a safe test for any annotated tx as there are special cases, see e.g., FBtr0329895
         assert len(seq.NucleotideSequence(tx.translated_sequence).translate(complete=True)) == len(tx.translated_sequence) // 3
 
+def test_to_dataframe(base_path, default_testdata):
+    t = Transcriptome(default_testdata)
+    TranscriptomeIterator(t).to_dataframe()
 
 def test_itree(base_path, default_testdata):
     t = Transcriptome(default_testdata)

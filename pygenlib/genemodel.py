@@ -14,7 +14,7 @@ import pandas as pd
 import pysam
 from intervaltree import IntervalTree
 from more_itertools import pairwise, triplewise
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from pygenlib.iterators import GFF3Iterator, AnnotationIterator, TranscriptomeIterator
 from pygenlib.utils import gi, reverse_complement, get_config, get_reference_dict, open_file_obj, ReferenceDict, to_str, \
@@ -52,7 +52,7 @@ def geneid2symbol(gene_ids):
     return id2sym
 
 
-def read_alias_file(gene_name_alias_file) -> (dict, set):
+def read_alias_file(gene_name_alias_file, disable_progressbar=False) -> (dict, set):
     """ Reads a gene name aliases from the passed file.
         Supports the download format from genenames.org and vertebrate.genenames.org.
         Returns an alias dict and a set of currently known (active) gene symbols
@@ -63,7 +63,7 @@ def read_alias_file(gene_name_alias_file) -> (dict, set):
         tab = pd.read_csv(gene_name_alias_file, sep='\t',
                           dtype={'alias_symbol': str, 'prev_symbol': str, 'symbol': str}, low_memory=False,
                           keep_default_na=False)
-        for r in tqdm(tab.itertuples(), desc='load gene aliases', total=tab.shape[0]):
+        for r in tqdm(tab.itertuples(), desc='load gene aliases', total=tab.shape[0], disable=disable_progressbar):
             sym = r.symbol.strip()
             current_symbols.add(sym)
             for a in r.alias_symbol.split("|"):
@@ -148,10 +148,13 @@ class Transcriptome:
         self.build()  # build the transcriptome object
 
     def build(self):
+        # show or hide progressbar
+        disable_progressbar =get_config(self.config,'disable_progressbar', False)
         # read gene aliases (optional)
         aliases, current_symbols = (None, None) if get_config(self.config, 'gene_name_alias_file',
                                                               default_value=None) is None else read_alias_file(
-            get_config(self.config, 'gene_name_alias_file', default_value=None))
+            get_config(self.config, 'gene_name_alias_file', default_value=None),
+            disable_progressbar=disable_progressbar)
         # get file_format and flavour
         gtf_file = get_config(self.config, 'annotation_gff', required=True)
         file_format = guess_file_format(gtf_file)
@@ -181,7 +184,7 @@ class Transcriptome:
         genes = {}
         transcripts = {}
         line_number = 0
-        for chrom in tqdm(self.merged_refdict, f"Building transcriptome ({self.txfilter})"):
+        for chrom in tqdm(self.merged_refdict, f"Building transcriptome ({self.txfilter})", disable=disable_progressbar):
             # PASS 1: build gene objects
             with GFF3Iterator(get_config(self.config, 'annotation_gff', required=True), chrom,
                               fun_alias=annotation_fun_alias) as it:
@@ -344,7 +347,7 @@ class Transcriptome:
         if get_config(self.config, 'load_sequences', default_value=False):
             self.load_sequences()
         # build itree
-        for g in tqdm(self.genes, desc=f"Build interval tree", total=len(self.genes)):
+        for g in tqdm(self.genes, desc=f"Build interval tree", total=len(self.genes), disable=disable_progressbar):
             if g.chromosome not in self.chr2itree:
                 self.chr2itree[g.chromosome] = IntervalTree()
             # add 1 to end coordinate, see itree conventions @ https://github.com/chaimleib/intervaltree
@@ -355,8 +358,9 @@ class Transcriptome:
             Requires a 'genome_fa' config entry.
         """
         genome_offsets = get_config(self.config, 'genome_offsets', default_value={})
+        disable_progressbar = get_config(self.config, 'disable_progressbar', False) # show or hide progressbar
         with pysam.Fastafile(get_config(self.config, 'genome_fa', required=True)) as fasta:
-            for g in tqdm(self.genes, desc='Load sequences', total=len(self.genes)):  # len of sequence: 2712
+            for g in tqdm(self.genes, desc='Load sequences', total=len(self.genes), disable=disable_progressbar):
                 start = g.start - genome_offsets.get(g.chromosome, 1)
                 end = g.end - genome_offsets.get(g.chromosome, 1) + 1
                 prefix = ""
@@ -492,7 +496,7 @@ class Transcriptome:
         return overlapping_features
 
     def annotate(self, iterators, fun_anno, labels=None, chromosome=None, start=None, end=None, region=None,
-                 feature_types=None):
+                 feature_types=None, disable_progressbar=True):
         """ Annotates all features of the configured type and in the configured genomic region using the passed fun_anno
             function.
             NOTE: consider removing previous annotations with the clear_annotations() functions before (re-)annotating
@@ -501,8 +505,8 @@ class Transcriptome:
         with AnnotationIterator(TranscriptomeIterator(self, chromosome=chromosome, start=start, end=end, region=region,
                                                       feature_types=feature_types),
                                 iterators, labels) as it:
-            for item in (pbar := tqdm(it)):
-                pbar.set_description(f"buf={[len(x) for x in it.buffer]}")
+            for item in (pbar := tqdm(it, disable=disable_progressbar)):
+                pbar.set_description(f"buffer_size={[len(x) for x in it.buffer]}")
                 fun_anno(item)
         # # which chroms to consider?
         # chroms=self.merged_refdict if chromosome is None else ReferenceDict({chromosome:None})

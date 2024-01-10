@@ -3,7 +3,6 @@ import os
 import random
 from pathlib import Path
 
-import numpy as np
 import pyranges as pr
 import pytest
 
@@ -34,7 +33,7 @@ def base_path() -> Path:
 
 
 @pytest.fixture(autouse=True)
-def testdata() -> pd.DataFrame:
+def testdata() -> (dict, pd.DataFrame):
     # Some overlap tests
     # .........1........  ....2......
     # |-a-|
@@ -56,7 +55,8 @@ def testdata() -> pd.DataFrame:
         'h': gi('2', 21, 50),
     }
     df = pd.DataFrame([(loc.chromosome, loc.start, loc.end, name) for name, loc in d.items()],
-                      columns=['Chromosome', 'Start', 'End', 'Name']).reset_index(drop=True)  # note: this test df is *not* sorted!
+                      columns=['Chromosome', 'Start', 'End', 'Name']).reset_index(
+        drop=True)  # note: this test df is *not* sorted!
     return d, df
 
 
@@ -71,14 +71,16 @@ def stest_MemoryIterator(base_path, testdata):
     # with aliasing
     assert MemoryIterator(d, 'chr2', 10, 20, fun_alias=toggle_chr).to_list() == [(gi.from_str('chr2:1-50'), 'f')]
 
+
 def test_to_dataframe(testdata):
     d, df = testdata
     df = df.sort_values(['Chromosome', 'Start', 'End']).reset_index(drop=True)
-    df2 = MemoryIterator(d).to_dataframe(fun_col=['Name']).drop(columns=['Strand'])
+    df2 = MemoryIterator(d).to_dataframe(fun_col=('Name',)).drop(columns=['Strand'])
     assert df.equals(df2)
     # build a dataframe with read names and mismatch counts from BAM
-    df2 = ReadIterator('bam/small_example.bam', report_mismatches=True, min_base_quality=10).\
-        to_dataframe(fun=lambda loc, item, fun_col, default_value: [item[0].query_name, len(item[1])], fun_col=['ReadName', 'MM'],
+    df2 = ReadIterator('bam/small_example.bam', report_mismatches=True, min_base_quality=10). \
+        to_dataframe(fun=lambda loc, item, fun_col, default_value: [item[0].query_name, len(item[1])],
+                     fun_col=('ReadName', 'MM'),
                      dtypes={'MM': float})
     # assert proper dtypes
     assert df2['MM'].dtype == np.dtype('float64')
@@ -108,9 +110,11 @@ def test_FastaIterator(base_path):
     assert (tiled[:-1] == ref[
         'chr7'])  # NOTE cut last char in tiled as it is padded by a single N (as len(ref['chr7']) % 3 = 2)
     # get the first 10 5-mers with and w/o padding
-    fivemers = [s for _, s in FastaIterator(fasta_file, 'chr7', None, None, width=5, step=2, padding=False).to_list()][:10]
+    fivemers = [s for _, s in FastaIterator(fasta_file, 'chr7', None, None, width=5, step=2, padding=False).to_list()][
+               :10]
     assert fivemers == ['TTGTG', 'GTGCC', 'GCCAT', 'CATTA', 'TTACA', 'ACACT', 'ACTCC', 'TCCAG', 'CAGCC', 'GCCTG']
-    fivemers = [s for _, s in FastaIterator(fasta_file, 'chr7', None, None, width=5, step=2, padding=True).to_list()][:10]
+    fivemers = [s for _, s in FastaIterator(fasta_file, 'chr7', None, None, width=5, step=2, padding=True).to_list()][
+               :10]
     assert fivemers == ['NNTTG', 'TTGTG', 'GTGCC', 'GCCAT', 'CATTA', 'TTACA', 'ACACT', 'ACTCC', 'TCCAG', 'CAGCC']
     # get 11-mers with padding
     ctx = [s for _, s in FastaIterator(fasta_file, 'chr7', 1, 10, width=11, step=1, padding=True)]
@@ -137,7 +141,8 @@ def test_TabixIterator(base_path):
     assert (merge_yields(ti.to_list())[0] == gi('chr1', 6, 15))  # start is 0-based, end is 1-based
     # bedgraph file but parsed as Tabixfile
     # 0.042+0.083+0.125+0.167+0.208+4*0.3+0.7*2+0.8*2+0.1*20 == 6.824999999999999
-    assert sum([float(r[3]) * len(l) for l, r in TabixIterator(bedg_file, coord_inc=[1, 0]).to_list()]) == pytest.approx(
+    assert sum(
+        [float(r[3]) * len(l) for l, r in TabixIterator(bedg_file, coord_inc=[1, 0]).to_list()]) == pytest.approx(
         6.825)
     # test open intervals
     assert len(TabixIterator(bed_file, region=gi('1'), coord_inc=[0, 0], pos_indices=[0, 1, 1]).to_list()) == 2
@@ -170,10 +175,11 @@ def test_GFF3Iterator(base_path):
 
 def test_PandasIterator(base_path, testdata):
     d, df = testdata
-    it = PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0) )
+    it = PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0))
     assert {k: v for v, k in it} == d
     # with aliasing
-    it = PandasIterator(df, 'Name', fun_alias=toggle_chr, coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=[0, 0])
+    it = PandasIterator(df, 'Name', fun_alias=toggle_chr, coord_columns=['Chromosome', 'Start', 'End', 'Strand'],
+                        coord_off=[0, 0])
     d1 = {n: gi('chr' + l.chromosome, l.start, l.end, l.strand) for n, l in d.items()}
     assert {k: v for v, k in it} == d1
 
@@ -184,18 +190,22 @@ def test_BlockLocationIterator(base_path, testdata):
         locs = [l for l, _ in it]
         assert locs == loc_list('chr1:6-15,chr2:10-150')
     d, df = testdata
-    with PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0) ) as it:
+    with PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'],
+                        coord_off=(0, 0)) as it:
         assert [l for l, _ in BlockLocationIterator(it, strategy=BlockStrategy.OVERLAP)] == loc_list(
             '1:1-20,1:30-40 ,2:1-50')
         assert BlockLocationIterator(it).to_list()[-1][1][1] == ['e', 'g', 'h']  # same start coord
-        assert BlockLocationIterator(it, strategy=BlockStrategy.RIGHT).to_list()[-2][1][1] == ['e', 'g']  # same end coord
+        assert BlockLocationIterator(it, strategy=BlockStrategy.RIGHT).to_list()[-2][1][1] == ['e',
+                                                                                               'g']  # same end coord
     # with chr toggle
-    with PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0), fun_alias=toggle_chr) as it:
-        assert BlockLocationIterator(it, strategy=BlockStrategy.RIGHT).to_list()[-2][1][1] == ['e', 'g'] # with aliasing
+    with PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0),
+                        fun_alias=toggle_chr) as it:
+        assert BlockLocationIterator(it, strategy=BlockStrategy.RIGHT).to_list()[-2][1][1] == ['e',
+                                                                                               'g']  # with aliasing
     right_sorted = BlockLocationIterator(PandasIterator(
         df.sort_values(['Chromosome', 'End']), 'Name', is_sorted=True,
         coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0)),
-                                         strategy=BlockStrategy.RIGHT)
+        strategy=BlockStrategy.RIGHT)
     assert [x[1] for _, x in right_sorted.to_list()[-2:]] == [['e', 'g'], ['f', 'h']]
 
 
@@ -237,7 +247,8 @@ def test_AnnotationIterator(base_path, testdata):
     with AnnotationIterator(BedIterator(get_resource('test_bed')),
                             BedGraphIterator(get_resource('test_bedgraph')),
                             labels=['scores']) as it:
-        assert ([(i.anno.name, sum([x.data * loc.overlap(x.location) for x in i.scores])) for loc, i in it.to_list()]) == \
+        assert (
+               [(i.anno.name, sum([x.data * loc.overlap(x.location) for x in i.scores])) for loc, i in it.to_list()]) == \
                [('int1', 1.408), ('int2', 0.3), ('int3', 0)]
         print('stats:', it.stats)
 
@@ -302,7 +313,8 @@ def test_SyncPerPositionIterator(base_path, testdata):
             (gi.from_str('chr1:7-7'), [], ['E'])]
 
     assert [(p, [x[1] for x in i1], [x[1] for x in i2]) for p, (i1, i2) in
-            SyncPerPositionIterator([MemoryIterator(a), MemoryIterator(b)], refdict=MemoryIterator(b).refdict).to_list()] == \
+            SyncPerPositionIterator([MemoryIterator(a), MemoryIterator(b)],
+                                    refdict=MemoryIterator(b).refdict).to_list()] == \
            [(gi.from_str('chr1:1-1'), ['A', 'B'], []),
             (gi.from_str('chr1:2-2'), ['A', 'B', 'C'], ['D']),
             (gi.from_str('chr1:3-3'), ['A', 'B', 'C'], ['D']),
@@ -386,7 +398,7 @@ def test_SyncPerPositionIterator(base_path, testdata):
                 itdata[it] = gis
             ret = {}
             for loc, item in SyncPerPositionIterator([MemoryIterator(itdata[it]) for it in itdata]):
-                ret[loc] = [it[0][0].name for it in item if len(it)>0 ]
+                ret[loc] = [it[0][0].name for it in item if len(it) > 0]
             return ret
 
     # test with random datasets
@@ -451,7 +463,7 @@ def test_TagFilter():
 
 def test_ReadIterator(base_path):
     with ReadIterator('bam/rogue_read.bam', 'SIRVomeERCCome') as it:
-        for l, r in it:
+        for _ in it:
             pass
         assert it.stats['yielded_items', 'SIRVomeERCCome'] == 1
     stats = {x: Counter() for x in ['all', 'def', 'mq20', 'tag']}
@@ -520,24 +532,25 @@ def slow_pileup(bam, chrom, start, stop):
 def test_FastPileupIterator(base_path):
     with open_file_obj('bam/small_example.bam') as bam:
         # A T/C SNP
-        assert [(l.start, c) for l, c in FastPileupIterator(bam, '1', {22432587})] == [(22432587, Counter({'C': 4}))]
+        assert [(loc.start, c) for loc, c in FastPileupIterator(bam, '1', {22432587})] == \
+               [(22432587, Counter({'C': 4}))]
         # 2 positions with  single MM
-        assert [(l.start, c) for l, c in FastPileupIterator(bam, '1', {22433446, 22433447})] == [
+        assert [(locl.start, c) for loc, c in FastPileupIterator(bam, '1', {22433446, 22433447})] == [
             (22433446, Counter({'G': 3, 'T': 1})), (22433447, Counter({'C': 3, 'G': 1}))]
         # A G/T SNP with 3 low-quality bases
-        assert [(l.start, c) for l, c in FastPileupIterator(bam, '1', {22418286}, min_base_quality=10)] == [
-            (22418286, Counter({'T': 12, 'G': 2}))]
+        assert [(loc.start, c) for loc, c in FastPileupIterator(bam, '1', {22418286}, min_base_quality=10)] \
+               == [(22418286, Counter({'T': 12, 'G': 2}))]
         # position with 136 Ts and 1 deletion
-        assert [(l.start, c) for l, c in FastPileupIterator(bam, '1', {22418244})] == [
+        assert [(loc.start, c) for loc, c in FastPileupIterator(bam, '1', {22418244})] == [
             (22418244, Counter({'T': 136, None: 1}))]
         # assert that also uncovered positions are reported
-        assert [(l.start, c) for l, c in FastPileupIterator(bam, '1', range(22379012, 22379015))] == [
+        assert [(loc.start, c) for loc, c in FastPileupIterator(bam, '1', range(22379012, 22379015))] == [
             (22379012, Counter()), (22379013, Counter()), (22379014, Counter({'C': 1}))]
         # assert equal to slow pysam pileup. This region contains uncovered areas, insertions and deletions: chr1:22,408,208-22,408,300
         assert FastPileupIterator(bam, '1', range(22408208, 22408300)).to_list() == slow_pileup(bam, '1', 22408208,
                                                                                                 22408300)
         # test aliasing
-        assert [(l.start, c) for l, c in FastPileupIterator(bam, 'chr1', {22418244}, fun_alias=toggle_chr)] == [
+        assert [(loc.start, c) for loc, c in FastPileupIterator(bam, 'chr1', {22418244}, fun_alias=toggle_chr)] == [
             (22418244, Counter({'T': 136, None: 1}))]
 
 
@@ -570,7 +583,7 @@ def test_VcfIterator(base_path):
     with VcfIterator(get_resource('test_vcf')) as it:
         assert [v.zyg for _, v in it.to_list()] == [{'SAMPLE': 2}] * 4
     with VcfIterator(get_resource('test_vcf')) as it:
-        assert [l.start for l, _ in it.to_list()] == [100001, 200001, 300001,
+        assert [loc.start for loc, _ in it.to_list()] == [100001, 200001, 300001,
                                                       1000]  # first 3 are deletions, so the genomic pos is +1
 
     # with sample filtering
@@ -594,9 +607,8 @@ def test_vcf_and_gff_it(base_path):
     """TODO: expand"""
     gff_file = get_resource('flybase_gtf')
     vcf_file = get_resource('dmel_multisample_vcf')
-    for x in AnnotationIterator(GFF3Iterator(gff_file, '2L', 574299, 575733),
+    for _ in AnnotationIterator(GFF3Iterator(gff_file, '2L', 574299, 575733),
                                 VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721'])):
-        # print(x)
         pass
 
 
@@ -608,20 +620,21 @@ def test_set_chrom(base_path, testdata):
            GFF3Iterator(get_resource('gencode_gff')),
            PandasIterator(df, 'Name')]
     for it in its:
-        all = it.to_list()
+        all_int = it.to_list()
         per_chrom = []
         for c in it.chromosomes:
             it.set_region(gi(c))
             per_chrom.append(it.to_list())
         per_chrom = list(itertools.chain(*per_chrom))
-        assert [l for l, _ in all] == [l for l, _ in per_chrom]
+        assert [loc for loc, _ in all_int] == [loc for loc, _ in per_chrom]
 
 
 def test_pybedtools_it(base_path, testdata):
     # test whether they return the same locations
     for x, y in zip(BedIterator(get_resource('test_bed')), PybedtoolsIterator(get_resource('test_bed'))):
         assert (x.location == y.location)
-    # test filtering, NOTE that the used BED file is not bgzipped and indexed, so its unsafe to use and a warning is created
+    # test filtering, NOTE that the used BED file is not bgzipped and indexed, so its unsafe to use and a
+    # warning is issued
     assert [x.location for x in
             PybedtoolsIterator(get_resource("pybedtools::a.bed"), region=gi.from_str("chr1:1-300"))] == \
            from_str("chr1:2-100 (+), chr1:101-200 (+), chr1:151-500 (-)")
@@ -631,6 +644,7 @@ def test_pybedtools_it(base_path, testdata):
         assert [x.location for x in it] == from_str(
             "chr1:2-100 (+), chr1:101-200 (+), chr1:151-500 (-)")
         print(it.stats)
+
 
 def test_pybedtools_it_anno(base_path, testdata):
     # combine with annotationiterator
@@ -650,12 +664,13 @@ def test_pybedtools_it_anno(base_path, testdata):
 def test_BioframeIterator(base_path, testdata):
     bedgraph_file = get_resource('test_bedgraph')
     refdict = get_reference_dict(bedgraph_file)
-    for roi in [None, gi('1', start=1), gi(), gi('1', 10000, 20000)]: # test with different filter regions
+    for roi in [None, gi('1', start=1), gi(), gi('1', 10000, 20000)]:  # test with different filter regions
         mean_pgl = {}
         for chrom in refdict:
             with BedGraphIterator(bedgraph_file, chromosome=chrom, region=roi) as it:
                 mean_pgl[chrom] = np.nanmean([v for loc, v in it])
-                if np.isnan(mean_pgl[chrom]): # if the roi contains no data we get an empty list and np.nanmean returns nan
+                if np.isnan(
+                        mean_pgl[chrom]):  # if the roi contains no data we get an empty list and np.nanmean returns nan
                     del mean_pgl[chrom]
         mean_bf = BioframeIterator(bedgraph_file, region=roi).df.groupby('chrom')['name'].mean().to_dict()
         assert mean_bf == mean_pgl
