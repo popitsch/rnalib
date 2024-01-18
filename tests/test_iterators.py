@@ -1,15 +1,25 @@
+"""
+Tests for iterators
+"""
 import itertools
-import os
 import random
-from pathlib import Path
+from collections import Counter
+from dataclasses import dataclass
 
+import numpy as np
+import pandas as pd
+import pybedtools
 import pyranges as pr
+import pysam
 import pytest
+from sortedcontainers import SortedList, SortedSet
 
-from pygenlib.genemodel import *
-from pygenlib.iterators import *
+from pygenlib import open_file_obj, TagFilter, FastaIterator, TabixIterator, \
+    BedGraphIterator, BedIterator, gt2zyg, VcfIterator, GFF3Iterator, PandasIterator, BioframeIterator, MemoryIterator, \
+    PybedtoolsIterator, DEFAULT_FLAG_FILTER, ReadIterator, FastPileupIterator, BlockStrategy, BlockLocationIterator, \
+    SyncPerPositionIterator, AnnotationIterator, FastqIterator, gi, ReferenceDict
 from pygenlib.testdata import get_resource
-from pygenlib.utils import TagFilter, toggle_chr, gi
+from pygenlib.utils import toggle_chr
 
 
 def merge_yields(lst) -> (gi, tuple):
@@ -24,15 +34,6 @@ def from_str(s):
 
 
 @pytest.fixture(autouse=True)
-def base_path() -> Path:
-    """Go to testdata dir"""
-    testdir = Path(__file__).parent.parent / "testdata/"
-    print("Setting working dir to %s" % testdir)
-    os.chdir(testdir)
-    return testdir
-
-
-@pytest.fixture(autouse=True)
 def testdata() -> (dict, pd.DataFrame):
     # Some overlap tests
     # .........1........  ....2......
@@ -41,7 +42,7 @@ def testdata() -> (dict, pd.DataFrame):
     #   |-c-|
     #           |-d-|
     #                         |-e-|
-    #                     |-f--------|
+    #                     |-feature--------|
     #                         |-g-|
     #                         |--h---|
     d = {
@@ -50,7 +51,7 @@ def testdata() -> (dict, pd.DataFrame):
         'c': gi('1', 5, 15),
         'd': gi('1', 30, 40),
         'e': gi('2', 21, 30),
-        'f': gi('2', 1, 50),
+        'feature': gi('2', 1, 50),
         'g': gi('2', 21, 30),
         'h': gi('2', 21, 50),
     }
@@ -67,9 +68,9 @@ def loc_list(s):
 def test_MemoryIterator(base_path, testdata):
     d, df = testdata
     assert len(MemoryIterator(d).to_list()) == len(d)
-    assert MemoryIterator(d, '2', 10, 20).to_list() == [(gi.from_str('2:1-50'), 'f')]
+    assert MemoryIterator(d, '2', 10, 20).to_list() == [(gi.from_str('2:1-50'), 'feature')]
     # with aliasing
-    assert MemoryIterator(d, 'chr2', 10, 20, fun_alias=toggle_chr).to_list() == [(gi.from_str('chr2:1-50'), 'f')]
+    assert MemoryIterator(d, 'chr2', 10, 20, fun_alias=toggle_chr).to_list() == [(gi.from_str('chr2:1-50'), 'feature')]
 
 
 def test_to_dataframe(testdata):
@@ -135,7 +136,7 @@ def test_TabixIterator(base_path):
     assert len([(loc, t) for loc, t in ti.to_list()]) == 1
     with pytest.raises(AssertionError) as e_info:
         TabixIterator(vcf_file, 'unknown_contig', 5, 10)
-    print(f'Expected assertion: {e_info}')
+    print(feature'Expected assertion: {e_info}')
     # BED file with added 'chr' prefix
     ti = TabixIterator(bed_file, 'chr1', 1, 10, coord_inc=[1, 0], fun_alias=toggle_chr)
     assert (merge_yields(ti.to_list())[0] == gi('chr1', 6, 15))  # start is 0-based, end is 1-based
@@ -206,7 +207,7 @@ def test_BlockLocationIterator(base_path, testdata):
         df.sort_values(['Chromosome', 'End']), 'Name', is_sorted=True,
         coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0)),
         strategy=BlockStrategy.RIGHT)
-    assert [x[1] for _, x in right_sorted.to_list()[-2:]] == [['e', 'g'], ['f', 'h']]
+    assert [x[1] for _, x in right_sorted.to_list()[-2:]] == [['e', 'g'], ['feature', 'h']]
 
 
 def test_AnnotationIterator(base_path, testdata):
@@ -352,12 +353,12 @@ def test_SyncPerPositionIterator(base_path, testdata):
             self.dat = {}
             self.minmax = {}
             for it in range(n_it):
-                self.dat[f'it{it}'] = {}
+                self.dat[feature'it{it}'] = {}
                 for chrom in range(n_chr):
-                    self.dat[f'it{it}'][f'c{chrom}'] = self.create_rnd_int(it, f'c{chrom}', n_int, n_pos)
+                    self.dat[feature'it{it}'][feature'c{chrom}'] = self.create_rnd_int(it, feature'c{chrom}', n_int, n_pos)
 
         def __repr__(self):
-            return f"SyncPerPositionIteratorTestDataset({self.seed})"
+            return feature"SyncPerPositionIteratorTestDataset({self.seed})"
 
         def create_rnd_int(self, it, chrom, n_int, n_pos):
             random.seed(self.seed)
@@ -366,7 +367,7 @@ def test_SyncPerPositionIterator(base_path, testdata):
                 start = random.randrange(n_pos)
                 end = random.randrange(start, n_pos)
                 g = test_feature.from_gi(gi(chrom, start, end), feature_id=it,
-                                         name=f'it{it}_{chrom}:{start}-{end}_{len(ret)}')
+                                         name=feature'it{it}_{chrom}:{start}-{end}_{len(ret)}')
                 if g.chromosome not in self.minmax:
                     self.minmax[g.chromosome] = range(g.start, g.end)
                 self.minmax[g.chromosome] = range(min(self.minmax[g.chromosome].start, g.start),
@@ -404,11 +405,11 @@ def test_SyncPerPositionIterator(base_path, testdata):
     # test with random datasets
     found_differences = set()
     for seed in range(0, 100):
-        print(f"======================================={seed}============================")
+        print(feature"======================================={seed}============================")
         t = SyncPerPositionIteratorTestDataset(seed)
         # print('found', t.found())
         # print('expected', t.expected())
-        assert len(t.found()) == len(t.expected()), f"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
+        assert len(t.found()) == len(t.expected()), feature"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
         for a, b in zip(t.found(), t.expected()):
             if a != b:
                 if SortedSet(a[1]) != SortedSet(b[1]):
@@ -417,9 +418,9 @@ def test_SyncPerPositionIterator(base_path, testdata):
     # use more intervals, iterators, chromosomes; heavy overlaps
     found_differences = set()
     for seed in range(0, 10):
-        print(f"======================================={seed}============================")
+        print(feature"======================================={seed}============================")
         t = SyncPerPositionIteratorTestDataset(seed, n_it=5, n_pos=100, n_chr=5, n_int=500)
-        assert len(t.found()) == len(t.expected()), f"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
+        assert len(t.found()) == len(t.expected()), feature"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
         for a, b in zip(t.found(), t.expected()):
             if a != b:
                 if SortedSet(a[1][0]) != SortedSet(b[1][0]):
@@ -427,7 +428,7 @@ def test_SyncPerPositionIterator(base_path, testdata):
     assert len(found_differences) == 0
     # for seed in found_differences:
     #     t=SyncPerPositionIteratorTestDataset(seed)
-    #     print(f"differences in {t}")
+    #     print(feature"differences in {t}")
     #     for a, b in zip(t.found(), t.expected()):
     #         if a != b:
     #             print('>', a, b)
@@ -468,7 +469,7 @@ def test_ReadIterator(base_path):
         assert it.stats['yielded_items', 'SIRVomeERCCome'] == 1
     stats = {x: Counter() for x in ['all', 'def', 'mq20', 'tag']}
     with open_file_obj('bam/small_example.bam') as bam:
-        for chrom in get_reference_dict(bam):
+        for chrom in ReferenceDict.load(bam):
             with ReadIterator(bam, chrom, flag_filter=0) as it:
                 it.to_list()
                 stats['all'].update(it.stats)
@@ -663,7 +664,7 @@ def test_pybedtools_it_anno(base_path, testdata):
 
 def test_BioframeIterator(base_path, testdata):
     bedgraph_file = get_resource('test_bedgraph')
-    refdict = get_reference_dict(bedgraph_file)
+    refdict = ReferenceDict.load(bedgraph_file)
     for roi in [None, gi('1', start=1), gi(), gi('1', 10000, 20000)]:  # test with different filter regions
         mean_pgl = {}
         for chrom in refdict:

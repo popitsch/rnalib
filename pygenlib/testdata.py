@@ -5,6 +5,7 @@
         Pygenlib tests use various test data files that can be created by running this python script.
         The contained test_resources dict describes the various test resources and their origin.
         Briefly, this script does the following for each configured resource:
+
         * Download source file from a public URL or copy from the static_files directory
         * Ensure that the files are sorted by genomic coordinates and are compressed and indexed with bgzip and tabix.
         * Slice a genomic subregions from the files if configured
@@ -12,17 +13,19 @@
 
     testdata access:
         Once you have created the testdata folder, you can get the filenames of test resources via the
-        get_resource(<resource_id>) method. If <resource_id> starts with 'pybedtools::<id> then this method
+        `get_resource(<resource_id>)` method. If `<resource_id>` starts with 'pybedtools::<id>' then this method
         will return the filename of the respective pybedtools test file.
         To list the ids of all available test resources, use the list_resources() method.
 
-    Examples:
-        get_resource("gencode_gff")
-        get_resource("pybedtools::hg19.gff")
-        list_resources()
-        ['gencode_gff','gencode_gtf', ... ,'pybedtools::y.bam']
+    Examples
+    --------
+    >>> get_resource("gencode_gff")
+    >>> get_resource("pybedtools::hg19.gff")
+    >>> list_resources()
+    >>> ['gencode_gff','gencode_gtf', ... ,'pybedtools::y.bam']
 
     Note that for testdata creation, the  following external tools need to be installed:
+
     * samtools
     * bedtools
     * htslib (bgzip, tabix)
@@ -38,11 +41,12 @@ import numpy as np
 import pandas as pd
 import pybedtools
 
-from pygenlib.utils import download_file, print_dir_tree, guess_file_format
+from pygenlib import guess_file_format, print_dir_tree, download_file
 
 """
     Predefined test resources.
 """
+#__file__= '/Users/niko/projects/pygenlib/pygenlib/testdata.py'
 test_resources = {
     "outdir": f"{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/",
     "resources": {
@@ -172,7 +176,8 @@ test_resources = {
             "uri": "https://github.com/nf-core/test-datasets/raw/deepvariant/testdata/test_nist.b37_chr20_100kbp_at_10mb.bed",
             "filename": "bed/test_nist.b37_chr20_100kbp_at_10mb.bed"
         },
-        "gencode_bed": { # a bedops-converted gencode_gff file: gff2bed -d < gencode_44.ACTB+SOX2.gff3 | cut -f1-6 | bgzip > gencode_44.ACTB+SOX2.bed.gz
+        "gencode_bed": {
+            # a bedops-converted gencode_gff file: gff2bed -d < gencode_44.ACTB+SOX2.gff3 | cut -f1-6 | bgzip > gencode_44.ACTB+SOX2.bed.gz
             "uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/static_files/gencode_44.ACTB+SOX2.bed.gz",
             "filename": "bed/gencode_44.ACTB+SOX2.bed.gz"
         },
@@ -218,9 +223,9 @@ test_resources = {
 
 def list_resources():
     """returns a List of all available test resources"""
-    l = [k for k in test_resources['resources'].keys()]
-    l += [f'pybedtools::{k}' for k in pybedtools.filenames.list_example_files()]
-    return l
+    lst = [k for k in test_resources['resources'].keys()]
+    lst += [f'pybedtools::{k}' for k in pybedtools.filenames.list_example_files()]
+    return lst
 
 
 def get_resource(k, conf=None):
@@ -229,11 +234,10 @@ def get_resource(k, conf=None):
         If the passed key starts with 'pybedtools::<filename>', then the respective pybedtools test file will be
         returned.
 
-
-
-        Examples:
-            get_resource("gencode_gff")
-            get_resource("pybedtools::snps.bed.gz")
+        Examples
+        --------
+        >>> get_resource("gencode_gff")
+        >>> get_resource("pybedtools::snps.bed.gz")
 
     """
     if conf is None:
@@ -245,10 +249,15 @@ def get_resource(k, conf=None):
     return f"{conf['outdir']}/{conf['resources'][k]['filename']}"
 
 
+def download_bgzip_slice(config, resource_name, view_tempdir=False):
+    """
+        Download the resource with the passed name from the passed config dict.
+        The resource will be downloaded to the testdata directory and will be sorted, compressed and indexed.
+        If the resource is a genomic file (gff, gtf, bed, vcf, fasta, bam), then a subregion can be sliced from the
+        file by passing a list of regions in the 'regions' key of the resource dict.
 
-
-def download_bgzip_slice(config, resname, view_tempdir=False):
-    res = config['resources'][resname]
+    """
+    res = config['resources'][resource_name]
     outfile = f"{config['outdir']}/{res['filename']}"
     outfiledir, outfilename = os.path.dirname(outfile), os.path.basename(outfile)
     ff = res.get("format", guess_file_format(outfile))
@@ -264,7 +273,7 @@ def download_bgzip_slice(config, resname, view_tempdir=False):
         outfiles += [outfile + '.bai']  # bam index
     # check whether all expected resources already exist
     print("===========================================")
-    print(f"Creating testdataset {resname}")
+    print(f"Creating testdataset {resource_name}")
     if not res.get("include", True):
         print("Not included. Skipping...")
         return
@@ -283,7 +292,7 @@ def download_bgzip_slice(config, resname, view_tempdir=False):
             if ff in ['gff', 'gtf', 'bed', 'vcf']:  # use bgzip and index with tabix, sort, slice
                 tmpfile = f"{tempdirname}/sorted.{ff}.gz"
                 subprocess.call(f'bedtools sort -header -i {f} | bgzip > {tmpfile}', shell=True)  # index
-                subprocess.call(f'tabix {res.get("tabix_options","")} {tmpfile}', shell=True)  # index
+                subprocess.call(f'tabix {res.get("tabix_options", "")} {tmpfile}', shell=True)  # index
                 f = tmpfile
             if ff == "fasta":
                 if outfile.endswith(".gz"):
@@ -352,9 +361,12 @@ def make_random_intervals(n=1000,
                           chroms=('chr1',),
                           max_coord=None,
                           max_length=100):
-    """Adapted from bioframe's make_random_intervals method"""
-    n, max_length = int(n),  int(max_length)
-    n_chroms=len(chroms)
+    """
+        Adapted from bioframe's make_random_intervals method.
+        Creates a random set of intervals with the passed parameters.
+    """
+    n, max_length = int(n), int(max_length)
+    n_chroms = len(chroms)
     max_coord = (n // n_chroms) if max_coord is None else int(max_coord)
     chroms = np.array(chroms)[np.random.randint(0, n_chroms, n)]
     starts = np.random.randint(0, max_coord, n)

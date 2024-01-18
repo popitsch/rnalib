@@ -1,12 +1,8 @@
 """
-General (low-level) utility methods
+This module implements various general (low-level) utility methods
 
-
-
-@author: niko.popitsch@univie.ac.at
 """
 import gzip
-import numbers
 import os
 import random
 import re
@@ -16,407 +12,69 @@ import sys
 import timeit
 import unicodedata
 import urllib.request
-from collections import Counter, abc
+from collections import Counter, namedtuple, defaultdict
 from dataclasses import dataclass, field
-from enum import IntEnum
 from functools import reduce
-from itertools import zip_longest, groupby
+from itertools import groupby, zip_longest, islice
 from pathlib import Path
+from typing import Optional, List
 
 import h5py
-import pybedtools
+import mygene
+import pandas as pd
 import pysam
-from tqdm import tqdm
+from IPython.core.display import HTML
+from IPython.core.display_functions import display
+from matplotlib import pyplot as plt
+from tqdm.auto import tqdm
 
-MAX_INT = 2 ** 31 - 1  # assuming 32-bit ints
-
-
-# ------------------------------------------------------------------------
-# genomic interval implementation
-# ------------------------------------------------------------------------
-@dataclass(frozen=True)
-class gi:
-    """
-        Genomic intervals (gi) in pygenlib are inclusive and 1-based.
-        Points are represented by intervals with same start+stop coordinate, empty intervals by passing start>end
-        coordinates (e.g., gi('chr1', 1,0).is_empty() -> True).
-
-        GIs are implemented as frozen(immutable) dataclasses and can be used, e.g., as keys in a dict.
-        They can be instantiated by passing chrom/start/stop coordinates or can be parsed form a string.
-
-        Intervals can be stranded.
-        Using None for each component of the coordinates is allowed to represent unbounded intervals
-
-        sorting
-        -------
-        Chromosomes group intervals and the order of intervals from different groups (chromosomes) is left undefined.
-        To sort also by chromosome, one can use a @ReferenceDict which defined the chromosome order:
-        sorted(gis, key=lambda x: (refdict.index(x.chromosome), x))
-        Note that the index of chromosome 'None' is always 0
-    """
-    chromosome: str = None
-    start: int = 0  # unbounded, ~-inf
-    end: int = MAX_INT  # unbounded, ~+inf
-    strand: str = None
-
-    def __post_init__(self):
-        """ Some sanity checks and default values """
-        object.__setattr__(self, 'start', 0 if self.start is None else self.start)
-        object.__setattr__(self, 'end', MAX_INT if self.end is None else self.end)
-        object.__setattr__(self, 'strand', self.strand if self.strand != '.' else None)
-        if self.start > self.end:  # empty interval, set start/end to 0/-1
-            object.__setattr__(self, 'start', 0)
-            object.__setattr__(self, 'end', -1)
-        assert isinstance(self.start, numbers.Number)
-        assert isinstance(self.end, numbers.Number)
-        assert self.strand in [None, '+', '-']
-
-    def __len__(self):
-        if self.is_empty():  # empty intervals have zero length
-            return 0
-        if self.start == 0 or self.end == MAX_INT:
-            return MAX_INT  # length of (partially) unbounded intervals is always max_int.
-        return self.end - self.start + 1
-
-    @classmethod
-    def from_str(cls, loc_string):
-        """ Parse from <chr>:<start>-<end> (<strand>). Strand is optional"""
-        pattern = re.compile("(\w+):(\d+)-(\d+)(?:[\s]*\(([+-])\))?$")
-        match = pattern.findall(loc_string.strip().replace(',', ''))  # convenience
-        if len(match) == 0:
-            return None
-        chromosome, start, end, strand = match[0]
-        strand = None if strand == '' else strand
-        return cls(chromosome, int(start), int(end), strand)
-
-    @staticmethod
-    def sort(intervals, refdict):
-        """ Returns a chromosome + coordinate sorted iterable over the passed intervals. Chromosome order is defined by
-        the passed reference dict."""
-        return sorted(intervals, key=lambda x: (refdict.index(x.chromosome), x))
-
-    def __repr__(self):
-        if self.is_empty():
-            return f"{self.chromosome}:<empty>"
-        return f"{self.chromosome}:{self.start}-{self.end}{'' if self.strand is None else f' ({self.strand})'}"
-
-    def get_stranded(self, strand):
-        """Get a new object with same coordinates; the strand will be set according to the passed variable."""
-        return gi(self.chromosome, self.start, self.end, strand)
-
-    def to_file_str(self):
-        """ returns a sluggified string representation "<chrom>_<start>_<end>_<strand>"        """
-        return f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
-
-    def is_unbounded(self):
-        return [self.chromosome, self.start, self.end, self.strand] == [None, 0, MAX_INT, None]
-
-    def is_empty(self):
-        return self.start > self.end
-
-    def is_stranded(self):
-        return self.strand is not None
-
-    def cs_match(self, other, strand_specific=False):
-        """ True if this location is on the same chrom/strand as the passed one.
-            will not compare chromosomes if they are unrestricted in one of the intervals.
-            Empty intervals always return False hee
-        """
-        if strand_specific and self.strand != other.strand:
-            return False
-        if self.chromosome and other.chromosome and (self.chromosome != other.chromosome):
-            return False
-        return True
-
-    def __cmp__(self, other, cmp_str, refdict=None):
-        if not self.cs_match(other, strand_specific=False):
-            if refdict is not None:
-                return getattr(refdict.index(self.chromosome), cmp_str)(refdict.index(other.chromosome))
-            return None
-        if self.start != other.start:
-            return getattr(self.start, cmp_str)(other.start)
-        return getattr(self.end, cmp_str)(other.end)
-
-    def __lt__(self, other):
-        """
-            Test whether this interval is smaller than the other.
-            Defined only on same chromosome but allows unrestricted coordinates.
-            If chroms do not match, None is returned.
-        """
-        return self.__cmp__(other, '__lt__')
-
-    def __le__(self, other):
-        """
-            Test whether this interval is smaller or equal than the other.
-            Defined only on same chromosome but allows unrestricted coordinates.
-            If chroms do not match, None is returned.
-        """
-        return self.__cmp__(other, '__le__')
-
-    def __gt__(self, other):
-        """
-            Test whether this interval is greater than the other.
-            Defined only on same chromosome but allows unrestricted coordinates.
-            If chroms do not match, None is returned.
-        """
-        return self.__cmp__(other, '__gt__')
-
-    def __ge__(self, other):
-        """
-            Test whether this interval is greater or equal than the other.
-            Defined only on same chromosome but allows unrestricted coordinates.
-            If chroms do not match, None is returned.
-        """
-        return self.__cmp__(other, '__ge__')
-
-    def left_match(self, other, strand_specific=False):
-        if not self.cs_match(other, strand_specific):
-            return False
-        return self.start == other.start
-
-    def right_match(self, other, strand_specific=False):
-        if not self.cs_match(other, strand_specific):
-            return False
-        return self.end == other.end
-
-    def left_pos(self):
-        return gi(self.chromosome, self.start, self.start, strand=self.strand)
-
-    def right_pos(self):
-        return gi(self.chromosome, self.end, self.end, strand=self.strand)
-
-    def envelops(self, other, strand_specific=False) -> bool:
-        """ Tests whether this interval envelops the passed one.
-        """
-        if self.is_unbounded():  # envelops all
-            return True
-        if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
-            return False
-        if not self.cs_match(other, strand_specific):
-            return False
-        return self.start <= other.start and self.end >= other.end
-
-    def overlaps(self, other, strand_specific=False) -> bool:
-        """ Tests whether this interval overlaps the passed one.
-            Supports unrestricted start/end coordinates and optional strand check
-        """
-        if self.is_unbounded() or other.is_unbounded():  # overlaps all
-            return True
-        if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
-            return False
-        if not self.cs_match(other, strand_specific):
-            return False
-        return self.start <= other.end and other.start <= self.end
-
-    def overlap(self, other, strand_specific=False) -> float:
-        """Calculates the overlap with the passed one"""
-        if self.is_unbounded() or other.is_unbounded():  # overlaps all
-            return MAX_INT
-        if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
-            return 0
-        if not self.cs_match(other, strand_specific):
-            return 0
-        return min(self.end, other.end) - max(self.start, other.start) + 1.
-
-    def split_coordinates(self) -> (str, int, int):
-        return self.chromosome, self.start, self.end
-
-    @staticmethod
-    def merge(loc):
-        """ Merges a list of intervals.
-            If intervals are not on the same chromosome or if strand is not matching, None is returned
-            The resulting interval will inherit the chromosome and strand of the first passed one.
-        """
-        if loc is None:
-            return None
-        if len(loc) == 1:
-            return loc[0]
-        merged = None
-        for x in loc:
-            if x is None:
-                continue
-            if merged is None:
-                merged = [x.chromosome, x.start, x.end, x.strand]
-            else:
-                if (x.chromosome != merged[0]) or (x.strand != merged[3]):
-                    return None
-                merged[1] = min(merged[1], x.start)
-                merged[2] = max(merged[2], x.end)
-        return gi(*merged)
-
-    def is_adjacent(self, other, strand_specific=False):
-        """ true if intervals are directly next to each other (not overlapping!) """
-        if not self.cs_match(other, strand_specific=strand_specific):
-            return False
-        a, b = (self.end + 1, other.start) if self.end < other.end else (other.end + 1, self.start)
-        return a == b
-
-    def get_downstream(self, width=100):
-        """Returns an upstream genomic interval """
-        if self.is_stranded():
-            s, e = (self.end + 1, self.end + width) if self.strand == '+' else (self.start - width, self.start - 1)
-            return gi(self.chromosome, s, e, self.strand)
-        else:
-            return None
-
-    def get_upstream(self, width=100):
-        """Returns an upstream genomic interval """
-        if self.is_stranded():
-            s, e = (self.end + 1, self.end + width) if self.strand == '-' else (self.start - width, self.start - 1)
-            return gi(self.chromosome, s, e, self.strand)
-        else:
-            return None
-
-    def split_by_maxwidth(self, maxwidth):
-        """ Splits this into n intervals of maximum width """
-        k, m = divmod(self.end - self.start + 1, maxwidth)
-        ret = [
-            gi(self.chromosome, self.start + i * maxwidth, self.start + (i + 1) * maxwidth - 1, strand=self.strand)
-            for i in range(k)]
-        if m > 0:
-            ret += [gi(self.chromosome, self.start + k * maxwidth, self.end, strand=self.strand)]
-        return ret
-
-    def copy(self):
-        """ Deep copy """
-        return gi(self.chromosome, self.start, self.end, self.strand)
-
-    def distance(self, other, strand_specific=False):
-        """
-            Distance to other interval.
-            - None if chromosomes do not match
-            - 0 if intervals overlap
-            - negative if other < self
-        """
-        if self.cs_match(other, strand_specific=strand_specific):
-            if self.overlaps(other):
-                return 0
-            return other.start - self.end if other > self else other.end - self.start
-        return None
-
-    def to_pybedtools(self):
-        """
-            Returns a corresponding pybedtools interval object.
-            Note that this will fail on open or empty intervals as those are not supported by pygenlib.
-            Examples:
-                gi('chr1',1,10).to_pybedtools()
-                gi('chr1',1,10, strand='-').to_pybedtools()
-
-                gi('chr1').to_pybedtools() # uses maxint as end coordinate
-                NOTE that
-                len(gi('chr1',12,10).to_pybedtools()) # reports wrong length 4294967295 for this empty interval!
-        """
-        # pybedtools cannot deal with unbounded intervals, so we replace with [0; maxint]
-        start = 1 if self.start == 0 else self.start
-        # pybedtools: `start` is *always* the 0-based start coordinate
-        return pybedtools.Interval(self.chromosome, start - 1, self.end,
-                                   strand='.' if self.strand is None else self.strand)
-
-    def __iter__(self):
-        for pos in range(self.start, self.end + 1):
-            yield gi(self.chromosome, pos, pos, self.strand)
-
-
-# convenience lists of canonical chromosome names
-canonical_chromosomes = {
-    'GRCh38': [f"chr{c}" for c in list(range(1, 23)) + ['X', 'Y', 'M']],
-    'GRCm38': [f"chr{c}" for c in list(range(1, 20)) + ['X', 'Y', 'MT']],
-    'dmel': ['2L', '2R', '3L', '3R', '4', 'X', 'Y']
-}
-
-
-class ReferenceDict(abc.Mapping[str, int]):
-    """
-        Named mapping for representing a set of references (contigs) and their lengths.
-
-        Supports aliasing by passing a function (e.g., fun_alias=toggle_chr which will add/remove 'chr' prefixes) to
-        easily integrate genomic files that use different (but compatible) reference names. If an aliasing function is
-        passed, original reference names are accessible via the orig property. An aliasing function must be reversible,
-        i.e., fun_alias(fun_alias(str))==str and support None.
-
-        Note that two reference dicts match if their (aliased) contig dicts match (name of ReferenceDict is not
-        compared).
-    """
-
-    def __init__(self, d, name=None, fun_alias=None):
-        self.d = d
-        self.name = name
-        self.fun_alias = fun_alias
-        if fun_alias is not None:
-            self.orig = d.copy()
-            self.d = {fun_alias(k): v for k, v in d.items()}  # apply fun to keys
-        else:
-            self.orig = self
-
-    def __getitem__(self, key):
-        return self.d[key]
-
-    def __len__(self):
-        return len(self.d)
-
-    def __iter__(self):
-        return iter(self.d)
-
-    def iter_blocks(self, block_size=int(1e6)):
-        """
-            Iterates in an ordered fashion over the reference dict, yielding genomic intervals of the given block_size
-            (or smaller at chromosome ends).
-        """
-        for chrom, chrlen in self.d.items():
-            chrom_gi = gi(chrom, 1, chrlen)  # will use maxint if chrlen is None!
-            for block in chrom_gi.split_by_maxwidth(block_size):
-                yield block
-
-    def __repr__(self):
-        # return f"Refset{'' if self.name is None else self.name} (len: {len(self.d)})"
-        return f"Refset (size: {len(self.d.keys())}): {self.d.keys()}{f' (aliased from {self.orig.keys()})' if self.fun_alias else ''}, {self.d.values()} name: {self.name} "
-
-    def alias(self, chrom):
-        if self.fun_alias:
-            return self.fun_alias(chrom)
-        return chrom
-
-    def index(self, chrom):
-        """ Index of the passed chromosome, None if chromosome not in refdict or -1 if None was passed.
-            Useful, e.g., for sorting genomic coordinates
-        """
-        if not chrom:
-            return -1
-        try:
-            return list(self.keys()).index(chrom)
-        except ValueError:
-            print(f"{chrom} not in refdict")
-            return None
-
-    @staticmethod
-    def merge_and_validate(*refsets, check_order=False, included_chrom=()):
-        """
-            Checks whether the passed reference sets are compatible and returns the
-            merged reference set containing the intersection of common references
-        """
-        refsets = [r for r in refsets if r is not None]
-        if len(refsets) == 0:
-            return None
-        # intersect all contig lists while preserving order (set.intersection() or np.intersect1d() do not work!)
-        shared_ref = {k: None for k in intersect_lists(*[list(r.keys()) for r in refsets], check_order=check_order) if
-                      (len(included_chrom) == 0) or (k in included_chrom)}
-        # check whether contig lengths match
-        for r in refsets:
-            for contig, oldlen in shared_ref.items():
-                newlen = r.get(contig)
-                if newlen is None:
-                    continue
-                if oldlen is None:
-                    shared_ref[contig] = newlen
-                else:
-                    assert oldlen == newlen, f"Incompatible lengths for contig ({oldlen}!={newlen}) when comparing refsets {refsets}"
-        return ReferenceDict(shared_ref, name=','.join([r.name if r.name else "<unnamed refdict>" for r in refsets]),
-                             fun_alias=None)
+import pygenlib
 
 
 # --------------------------------------------------------------
 # Commandline and config handling
 # --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# Collection helpers
+# --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# I/O handling
+# --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# Sequence handling
+# --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# genomics helpers
+# --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# genomics helpers :: SAM/BAM specific
+# --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# genomics helpers :: VCF specific
+# --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# genomics helpers :: nanopore specific
+# --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# Utility functions for ipython notebooks
+# --------------------------------------------------------------
+
 
 def parse_args(args, parser_dict, usage):
     """
@@ -439,28 +97,6 @@ def parse_args(args, parser_dict, usage):
     return mode, parser_dict[mode].parse_args(args[2:])
 
 
-def get_config(config, keys, default_value=None, required=False):
-    """
-        Gets a configuration value from a config dict (e.g., loaded from JSON).
-        Keys can be a list of keys (that will be traversed) or a single value.
-        If the key is missing and required is True, an error will be thrown. Otherwise, the configured default value will be returned.
-        Example:
-            cmd_bcftools = get_config(config, ['params','cmd','cmd_bcftools], required=True)
-            cmd_bcftools = get_config(config, ['params/cmd/cmd_bcftools], required=True)
-            threads = get_config(config, 'threads', default_value=1)
-        TODO: possibly replace with omegaconf
-    """
-    if isinstance(keys, str):  # handle single strings
-        keys = keys.split('/')
-    d = config
-    for k in keys:
-        if k not in d:
-            assert (not required), 'Mandatory config path "%s" missing' % ' > '.join(keys)
-            return default_value
-        d = d[k]
-    return d
-
-
 def ensure_outdir(outdir=None) -> os.PathLike:
     """ Ensures that the configured output dir exists (will use current dir if none provided) """
     outdir = os.path.abspath(outdir if outdir else os.getcwd())
@@ -470,11 +106,6 @@ def ensure_outdir(outdir=None) -> os.PathLike:
         print("Creating dir " + outdir)
         os.makedirs(outdir)
     return outdir
-
-
-# --------------------------------------------------------------
-# Collection helpers
-# --------------------------------------------------------------
 
 
 def check_list(lst, mode='inc1') -> bool:
@@ -508,15 +139,29 @@ def all_equal(iterable):
 def split_list(lst, n, is_chunksize=False) -> list:
     """
         Splits a list into sublists.
-        if is_chunksize is True: splits into chunks of length n
-        if is_chunksize is False: splits it into n (approx) equal parts
-        If l is not a list it is tried to convert it.
-        returns a generator.
-        example:
-            list(split_list(range(0,10), 3))
-            list(split_list(range(0,10), 3, is_chunksize=True))
 
-        TODO: replace by more_iterools chunked and chunked_even
+        Parameters
+        ----------
+        lst: list
+            input list to be split. If no list is passed, it is tried to convert via the list(...) method.
+        n: int
+            number of sublists
+        is_chunksize: bool (default: False)
+            if is_chunksize is True: splits into chunks of length n
+            if is_chunksize is False: splits it into n (approx) equal parts
+
+        Examples
+        --------
+        >>> list(split_list(range(0,10), 3))
+        >>> list(split_list(range(0,10), 3, is_chunksize=True))
+
+        Returns
+        -------
+        generator of lists
+
+        Notes
+        -----
+        Will probably be replaced by more_iterools chunked and chunked_even
     """
     if not isinstance(lst, list):
         lst = list(lst)
@@ -528,14 +173,16 @@ def split_list(lst, n, is_chunksize=False) -> list:
 
 
 def intersect_lists(*lists, check_order=False) -> list:
-    """ Intersects lists (iterables) while preserving order.
-        Order is determined by the last provided list.
+    """ Intersects lists (iterables) while preserving order. Order is determined by the last provided list.
         If check_order is True, the order of all input lists wrt. shared elements is asserted.
-        usage:
-            intersect_lists([1,2,3,4],[3,2,1]) # [3,2,1]
-            intersect_lists(*list_of_lists)
-            intersect_lists([1,2,3,4],[1,4],[3,1], check_order=True)
-            intersect_lists((1,2,3,5),(1,3,4,5)) # [1,3,5]
+
+        Examples
+        --------
+        >>> intersect_lists([1,2,3,4],[3,2,1]) # [3,2,1]
+        >>> list_of_lists = ...
+        >>> intersect_lists(*list_of_lists)
+        >>> intersect_lists([1,2,3,4],[1,4],[3,1], check_order=True)
+        >>> intersect_lists((1,2,3,5),(1,3,4,5)) # [1,3,5]
     """
     if len(lists) == 0:
         return []
@@ -567,23 +214,29 @@ def get_unique_keys(dict_of_dicts):
     return keys
 
 
-# --------------------------------------------------------------
-# I/O handling
-# --------------------------------------------------------------
+def calc_set_overlap(a, b) -> float:
+    """ Calculates the overlap between two sets """
+    return len(a & b) / len(a | b)
 
-def grouper(iterable, n, fillvalue=None):
+
+def grouper(iterable, n, fill_value=None):
     """ Groups n lines into a list """
     args = [iter(iterable)] * n
-    return zip_longest(*args, fillvalue=fillvalue)
+    return zip_longest(*args, fillvalue=fill_value)
 
 
 def to_str(*args, sep=',', na='NA') -> str:
     """
-        Converts an object to a string representation. Iterables with be joined by the configured separator.
+        Converts an object to a string representation. Iterables will be joined by the configured separator.
         Objects with zero length or None will be converted to the configured 'NA' representation.
-        NOTE: different from dm-tree.flatten() or treevalue.flatten() but much slower?
-        examples:
-            to_str([12,[None,[1,'',[]]]]) # '12,NA,1,NA,NA'
+
+        Examples
+        --------
+        >>> to_str([12,[None,[1,'',[]]]]) # 12,NA,1,NA,NA
+
+        Notes
+        -----
+        This implementation is different from dm-tree.flatten() or treevalue.flatten() but slower?
     """
     if (args is None) or (len(args) == 0):
         return na
@@ -604,7 +257,8 @@ def write_data(dat, out=None, sep='\t', na='NA'):
     """
         Write data to TSV file. Values will be written via thee to_str() method (i.e., None will become 'NA').
         Collections will be written as comma-separated strings, nested structures will be flattened.
-        If out is None, the respective string will be written, Otherwise it will be written to the respective output handle.
+        If out is None, the respective string will be written, Otherwise it will be written to the respective output
+        handle.
     """
     s = sep.join([to_str(x, na=na) for x in dat])
     if out is None:
@@ -620,8 +274,26 @@ def format_fasta(string, ncol=80) -> str:
 def dir_tree(root: Path, prefix: str = '', space='    ', branch='│   ', tee='├── ', last='└── ', max_lines=10,
              glob=None):
     """ A recursive generator yielding a visual tree structure line by line.
-        max_lines: maximum yielded lines per directory.
-        glob: optional glob param to filter. Example: glob='**/*.py" to list all .py files
+
+        Parameters
+        ----------
+        root:
+            Path instance pointing to a directory
+        prefix:
+            optional prefix string to prepend to each output line
+        space:
+            optional prefix string to prepend to lines indicating a regular file
+        branch:
+            optional prefix string to prepend to lines indicating the last item in a directory
+        tee:
+            optional prefix string to prepend to lines indicating an item in a directory
+        last:
+            optional prefix string to prepend to lines indicating the last item in the entire tree
+        max_lines:
+            maximum yielded lines per directory.
+        glob:
+            optional glob param to filter. Use, e.g., `'**/*.py'` to list all .py files. default: None (all files)
+
         @see https://stackoverflow.com/questions/9727673/list-directory-tree-structure-in-python
     """
     contents = list(root.iterdir()) if (glob is None) else list(root.glob(glob))
@@ -700,44 +372,21 @@ def remove_extension(p, remove_gzip=True):
 
 def download_file(url, filename, show_progress=True):
     """ Downloads a file from the passed (https) url into a  file with the given path
-        To download intoa temporary file use:
-        with tempfile.TemporaryDirectory() as tempdirname:
-            fn=download_file(<my_url>, f"{tempdirname}/{filename}")
-            # do something with this file
-        #Note that the temporary dir will be removed once the context manager is closed.
+        Examples
+        --------
+        >>> import tempfile
+        >>> with tempfile.TemporaryDirectory() as tempdirname:
+        >>>     fn=download_file(..., f"{tempdirname}/{filename}")
+        >>>     # do something with this file
+        >>>     # Note that the temporary created dir will be removed once the context manager is closed.
     """
 
     def print_progress(block_num, block_size, total_size):
         print(f"progress: {round(block_num * block_size / total_size * 100, 2)}%", end="\r")
 
-    ssl._create_default_https_context = ssl._create_unverified_context
+    ssl._create_default_https_context = ssl._create_unverified_context  # noqa
     urllib.request.urlretrieve(url, filename, print_progress if show_progress else None)
     return filename
-
-
-# --------------------------------------------------------------
-# Sequence handling
-# --------------------------------------------------------------
-
-class ParseMap(dict):
-    """
-        Extends default dict to return 'missing char' for missing keys (similar to defaultdict, but does not
-        enter new values). Should be used with translate()
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.missing_char = kwargs.get('missing_char', 'N')
-        kwargs.pop('missing_char', None)
-        self.update(*args, **kwargs)
-
-    def __missing__(self, key):
-        return self.missing_char
-
-
-TMAP = {'dna': ParseMap({x: y for x, y in zip(b'ATCGatcgNn', b'TAGCTAGCNN')}, missing_char='*'),
-        'rna': ParseMap({x: y for x, y in zip(b'AUCGaucgNn', b'UAGCUAGCNN')}, missing_char='*')
-        }
 
 
 def reverse_complement(seq, tmap='dna') -> str:
@@ -764,7 +413,8 @@ def complement(seq, tmap='dna') -> str:
 
 def pad_n(seq, minlen, padding_char='N') -> str:
     """
-        Adds up-/downstream padding with the configured padding character to ensure a given minimum length of the passed sequence
+        Adds up-/downstream padding with the configured padding character to ensure a given minimum length of the
+        passed sequence.
     """
     ret = seq
     if len(ret) < minlen:
@@ -864,13 +514,13 @@ def kmer_search(seq, kmer_set, include_revcomp=False) -> dict:
     return ret
 
 
-def find_gpos(genome_fa, kmers, included_chrom=None) -> Counter:
+def find_gpos(genome_fa, kmers, included_chrom=None) -> defaultdict[list]:
     """ Returns a dict that maps the passed kmers to their (exact match) genomic positions (1-based).
         Positions are returned as (chr, pos1) tuples.
         included_chromosomes (list): if configured, then only the respective chromosomes will be considered.
     """
     fasta = pysam.Fastafile(genome_fa)
-    ret = Counter()
+    ret = defaultdict(list)
     chroms = fasta.references if included_chrom is None else set(fasta.references) & set(included_chrom)
     for c in tqdm(chroms, total=len(chroms), desc='Searching chromosome'):
         pos = kmer_search(fasta.fetch(c), kmers)
@@ -880,11 +530,6 @@ def find_gpos(genome_fa, kmers, included_chrom=None) -> Counter:
             for pos0 in pos[kmer]:
                 ret[kmer].append((c, pos0 + 1, '+'))
     return ret
-
-
-# --------------------------------------------------------------
-# genomics helpers
-# --------------------------------------------------------------
 
 
 def parse_gff_attributes(info, fmt='gff3'):
@@ -900,16 +545,56 @@ def parse_gff_attributes(info, fmt='gff3'):
 def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=True,
                     preset='auto', seq_col=0, start_col=1, end_col=1, line_skip=0, zerobased=False):
     """
-        Will BGZIP the passed file and creates a tabix index with the given params if create_index is True
-        presets:
-            'gff' : (TBX_GENERIC, 1, 4, 5, ord('#'), 0),
-            'bed' : (TBX_UCSC, 1, 2, 3, ord('#'), 0),
-            'psltbl' : (TBX_UCSC, 15, 17, 18, ord('#'), 0),
-            'sam' : (TBX_SAM, 3, 4, 0, ord('@'), 0),
-            'vcf' : (TBX_VCF, 1, 2, 0, ord('#'), 0),
-            'auto': guess from file extension
+    BGZIP the input file and create a tabix index with the given parameters if create_index is True.
 
-        TODO add csi support
+    Parameters
+    ----------
+    in_file : str
+        The input file to be compressed.
+    out_file : str, optional
+        The output file name. Default is in_file + '.gz'.
+    create_index : bool, optional
+        Whether to create a tabix index. Default is True.
+    del_uncompressed : bool, optional
+        Whether to delete the uncompressed input file. Default is True.
+    preset : str, optional
+        The preset format for the tabix index. Default is 'auto'.
+        presets:
+        * 'gff' : (TBX_GENERIC, 1, 4, 5, ord('#'), 0),
+        * 'bed' : (TBX_UCSC, 1, 2, 3, ord('#'), 0),
+        * 'psltbl' : (TBX_UCSC, 15, 17, 18, ord('#'), 0),
+        * 'sam' : (TBX_SAM, 3, 4, 0, ord('@'), 0),
+        * 'vcf' : (TBX_VCF, 1, 2, 0, ord('#'), 0),
+        * 'auto': guess from file extension
+    seq_col : int, optional
+        The column number for the sequence name. Default is 0.
+    start_col : int, optional
+        The column number for the start position. Default is 1.
+    end_col : int, optional
+        The column number for the end position. Default is 1.
+    line_skip : int, optional
+        The number of lines to skip at the beginning of the file. Default is 0.
+    zerobased : bool, optional
+        Whether the start position is zero-based. Default is False.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If out_file does not end with '.gz'.
+
+    Notes
+    -----
+    This function requires the pysam package to be installed.
+    TODO add csi support
+
+    Examples
+    --------
+    >>> bgzip_and_tabix('input.vcf', create_index=True)
+
     """
     if out_file is None:
         out_file = in_file + '.gz'
@@ -929,160 +614,111 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
         os.remove(in_file)
 
 
-def count_reads(in_file):
-    """ Counts reads in different file types """
-    ftype = guess_file_format(in_file)
-    if ftype == 'fastq':
-        return count_lines(in_file) / 4.0
-    elif ftype == 'sam':
-        raise NotImplementedError("SAM/BAM file read counting not implemeted yet!")
-    else:
-        raise NotImplementedError(f"Cannot count reads in file of type {ftype}.")
+def _fast5_tree(h5node, prefix: str = '', space='    ', branch='│   ', tee='├── ', last='└── ', max_lines=10,
+                show_attrs=True):
+    """ Recursively yielding strings describing the structure of an h5 file """
+    if hasattr(h5node, 'keys'):
+        contents = list(h5node.keys())
+        if len(contents) > max_lines:
+            contents = contents[:max_lines] + [Path('...')]
+        # contents each get pointers that are ├── with a final └── :
+        pointers = [tee] * (len(contents) - 1) + [last]
+        for pointer, key in zip(pointers, contents):
+            attrs_str = ''
+            if show_attrs and hasattr(h5node[key], 'attrs'):
+                attrs_str = [f'{k}={v}' for k, v in zip(h5node[key].attrs.keys(), h5node[key].attrs.values())]
+                if len(attrs_str) > 0:
+                    attrs_str = ' {' + ','.join(attrs_str) + '}'
+                else:
+                    attrs_str = ''
+            yield prefix + pointer + key + attrs_str
+            extension = branch if pointer == tee else space
+            # i.e. space because last, └── , above so no more |
+            yield from _fast5_tree(h5node[key], prefix=prefix + extension, max_lines=max_lines)
 
 
-# --------------------------------------------------------------
-# genomics helpers :: SAM/BAM specific
-# --------------------------------------------------------------
-# BAM flags, @see https://broadinstitute.github.io/picard/explain-flags.html
-class BAM_FLAG(IntEnum):
-    BAM_FPAIRED = 0x1  # the read is paired in sequencing, no matter whether it is mapped in a pair
-    BAM_FPROPER_PAIR = 0x2  # the read is mapped in a proper pair
-    BAM_FUNMAP = 0x4  # the read itself is unmapped; conflictive with BAM_FPROPER_PAIR
-    BAM_FMUNMAP = 0x8  # the mate is unmapped
-    BAM_FREVERSE = 0x10  # the read is mapped to the reverse strand
-    BAM_FMREVERSE = 0x20  # the mate is mapped to the reverse strand
-    BAM_FREAD1 = 0x40  # this is read1
-    BAM_FREAD2 = 0x80  # this is read2
-    BAM_FSECONDARY = 0x100  # not primary alignment
-    BAM_FQCFAIL = 0x200  # QC failure
-    BAM_FDUP = 0x400  # optical or PCR duplicate
-    BAM_SUPPLEMENTARY = 0x800  # optical or PCR duplicate
-
-
-# Default BAM flag filter (3844) as used, e.g., in IGV
-DEFAULT_FLAG_FILTER = BAM_FLAG.BAM_FUNMAP | BAM_FLAG.BAM_FSECONDARY | BAM_FLAG.BAM_FQCFAIL | BAM_FLAG.BAM_FDUP | BAM_FLAG.BAM_SUPPLEMENTARY
-
-
-@dataclass
-class TagFilter:
+def print_fast5_tree(fast5_file, max_lines=10, n_reads=1, show_attrs=True):
     """
-        Filter reads if the specified tag has one of the provided filter_values.
-        Can be inverted for filtering if specified values is found.
+        Prints the structure of a fast5 file.
     """
-    tag: str
-    filter_values: field(default_factory=list)
-    filter_if_no_tag: bool = False
-    inverse: bool = False
+    with h5py.File(fast5_file, 'r') as f:
+        for cnt, rn in enumerate(f.keys()):
+            for line in _fast5_tree(f[rn], prefix=rn + ' ', max_lines=max_lines, show_attrs=show_attrs):
+                print(line)
+            print('---')
+            if cnt + 1 >= n_reads:
+                return
 
-    def filter(self, r):
-        if r.has_tag(self.tag):
-            value_exists = r.get_tag(self.tag) in self.filter_values
-            return value_exists != self.inverse
+
+def get_bcgs(fast5_file):
+    """
+        Returns a list of basecall groups from the 1st read
+    """
+    with h5py.File(fast5_file, 'r') as f:
+        first_rn = next(iter(f.keys()))
+        return [a for a in list(f[first_rn]['Analyses']) if a.startswith("Basecall_")]
+
+
+def display_textarea(txt):
+    """ Display a (long) text in a scrollable HTML text area """
+    display(HTML(f"<textarea rows='4' cols='120'>{txt}</textarea>"))
+
+
+def display_list(lst):
+    """ Display a list as an HTML list"""
+    display(HTML("<ul>"))
+    for i in lst:
+        display(HTML(f"<li>{i}</li>"))
+    display(HTML("</ul>"))
+
+
+def head_counter(cnt, non_empty=True):
+    """Displays n items from the passed counter. If non_empty is true then only items with len>0 are shown"""
+    if non_empty:
+        cnt = Counter({k: cnt.get(k, 0) for k in cnt.keys() if len(cnt.get(k)) > 0})
+    display(Counter({k: v for k, v in islice(cnt.items(), 1, 10)}), HTML("[...]"))
+
+
+def plot_times(title, times, n=None,
+               reference_method=None,
+               show_speed=True,
+               ax=None,
+               orientation='h'
+               ):
+    """
+        Helper method to plot a dict with timings (seconds).
+        If n is passed and show_speed is true, the method will display iterations per second.
+        If reference_method is set then it will also display the speed increase of the fastest method compared to
+        the reference method/
+    """
+    ax = ax or plt.gca()
+    labels, values = zip(*sorted(times.items()))
+    if show_speed and n is not None:
+        values = [n / v for v in values]
+        if reference_method is not None and reference_method in times:
+            times_other = {k: v for k, v in times.items() if k != reference_method}
+            fastest_other = min(times_other, key=times_other.get)
+            a = (reference_method, n / times[reference_method])
+            b = (fastest_other, n / times_other[fastest_other])
+            a, b = (a, b) if a[1] > b[1] else (b, a)  # a: fastest, b: 2nd/reference
+            ax.set_title(
+                f"{title}\n{a[0]} is the fastest method and {(a[1] / b[1] - 1) * 100}%\nfaster than {b[0]}",
+                fontsize=10)
         else:
-            return self.filter_if_no_tag
-
-
-def get_softclip_seq(read: pysam.AlignedSegment):
-    """Extracts soft-clipped sequences from the passed read"""
-    left, right = None, None
-    pos = 0
-    for i, (op, l) in enumerate(read.cigartuples):
-        if (i == 0) & (op == 4):
-            left = l
-        if (i == len(read.cigartuples) - 1) & (op == 4):
-            right = l
-        pos += l
-    return left, right
-
-
-def read_aligns_to_loc(loc: gi, read: pysam.AlignedSegment):
-    """ Tests whether a read aligns to the passed location by checking the respective alignemnt block coordinates and
-        the read strand. Note that the chromosome is *not* checked.
-    """
-    if (loc.strand is not None) and (loc.strand != '-' if read.is_reverse else '+'):
-        return False  # wrong strand
-    # chr is not checked
-    for read_start, read_end in read.get_blocks():
-        if (loc.start <= read_end) and (read_start < loc.end):
-            return True
-    return False
-
-
-def toggle_chr(s):
-    """
-        Simple function that toggle 'chr' prefixes. If the passed reference name start with 'chr',
-        then it is removed, otherwise it is added. If None is passed, None is returned.
-        Can be used as fun_alias function.
-    """
-    if s is None:
-        return None
-    if isinstance(s, str) and s.startswith('chr'):
-        return s[3:]
+            ax.set_title(f"{title}")
+        data_lab = "it/s"
     else:
-        return f'chr{s}'
+        ax.set_title(f"{title}")
+        data_lab = "seconds"
 
-
-def get_reference_dict(fh, fun_alias=None, calc_chromlen=False) -> ReferenceDict:
-    """ Extracts chromosome names, order and (where possible) length from pysam objects.
-
-    Parameters
-    ----------
-    fh : pysam object
-    fun_alias : aliasing functions (see RefDict)
-
-    Returns
-    -------
-    dict: chromosome name to length
-
-    Raises
-    ------
-    NotImplementedError
-        if input type is not supported yet
-    """
-    was_opened = False
-    try:
-        if isinstance(fh, str):
-            was_opened = True
-            fh = open_file_obj(fh)
-        if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
-            return ReferenceDict({c: fh.get_reference_length(c) for c in fh.references},
-                                 name=f'References from FASTA file {fh.filename}', fun_alias=fun_alias)
-        elif isinstance(fh, pysam.AlignmentFile):  # @UndefinedVariable
-            return ReferenceDict({c: fh.header.get_reference_length(c) for c in fh.references},
-                                 name=f'References from SAM/BAM file {fh.filename}', fun_alias=fun_alias)
-        elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
-            if calc_chromlen:  # no ref length info in tabix, we need to iterate :-(
-                refdict = {}
-                for c in fh.contigs:
-                    line = ('', '', '0')  # default
-                    for _, line in enumerate(fh.fetch(c)):
-                        pass  # move to last line
-                    refdict[c] = int(line.split('\t')[2])
-            else:
-                refdict = {c: None for c in fh.contigs}  # no ref length info in tabix...
-            return ReferenceDict(refdict, name=f'References from TABIX file {fh.filename}', fun_alias=fun_alias)
-        elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
-            return ReferenceDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
-                                 name=f'References from VCF file {fh.filename}', fun_alias=fun_alias)
-        else:
-            raise NotImplementedError(f"Unknown input object type {type(fh)}")
-    finally:
-        if was_opened:
-            fh.close()
-
-
-default_file_extensions = {
-    'fasta': ('.fa', '.fasta', '.fna', '.fas', '.fa.gz', '.fasta.gz', '.fna.gz', '.fas.gz'),
-    'sam': ('.sam',),
-    'bam': ('.bam',),
-    'tsv': ('.tsv', '.tsv.gz'),
-    'bed': ('.bed', '.bed.gz', '.bedgraph', '.bedgraph.gz'),
-    'vcf': ('.vcf', '.vcf.gz'),
-    'bcf': ('.bcf',),
-    'gff': ('.gff3', '.gff3.gz'),
-    'gtf': ('.gtf', '.gtf.gz'),
-    'fastq': ('.fq', '.fastq', '.fq.gz', '.fastq.gz'),
-}
+    if orientation.startswith('h'):
+        ax.barh(range(len(labels)), values, 0.8, )
+        ax.set_yticks(range(len(labels)), labels, rotation=0)
+        ax.set_xlabel(data_lab)
+    else:
+        ax.bar(range(len(labels)), values, 0.8, )
+        ax.set_xticks(range(len(labels)), labels, rotation=90)
+        ax.set_ylabel(data_lab)
 
 
 def guess_file_format(file_name, file_extensions=None):
@@ -1101,17 +737,97 @@ def guess_file_format(file_name, file_extensions=None):
     return None
 
 
+class ParseMap(dict):
+    """
+        Extends default dict to return 'missing char' for missing keys (similar to defaultdict, but does not
+        enter new values). Should be used with translate()
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.missing_char = kwargs.get('missing_char', 'N')
+        kwargs.pop('missing_char', None)
+        self.update(*args, **kwargs)
+
+    def __missing__(self, key):
+        return self.missing_char
+
+
+TMAP = {'dna': ParseMap({x: y for x, y in zip(b'ATCGatcgNn', b'TAGCTAGCNN')}, missing_char='*'),
+        'rna': ParseMap({x: y for x, y in zip(b'AUCGaucgNn', b'UAGCUAGCNN')}, missing_char='*')
+        }
+default_file_extensions = {
+    'fasta': ('.fa', '.fasta', '.fna', '.fas', '.fa.gz', '.fasta.gz', '.fna.gz', '.fas.gz'),
+    'sam': ('.sam',),
+    'bam': ('.bam',),
+    'tsv': ('.tsv', '.tsv.gz'),
+    'bed': ('.bed', '.bed.gz', '.bedgraph', '.bedgraph.gz'),
+    'vcf': ('.vcf', '.vcf.gz'),
+    'bcf': ('.bcf',),
+    'gff': ('.gff3', '.gff3.gz'),
+    'gtf': ('.gtf', '.gtf.gz'),
+    'fastq': ('.fq', '.fastq', '.fq.gz', '.fastq.gz'),
+}
+
+
+class AutoDict(dict):
+    """Implementation of perl's autovivification feature.
+    https://stackoverflow.com/questions/651794/whats-the-best-way-to-initialize-a-dict-of-dicts-in-python/651879#651879
+    """
+
+    def __getitem__(self, item):
+        try:
+            return dict.__getitem__(self, item)
+        except KeyError:
+            value = self[item] = type(self)()
+            return value
+
+
+def get_config(config, keys, default_value=None, required=False):
+    """
+        Gets a configuration value from a config dict (e.g., loaded from JSON).
+        Keys can be a list of keys (that will be traversed) or a single value.
+        If the key is missing and required is True, an error will be thrown. Otherwise, the configured default value
+        will be returned.
+
+        Examples
+        --------
+        >>> cmd_bcftools = get_config(config, ['params','cmd','cmd_bcftools'], required=True)
+        >>> threads = get_config(config, 'config/process/threads', default_value=1, required=False)
+
+        Notes
+        -----
+        Consider replacing this with omegaconf
+    """
+    if isinstance(keys, str):  # handle single strings
+        keys = keys.split('/')
+    d = config
+    for k in keys:
+        if k is None:
+            continue  # ignore None keys
+        if k not in d:
+            assert (not required), 'Mandatory config path "%s" missing' % ' > '.join(keys)
+            return default_value
+        d = d[k]
+    return d
+
+
 def open_file_obj(fh, file_format=None, file_extensions=None) -> object:
-    """ Opens a file object.
+    """
+    Opens a file object. If a pysam compatible file format was detected, the respective pysam object is instantiated.
 
-    If a pysam compatible file format was detected, the respcetive pysam object is instantiated.
+    Parameters
+    ----------
+    fh : str or file path object
+    file_format : str
+        Can be any <supported_formats> or None for auto-detection from filename (valid file extensions can be
+        configured).
+    file_extensions: dict
+        a dict of file extension mappings
 
-    :param file_extensions: a dict of file extension mappings
-    :parameter fh : str or file path object
-    :parameter file_format : str
-        Can be any <supported_formats> or None for auto-detection from filename (valid file extensions can be configured).
-
-    :returns file_handle : instance (file/pysam object)
+    Returns
+    -------
+        file_handle : instance (file/pysam object)
     """
     if file_extensions is None:
         file_extensions = default_file_extensions
@@ -1144,29 +860,98 @@ def open_file_obj(fh, file_format=None, file_extensions=None) -> object:
     return fh
 
 
+def toggle_chr(s):
+    """
+        Simple function that toggle 'chr' prefixes. If the passed reference name start with 'chr',
+        then it is removed, otherwise it is added. If None is passed, None is returned.
+        Can be used as fun_alias function.
+    """
+    if s is None:
+        return None
+    if isinstance(s, str) and s.startswith('chr'):
+        return s[3:]
+    else:
+        return f'chr{s}'
+
+
+@dataclass(frozen=True)
+class GeneSymbol:
+    """
+        Class for representing a gene symbol, name and taxonomy id.
+    """
+    symbol: str  #
+    name: str  #
+    taxid: int  #
+
+    def __repr__(self):
+        return f"{self.symbol} ({self.name}, tax: {self.taxid})"
+
+
+def count_reads(in_file):
+    """ Counts reads in different file types """
+    ftype = guess_file_format(in_file)
+    if ftype == 'fastq':
+        return count_lines(in_file) / 4.0
+    elif ftype == 'sam':
+        raise NotImplementedError("SAM/BAM file read counting not implemeted yet!")
+    else:
+        raise NotImplementedError(f"Cannot count reads in file of type {ftype}.")
+
+
+def get_softclip_seq(read: pysam.AlignedSegment) -> tuple[Optional[int], Optional[int]]:
+    """
+    Extracts soft-clipped sequences from the passed read.
+
+    Parameters
+    ----------
+    read : pysam.AlignedSegment
+        The read to extract soft-clipped sequences from.
+
+    Returns
+    -------
+    Tuple[Optional[int], Optional[int]]
+        A tuple containing the left and right soft-clipped sequences, respectively. If no soft-clipped sequence is
+        found, the corresponding value in the tuple is None.
+
+    Examples
+    --------
+    >>> r = pysam.AlignedSegment()
+    >>> r.cigartuples = [(4, 5), (0, 10)]
+    >>> get_softclip_seq(r)
+    (5, None)
+    """
+    left, right = None, None
+    pos = 0
+    for i, (op, l) in enumerate(read.cigartuples):
+        if (i == 0) & (op == 4):
+            left = l
+        if (i == len(read.cigartuples) - 1) & (op == 4):
+            right = l
+        pos += l
+    return left, right
+
+
 def get_covered_contigs(bam_files):
     """ Returns all contigs that have some coverage across a set of BAMs.
 
     Parameters
     ----------
     bam_files : str
-        File paths of input BAM files
+        File paths of input BAM files. If a single path is passed, it will be converted to a list.
 
     Returns
     -------
     set
         A set of strings representing all contigs that have data in at least one of the BAM files.
     """
+    if isinstance(bam_files, str):
+        bam_files = [bam_files]
     covered_contigs = set()
     for b in bam_files:
         s = pysam.AlignmentFile(b, "rb")  # @UndefinedVariable
         covered_contigs.update([c for c, _, _, t in s.get_index_statistics() if t > 0])
     return covered_contigs
 
-
-# --------------------------------------------------------------
-# genomics helpers :: VCF specific
-# --------------------------------------------------------------
 
 def move_id_to_info_field(vcf_in, info_field_name, vcf_out, desc=None):
     """
@@ -1200,76 +985,32 @@ def add_contig_headers(vcf_in, ref_fasta, vcf_out):
             out.write(record)
 
 
-# --------------------------------------------------------------
-# genomics helpers :: nanopore specific
-# --------------------------------------------------------------
-
-def _fast5_tree(h5node, prefix: str = '', space='    ', branch='│   ', tee='├── ', last='└── ', max_lines=10,
-                show_attrs=True):
-    """ Recursively yielding strings describing the structure of an h5 file """
-    if hasattr(h5node, 'keys'):
-        contents = list(h5node.keys())
-        if len(contents) > max_lines:
-            contents = contents[:max_lines] + [Path('...')]
-        # contents each get pointers that are ├── with a final └── :
-        pointers = [tee] * (len(contents) - 1) + [last]
-        for pointer, key in zip(pointers, contents):
-            attrs_str = ''
-            if show_attrs and hasattr(h5node[key], 'attrs'):
-                attrs_str = [f'{k}={v}' for k, v in zip(h5node[key].attrs.keys(), h5node[key].attrs.values())]
-                if len(attrs_str) > 0:
-                    attrs_str = ' {' + ','.join(attrs_str) + '}'
-                else:
-                    attrs_str = ''
-            yield prefix + pointer + key + attrs_str
-            extension = branch if pointer == tee else space
-            # i.e. space because last, └── , above so no more |
-            yield from _fast5_tree(h5node[key], prefix=prefix + extension, max_lines=max_lines)
-
-
-def print_fast5_tree(fast5_file, max_lines=10, n_reads=1, show_attrs=True):
-    """
-        Prints the structure of a fast5 file.
-        example: /Volumes/groups/ameres/Niko/projects/Ameres/nanopore/data/nanocall_gfp/rawdata/singlesampleruns/wtgfpivt/1bc1/20230201_1500_MN32894_FAQ55498_125c10c7/fast5/FAQ55498_b5ea166b_0.fast5
-    """
-    with h5py.File(fast5_file, 'r') as f:
-        for cnt, rn in enumerate(f.keys()):
-            for line in _fast5_tree(f[rn], prefix=rn + ' ', max_lines=max_lines, show_attrs=show_attrs):
-                print(line)
-            print('---')
-            if cnt + 1 >= n_reads:
-                return
-
-
 def get_read_attr_info(fast5_file, rn, path):
     """
         Returns a dict with attribute values. For debugging only.
-        example: get_read_info(fast5_file, 'read_00262802-9463-45c8-b22d-f68d1047c6fc','Analyses/Basecall_1D_000/BaseCalled_template/Trace')
+        Example
+        -------
+        >>> get_read_attr_info(fast5_file, 'read_00262802-9463-45c8-b22d-f68d1047c6fc',
+        >>>                    'Analyses/Basecall_1D_000/BaseCalled_template/Trace')
     """
     with h5py.File(fast5_file, 'r') as f:
         x = f[rn][path]
         return {k: v for k, v in zip(x.attrs.keys(), x.attrs.values())}
 
 
-def get_bcgs(fast5_file):
-    """
-        Returns a list of basecall groups from the 1st read
-    """
-    with h5py.File(fast5_file, 'r') as f:
-        first_rn = next(iter(f.keys()))
-        return [a for a in list(f[first_rn]['Analyses']) if a.startswith("Basecall_")]
-
-
 class Timer:
     """ Simple class for collecting timings of code blocks.
-        Example usage:
-            times=Counter()
-            with Timer(times, "sleep1") as t:
-                time.sleep(.1)
-                print('executed ', t.name)
-            with Timer(times, "sleep2") as t:
-                time.sleep(.2)
-            print(times)
+
+    Examples
+    --------
+    >>> import time
+    >>> times=Counter()
+    >>> with Timer(times, "sleep1") as t:
+    >>>     time.sleep(.1)
+    >>> print('executed ', t.name)
+    >>> with Timer(times, "sleep2") as t:
+    >>>     time.sleep(.2)
+    >>> print(times)
     """
 
     def __init__(self, tdict, name):
@@ -1282,3 +1023,121 @@ class Timer:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.tdict[self.name] = timeit.default_timer() - self.tdict[self.name]
+
+
+def read_alias_file(gene_name_alias_file, disable_progressbar=False) -> (dict, set):
+    """ Reads a gene name aliases from the passed file.
+        Supports the download format from genenames.org and vertebrate.genenames.org.
+        Returns an alias dict and a set of currently known (active) gene symbols
+    """
+    aliases = {}
+    current_symbols = set()
+    if gene_name_alias_file:
+        tab = pd.read_csv(gene_name_alias_file, sep='\t',
+                          dtype={'alias_symbol': str, 'prev_symbol': str, 'symbol': str}, low_memory=False,
+                          keep_default_na=False)
+        for r in tqdm(tab.itertuples(), desc='load gene aliases', total=tab.shape[0], disable=disable_progressbar):
+            sym = r.symbol.strip()  # noqa
+            current_symbols.add(sym)
+            for a in r.alias_symbol.split("|"):  # noqa
+                if len(a.strip()) > 0:
+                    aliases[a.strip()] = sym
+            for a in r.prev_symbol.split("|"):  # noqa
+                if len(a.strip()) > 0:
+                    aliases[a.strip()] = sym
+    return aliases, current_symbols
+
+
+def norm_gn(g, current_symbols=None, aliases=None) -> str:
+    """
+    Normalizes gene names. Will return a stripped version of the passed gene name.
+    The gene symbol will be updated to the latest version if an alias table is passed (@see read_alias_file()).
+    If a set of current (up-to date) symbols is passed that contains the passed symbol, no aliasing will be done.
+    """
+    if g is None:
+        return None
+    g = g.strip()  # remove whitespace
+    if (current_symbols is not None) and (g in current_symbols):
+        return g  # there is a current symbol so don't look for aliases
+    if aliases is None:
+        return g
+    return g if aliases is None else aliases.get(g, g)
+
+
+def geneid2symbol(gene_ids):
+    """
+        Queries gene names for the passed gene ids from MyGeneInfo via https://pypi.org/project/mygene/
+        Gene ids can be, e.g., EntrezIds (e.g., 60) or ensembl gene ids (e.g., 'ENSMUSG00000029580') or a mixed list.
+        Returns a dict { entrezid : GeneSymbol }
+        Example: geneid2symbol(['ENSMUSG00000029580', 60]) - will return mouse and human actin beta
+    """
+    mg = mygene.MyGeneInfo()
+    galias = mg.getgenes(set(gene_ids), filter='symbol,name,taxid')
+    id2sym = {x['query']: GeneSymbol(x.get('symbol', x['query']), x.get('name', None), x.get('taxid', None)) for x in
+              galias}
+    return id2sym
+
+
+def calc_3end(tx, width=200):
+    """
+        Utility function that returns a list of genomic intervals containing the last <width> bases
+        of the passed transcript or None if not possible
+    """
+    ret = []
+    for ex in tx.exon[::-1]:
+        if len(ex) < width:
+            ret.append(ex.get_location())
+            width -= len(ex)
+        else:
+            s, e = (ex.start, ex.start + width - 1) if (ex.strand == '-') else (ex.end - width + 1, ex.end)
+            ret.append(pygenlib.gi(ex.chromosome, s, e, ex.strand))
+            width = 0
+            break
+    return ret if width == 0 else None
+
+
+def gt2zyg(gt) -> (int, int):
+    """
+    Extracts zygosity information from a genotype string.
+
+    Parameters
+    ----------
+    gt genotype
+
+    Returns
+    -------
+    a tuple (zygosity, call):
+        * zygosity is 2 if all called alleles are the same, 1 if there are mixed called alleles or 0 if no call
+        * call: 0 if no-call or homref, 1 otherwise
+    """
+    dat = gt.split('/') if '/' in gt else gt.split('|')
+    if set(dat) == {'.'}:  # no call
+        return 0, 0
+    dat_clean = [x for x in dat if x != '.']  # drop no-calls
+    if set(dat_clean) == {'0'}:  # homref in all called samples
+        return 2, 0
+    return 2 if len(set(dat_clean)) == 1 else 1, 1
+
+
+#: A read in a FASTQ file
+FastqRead = namedtuple('FastqRead', 'name seq qual')
+
+
+@dataclass
+class TagFilter:
+    """
+        Filter reads if the specified tag has one of the provided filter_values.
+        Can be inverted for filtering if specified values is found.
+        If filter_if_no_tag is True (default: False), then the read is filtered if the tag is not present.
+    """
+    tag: str
+    filter_values: List = field(default_factory=list)
+    filter_if_no_tag: bool = False
+    inverse: bool = False
+
+    def filter(self, r):
+        if r.has_tag(self.tag):
+            value_exists = r.get_tag(self.tag) in self.filter_values
+            return value_exists != self.inverse
+        else:
+            return self.filter_if_no_tag

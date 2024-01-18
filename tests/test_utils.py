@@ -1,26 +1,20 @@
+"""
+Tests for the utils module
+"""
 import json
 import os
 import tempfile
-from pathlib import Path
 
 import numpy as np
 import pysam
 import pytest
 
+from pygenlib import get_config, guess_file_format, intersect_lists, \
+    to_str, count_lines, reverse_complement, \
+    parse_gff_attributes, bgzip_and_tabix, Transcriptome, ReferenceDict, gi, GFF_FLAVOURS
 from pygenlib.testdata import get_resource
-from pygenlib.utils import reverse_complement, TMAP, complement, ParseMap, get_config, parse_gff_attributes, cmp_sets, \
-    get_reference_dict, ReferenceDict, longest_hp_gc_len, kmer_search, split_list, intersect_lists, to_str, count_gc, \
-    bgzip_and_tabix, gunzip, print_dir_tree, count_lines, count_reads, write_data, slugify, rnd_seq, gi, toggle_chr, \
-    guess_file_format
-
-
-@pytest.fixture(autouse=True)
-def base_path() -> Path:
-    """Go to testdata dir"""
-    testdir = Path(__file__).parent.parent / "testdata/"
-    print("Setting working dir to %s" % testdir)
-    os.chdir(testdir)
-    return testdir
+from pygenlib.utils import split_list, cmp_sets, write_data, print_dir_tree, gunzip, slugify, complement, rnd_seq, \
+    count_gc, longest_hp_gc_len, kmer_search, TMAP, ParseMap, toggle_chr, count_reads, geneid2symbol, calc_3end
 
 
 def from_str(s):
@@ -52,11 +46,10 @@ def test_get_config():
 def test_parse_gff_attributes(base_path):
     """ shallow test of GFF/GTF info field parsing.
     """
-    from pygenlib.genemodel import gff_flavours
-    for fn, dialect in [(get_resource('gencode_gff'), gff_flavours['gencode', 'gff']),
-                        (get_resource('ucsc_gtf'), gff_flavours['ucsc', 'gtf']),
-                        (get_resource('ensembl_gff'), gff_flavours['ensembl', 'gff']),
-                        (get_resource('flybase_gtf'), gff_flavours['flybase', 'gtf'])
+    for fn, dialect in [(get_resource('gencode_gff'), GFF_FLAVOURS['gencode', 'gff']),
+                        (get_resource('ucsc_gtf'), GFF_FLAVOURS['ucsc', 'gtf']),
+                        (get_resource('ensembl_gff'), GFF_FLAVOURS['ensembl', 'gff']),
+                        (get_resource('flybase_gtf'), GFF_FLAVOURS['flybase', 'gtf'])
                         ]:
         expected_fields = {v for k, v in dialect.items() if k in ['gid', 'tid', 'tx_gid', 'feat_tid'] and v is not None}
         parsed_attributes = set()
@@ -70,18 +63,18 @@ def test_parse_gff_attributes(base_path):
 
 def test_get_reference_dict(base_path):
     """Test reference dict implementation and aliasing"""
-    assert get_reference_dict(get_resource('ensembl_gff'), fun_alias=toggle_chr).keys() == {'chr3', 'chr7'}
-    assert get_reference_dict(get_resource('ensembl_gff')).orig.keys() == \
-           get_reference_dict(get_resource('ensembl_gff'), fun_alias=toggle_chr).orig.keys()
-    assert get_reference_dict(get_resource('ensembl_gff'), fun_alias=toggle_chr).alias('1') == 'chr1'
+    assert ReferenceDict.load(get_resource('ensembl_gff'), fun_alias=toggle_chr).keys() == {'chr3', 'chr7'}
+    assert ReferenceDict.load(get_resource('ensembl_gff')).orig.keys() == \
+           ReferenceDict.load(get_resource('ensembl_gff'), fun_alias=toggle_chr).orig.keys()
+    assert ReferenceDict.load(get_resource('ensembl_gff'), fun_alias=toggle_chr).alias('1') == 'chr1'
     # compare 2 refsets, one w/o chr prefix (ensembl) and one with (fasta file)
     assert ReferenceDict.merge_and_validate(
-        get_reference_dict(get_resource('ensembl_gff'), fun_alias=toggle_chr),
-        get_reference_dict(get_resource('ACTB+SOX2_genome'))
-    ).keys() == {'chr3', 'chr7'}
+        ReferenceDict.load(get_resource('ensembl_gff'), fun_alias=toggle_chr),
+        ReferenceDict.load(get_resource('ACTB+SOX2_genome'))
+        ).keys() == {'chr3', 'chr7'}
     assert ReferenceDict.merge_and_validate(
-        get_reference_dict(get_resource('ensembl_gff')),
-        get_reference_dict(get_resource('ACTB+SOX2_genome'), fun_alias=toggle_chr)
+        ReferenceDict.load(get_resource('ensembl_gff')),
+        ReferenceDict.load(get_resource('ACTB+SOX2_genome'), fun_alias=toggle_chr)
     ).keys() == {'3', '7'}
 
 
@@ -185,3 +178,16 @@ def test_reference_dict(base_path):
     r5 = ReferenceDict({'chr1': 10, 'chr2': 20, 'chrM': 23, 'chrX': 12}, "test_refdict", None)
     assert list(r5.iter_blocks(10)) == from_str(
         "chr1:1-10, chr2:1-10,  chr2:11-20, chrM:1-10,  chrM:11-20, chrM:21-23, chrX:1-10,  chrX:11-12")
+
+
+def test_calc_3end(base_path, default_testdata):
+    t = Transcriptome(default_testdata)
+    # test whether returned 3'end intervals are in sum 200bp long or None (if tx too short)
+    for tx in t.transcripts:
+        assert calc_3end(tx) is None or sum([len(x) for x in calc_3end(tx)]) == 200
+
+
+def test_geneid2symbol():  # needs internet connection
+    res = geneid2symbol(['ENSMUSG00000029580', 60])
+    assert res['60'].symbol == 'ACTB' and res['60'].taxid == 9606
+    assert res['ENSMUSG00000029580'].symbol == 'Actb' and res['ENSMUSG00000029580'].taxid == 10090

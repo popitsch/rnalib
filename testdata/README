@@ -92,9 +92,9 @@ FT: CDS UTR exon gene start_codon stop_codon transcript
 
 
 FLYBASE gff/flybase_dmel-2L-r6.36.gtf.gz
-	2L      FlyBase gene    7529    9484    .       +       .       gene_id "FBgn0031208"; gene_symbol "CR11023";
-	2L      FlyBase mRNA    9839    21376   .       -       .       gene_id "FBgn0002121"; gene_symbol "l(2)gl"; transcript_id "FBtr0306589"; transcript_symbol "l(2)gl-RG";
-	2L      FlyBase exon    7529    8116    .       +       .       gene_id "FBgn0031208"; gene_symbol "CR11023"; transcript_id "FBtr0475186"; transcript_symbol "CR11023-RE";
+	2L      FlyBase gene    7529    9484    .       +       .       gene_id "FBgn0031208"; GeneSymbol "CR11023";
+	2L      FlyBase mRNA    9839    21376   .       -       .       gene_id "FBgn0002121"; GeneSymbol "l(2)gl"; transcript_id "FBtr0306589"; transcript_symbol "l(2)gl-RG";
+	2L      FlyBase exon    7529    8116    .       +       .       gene_id "FBgn0031208"; GeneSymbol "CR11023"; transcript_id "FBtr0475186"; transcript_symbol "CR11023-RE";
 FT: 3UTR 5UTR CDS exon gene mRNA ncRNA pseudogene start_codon stop_codon
 
 

@@ -1,94 +1,25 @@
 """
-
-Gene model classes.
+This module implements a transcriptome model as defined by a GFF/GTF file.
+It supports instantiation of the model from various popular GFF 'flavours' as published in
+encode, ensembl, ucsc, chess, mirgendb and flybase databases.
 
 """
-
 from collections import Counter
-from dataclasses import dataclass, make_dataclass, field
+from dataclasses import make_dataclass, field
 from itertools import chain
 
 import dill
-import mygene
-import pandas as pd
 import pysam
 from intervaltree import IntervalTree
 from more_itertools import pairwise, triplewise
 from tqdm.auto import tqdm
 
-from pygenlib.iterators import GFF3Iterator, AnnotationIterator, TranscriptomeIterator
-from pygenlib.utils import gi, reverse_complement, get_config, get_reference_dict, open_file_obj, ReferenceDict, \
-    to_str, bgzip_and_tabix, toggle_chr, guess_file_format
+from .gi import gi
+from .iterators import GFF3Iterator, AnnotationIterator, TranscriptomeIterator
+from .utils import reverse_complement, get_config, get_reference_dict, open_file_obj, ReferenceDict, \
+    to_str, bgzip_and_tabix, guess_file_format, read_alias_file, norm_gn, toggle_chr  # toggle_chr needed
 
-
-# ------------------------------------------------------------------------
-# gene symbol abstraction
-# ------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class gene_symbol:
-    """
-        Class for representing a gene symbol, name and taxonomy id.
-    """
-    symbol: str  #
-    name: str  #
-    taxid: int  #
-
-    def __repr__(self):
-        return f"{self.symbol} ({self.name}, tax: {self.taxid})"
-
-
-def geneid2symbol(gene_ids):
-    """
-        Queries gene names for the passed gene ids from MyGeneInfo via https://pypi.org/project/mygene/
-        Gene ids can be, e.g., EntrezIds (e.g., 60) or ensembl gene ids (e.g., 'ENSMUSG00000029580') or a mixed list.
-        Returns a dict { entrezid : gene_symbol }
-        Example: geneid2symbol(['ENSMUSG00000029580', 60]) - will return mouse and human actin beta
-    """
-    mg = mygene.MyGeneInfo()
-    galias = mg.getgenes(set(gene_ids), filter='symbol,name,taxid')
-    id2sym = {x['query']: gene_symbol(x.get('symbol', x['query']), x.get('name', None), x.get('taxid', None)) for x in
-              galias}
-    return id2sym
-
-
-def read_alias_file(gene_name_alias_file, disable_progressbar=False) -> (dict, set):
-    """ Reads a gene name aliases from the passed file.
-        Supports the download format from genenames.org and vertebrate.genenames.org.
-        Returns an alias dict and a set of currently known (active) gene symbols
-    """
-    aliases = {}
-    current_symbols = set()
-    if gene_name_alias_file:
-        tab = pd.read_csv(gene_name_alias_file, sep='\t',
-                          dtype={'alias_symbol': str, 'prev_symbol': str, 'symbol': str}, low_memory=False,
-                          keep_default_na=False)
-        for r in tqdm(tab.itertuples(), desc='load gene aliases', total=tab.shape[0], disable=disable_progressbar):
-            sym = r.symbol.strip()
-            current_symbols.add(sym)
-            for a in r.alias_symbol.split("|"):
-                if len(a.strip()) > 0:
-                    aliases[a.strip()] = sym
-            for a in r.prev_symbol.split("|"):
-                if len(a.strip()) > 0:
-                    aliases[a.strip()] = sym
-    return aliases, current_symbols
-
-
-def norm_gn(g, current_symbols=None, aliases=None) -> str:
-    """
-    Normalizes gene names. Will return a stripped version of the passed gene name.
-    The gene symbol will be updated to the latest version if an alias table is passed (@see read_alias_file()).
-    If a set of current (up-to date) symbols is passed that contains the passed symbol, no aliasing will be done.
-    """
-    if g is None:
-        return None
-    g = g.strip()  # remove whitespace
-    if (current_symbols is not None) and (g in current_symbols):
-        return g  # there is a current symbol so don't look for aliases
-    if aliases is None:
-        return g
-    return g if aliases is None else aliases.get(g, g)
+from dataclasses import dataclass
 
 
 # ------------------------------------------------------------------------
@@ -96,39 +27,63 @@ def norm_gn(g, current_symbols=None, aliases=None) -> str:
 # ------------------------------------------------------------------------
 class Transcriptome:
     """
-        Represents a transcriptome as modelled by a GTF/GFF file.
-        Note that the current implementation does not implement the full GFF3 format as specified in
-        https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
-        but currently supports various popular gff 'flavours' as published in encode, ensembl, ucsc, chess, mirgendb and
-        flybase databases (see `gff_flavours`). As such this implementation will likely be extnded in the future.
+    Represents a transcriptome as modelled by a GTF/GFF file.
 
-        -   Model contains genes, transcripts and arbitrary sub-features (e.g., exons, intron, 3'/5'-UTRs, CDS) as
-            defined in the GFF file. Frozen dataclasses (derived from the 'Feature' class) are created for all parsed
-            feature types automatically and users may configure which GTF/GFF attributes will be added to those (and are
-            thus accessible via dot notation, e.g., gene.gene_type).
-        -   This `transcriptome` implementation exploits the hierarchical relationship between genes and their
-            sub-features to optimize storage and computational requirements, see the `Feature` documentation for
-            examples. To enable this, however, parent features *must* envelop (i.e., completely contain) child feature
-            locations and this requirement is asserted when building the `transcriptome`.
-        -   A `transcriptome` maintains an `anno` dict mapping (frozen) features to dicts of arbitrary annotation
-            values. This supports incremental and flexible annotation of `transcriptome` features. Values can directly
-            be accessed via dot notation <feature>.<attribute> and can be stored/loaded to/from a (pickled) file.
-        -   `Feature` sequences can be added via `load_sequences()` which will extract the sequence of the top-level
-            feature ('gene') from the configured reference genome. Sequences can then be accessed via get_sequence().
-            For sub-features (e.g., transcripts, exons, etc.) the respective sequence will be sliced from the gene
-            sequence. If mode='rna' is passed, the sequence is returned in 5'-3' orientation, i.e., they are
-            reverse-complemented for minus-strand transcripts. The returned sequence will, however, still use the DNA
-            alphabet (ACTG) to enable direct alignment/comparison with genomic sequences.
-            if mode='spliced', the spliced 5'-3' sequence will be returned.
-            if mode='translated', the spliced 5'-3' CDS sequence will be returned.
-        -   Genomic range queries via `query()` are supported by a combination of interval and linear search queries.
-            A transcriptome object maintains one intervaltree per chromosome built from gene annotations.
-            Overlap/envelop queries will first be applied to the respective intervaltree and the (typically small
-            result sets) will then be filtered, e.g., for requested sub-feature types.
-        -   When building a transcriptome model from a GFF/GTF file, contained transcripts can be filtered using a
-            :func:`~TranscriptFilter <genemodel.TranscriptFilter>`.
+    *   Model contains genes, transcripts and arbitrary sub-features (e.g., exons, intron, 3'/5'-UTRs, CDS) as
+        defined in the GFF file. Frozen dataclasses (derived from the 'Feature' class) are created for all parsed
+        feature types automatically and users may configure which GTF/GFF attributes will be added to those (and are
+        thus accessible via dot notation, e.g., gene.gene_type).
+    *   This `transcriptome` implementation exploits the hierarchical relationship between genes and their
+        sub-features to optimize storage and computational requirements, see the `Feature` documentation for
+        examples. To enable this, however, parent features *must* envelop (i.e., completely contain) child feature
+        locations and this requirement is asserted when building the `transcriptome`.
+    *   A `transcriptome` maintains an `anno` dict mapping (frozen) features to dicts of arbitrary annotation
+        values. This supports incremental and flexible annotation of `transcriptome` features. Values can directly
+        be accessed via dot notation <feature>.<attribute> and can be stored/loaded to/from a (pickled) file.
+    *   `Feature` sequences can be added via `load_sequences()` which will extract the sequence of the top-level
+        feature ('gene') from the configured reference genome. Sequences can then be accessed via get_sequence().
+        For sub-features (e.g., transcripts, exons, etc.) the respective sequence will be sliced from the gene
+        sequence. If mode='rna' is passed, the sequence is returned in 5'-3' orientation, i.e., they are
+        reverse-complemented for minus-strand transcripts. The returned sequence will, however, still use the DNA
+        alphabet (ACTG) to enable direct alignment/comparison with genomic sequences.
+        if mode='spliced', the spliced 5'-3' sequence will be returned.
+        if mode='translated', the spliced 5'-3' CDS sequence will be returned.
+    *   Genomic range queries via `query()` are supported by a combination of interval and linear search queries.
+        A transcriptome object maintains one intervaltree per chromosome built from gene annotations.
+        Overlap/envelop queries will first be applied to the respective intervaltree and the (typically small
+        result sets) will then be filtered, e.g., for requested sub-feature types.
+    *   When building a transcriptome model from a GFF/GTF file, contained transcripts can be filtered using a :func:`TranscriptFilter <pygenlib.genemodel.TranscriptFilter>`.
+    * | The current implementation does not implement the full GFF3 format as specified in
+      | https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
+      | but currently supports various popular gff 'flavours' as published in
+      | encode, ensembl, ucsc, chess, mirgendb and flybase databases (see `gff_flavours`).
+      | As such this implementation will likely be extended in the future.
 
-        @see the README jupyter notebook for various querying and iteration examples
+    @see the `README.ipynb <https://github.com/popitsch/pygenlib/blob/main/notebooks/README.ipynb>`_ jupyter notebook for various querying and iteration examples
+
+    Parameters
+    ----------
+    config : Dict[str, Any]
+        Configuration dict containing the following (optional) entries:
+
+        * annotation_gff: path to a GFF/GTF file containing the transcriptome annotations.
+        * annotation_flavour: the annotation flavour of the GFF/GTF file. Currently supported: encode, ensembl, ucsc, chess, mirgendb and flybase.
+        * genome_fa: path to a FASTA file containing the reference genome. If provided, sequences will be loaded and can be accessed via get_sequence().
+        * gene_name_alias_file: path to a gene name alias file. If provided, gene symbols will be normalized using the alias file.
+        * annotation_fun_alias: name of a function that will be used to alias gene names. The function must be defined in the global namespace and must accept a gene name and return the alias. If provided, gene symbols will be normalized using the alias function.
+        * copied_fields: list of GFF/GTF fields that will be copied to the respective feature annotations.
+        * calc_introns: if true, intron features will be added to transcripts that do not have them.
+        * load_sequences: if true, sequences will be loaded from the genome_fa file.
+        * disable_progressbar: if true, progressbars will be disabled.
+
+    Attributes
+    ----------
+    genes : List[Gene]
+        List of genes in the transcriptome.
+    transcripts : List[Transcript]
+        List of transcripts in the transcriptome.
+    anno : Dict[Feature, Dict[str, Any]]
+        Dictionary mapping features (e.g., genes, transcripts) to their annotations.
 
     """
 
@@ -145,6 +100,7 @@ class Transcriptome:
         self.chr2itree = {}  # a dict mapping chromosome ids to annotation interval trees.
         self.genes = []  # list of genes
         self.transcripts = []  # list of transcripts
+        self.duplicate_gene_names = {}  # dict mapping gene names to lists of genes with the same name
         self.build()  # build the transcriptome object
 
     def build(self):
@@ -178,13 +134,12 @@ class Transcriptome:
         self.merged_refdict = ReferenceDict.merge_and_validate(*rd, check_order=False,
                                                                included_chrom=self.txfilter.included_chrom)
         assert len(self.merged_refdict) > 0, "No shared chromosomes!"
-        filtered_PAR_ids = set()  # for filtering PAR ids
         self.log = Counter()
         # iterate gff
         genes = {}
         transcripts = {}
         line_number = 0
-        for chrom in tqdm(self.merged_refdict, f"Building transcriptome ({self.txfilter})",
+        for chrom in tqdm(self.merged_refdict, f"Building transcriptome ({self.txfilter})\n",
                           disable=disable_progressbar):
             # PASS 1: build gene objects
             with GFF3Iterator(get_config(self.config, 'annotation_gff', required=True), chrom,
@@ -196,7 +151,8 @@ class Transcriptome:
                         if ftype == 'gene':  # build gene object
                             gid = info.get(fmt['gid'], 'None')
                             if gid is None:
-                                print(f"Skipping {annotation_flavour} {file_format} line {line_number + 1} ({info['feature_type']}), info:\n\t{info} as no gene_id found.")
+                                print(
+                                    f"Skipping {annotation_flavour} {file_format} line {line_number + 1} ({info['feature_type']}), info:\n\t{info} as no gene_id found.")
                                 continue
                             genes[gid] = _mFeature(self, 'gene', gid, loc, parent=None, children={'transcript': []})
                             for cf in copied_fields:
@@ -217,7 +173,7 @@ class Transcriptome:
                         ftype = fmt['ftype_to_SO'].get(info['feature_type'], None)
                         if ftype == 'transcript':  # build tx object
                             # filter...
-                            if self.txfilter.filter(loc, info):
+                            if self.txfilter.filter(loc, ftype, info):
                                 self.log[f"filtered_{info['feature_type']}"] += 1
                                 continue
                             # get transcript and gene id
@@ -269,7 +225,7 @@ class Transcriptome:
                         ftype = fmt['ftype_to_SO'].get(info['feature_type'], None)
                         if ftype in allowed_ftypes:  # build gene object
                             # filter...
-                            if self.txfilter.filter(loc, info):
+                            if self.txfilter.filter(loc, ftype, info):
                                 self.log[f"filtered_{info['feature_type']}"] += 1
                                 continue
                             # get transcript and gene id
@@ -308,9 +264,6 @@ class Transcriptome:
                     intron.anno = ex0.anno.copy()
                     # add to transcript only if this is non-empty
                     ex0.parent.children[feature_type].append(intron)
-        # log filtered PAR IDs
-        if len(filtered_PAR_ids) > 0:
-            self.log['filtered_PAR_features'] = len(filtered_PAR_ids)
 
         # step1: create custom dataclasses
         self._ft2anno_class = {}  # contains annotation fields parsed from GFF
@@ -344,11 +297,16 @@ class Transcriptome:
         self.gene.update({f.gene_name: f for f in self.__iter__(feature_types=['gene'])})
         self.transcript = {f.feature_id: f for f in self.__iter__(feature_types=['transcript'])}
         self.transcripts = list(self.__iter__(feature_types=['transcript']))
+        # Create a dict with genes that share the same gene_name (buf different ids), such as PAR genes
+        self.duplicate_gene_names = Counter(g.gene_name for g in self.genes)
+        self.duplicate_gene_names = {x:list() for x, count in self.duplicate_gene_names.items() if count > 1}
+        for g in [g for g in self.genes if g.gene_name in self.duplicate_gene_names.keys()]:
+            self.duplicate_gene_names[g.gene_name].append(g)
         # load sequences
         if get_config(self.config, 'load_sequences', default_value=False):
             self.load_sequences()
-        # build itree
-        for g in tqdm(self.genes, desc=f"Build interval tree", total=len(self.genes), disable=disable_progressbar):
+        # build interval trees
+        for g in tqdm(self.genes, desc=f"Build interval trees", total=len(self.genes), disable=disable_progressbar):
             if g.chromosome not in self.chr2itree:
                 self.chr2itree[g.chromosome] = IntervalTree()
             # add 1 to end coordinate, see itree conventions @ https://github.com/chaimleib/intervaltree
@@ -472,11 +430,17 @@ class Transcriptome:
     def query(self, query, feature_types=None, envelop=False, sorted=True):
         """
             Query features of the passed class at the passed query location.
-            If the respective interval trees are not existing yet, it is built and can directly
-            be accessed via <transcriptome>.itrees[feature_class][chromosome].
 
-            if 'envelop' is set, then only features fully contained in the query
-            interval are returned.
+            Parameters
+            ----------
+            query : GenomicInterval
+                Query interval
+            feature_types : str or List[str]
+                Feature types to query. If None, all feature types will be queried.
+            envelop : bool
+                If true, only features fully contained in the query interval are returned.
+            sorted : bool
+                If true, the returned features will be sorted by chromosome and start coordinate.
         """
         if query.chromosome not in self.chr2itree:
             return []
@@ -587,14 +551,26 @@ class Transcriptome:
                 feature_types=('gene', 'transcript', 'exon', 'intron', 'CDS', 'three_prime_UTR', 'five_prime_UTR')):
         """
             Writes a GFF3 file with all features of the configured types.
-            The output file will be bgzipped and tabixed if bgzip=True.
 
-            For the used feature types, see
-            @see https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
+            Parameters
+            ----------
+            out_file : str
+                The output file name
+            bgzip : bool
+                If true, the output file will be bgzipped and tabixed.
+            feature_types : tuple
+                The feature types to be included in the output file.
+                For the used feature type names, see
+                @see https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
 
-            Example:
-                t.to_gff3('introns.gff3', feature_types=['intron']) # creates a file introns.gff3.gz containing all intron annotations
-            :return the name of the (bgzipped) output file
+            Returns
+            -------
+            the name of the (bgzipped) output file
+
+            Examples
+            --------
+            >>> transcriptome.to_gff3('introns.gff3', feature_types=['intron'])
+            >>> # creates a file introns.gff3.gz containing all intron annotations
         """
 
         def write_line(o, ftype, info, out):
@@ -780,7 +756,7 @@ class _mFeature():
 
     def freeze(self, ft2class):
         """Create a frozen instance (recursively)"""
-        # print(f"Freeze {self}")
+        # print(feature"Freeze {self}")
         f = ft2class[self.ftype].from_gi(self.loc)
         object.__setattr__(f, 'transcriptome', self.transcriptome)
         object.__setattr__(f, 'feature_id', self.feature_id)
@@ -834,7 +810,7 @@ gff_flavours = {
     },
     ('flybase', 'gtf'): {
         'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
-        'gene_name': 'gene_symbol',
+        'gene_name': 'GeneSymbol',
         'ftype_to_SO': default_ftype_to_SO | {'pseudogene': 'transcript'}
         # 'pseudogene': maps to 'gene' in ensembl but to tx in flybase
     },
@@ -862,35 +838,54 @@ gff_flavours = {
 
 
 # --------------------------------------------------------------
-# utility functions
+# Transcript filter
 # --------------------------------------------------------------
 
 class TranscriptFilter:
     """
-        For filtering transcript annotations based on GFF/GTF locations, attributes or transcript ids (tid)s.
-        Supported (optional) filter sections:
-        - included_tags: list of tags that must be set. Use, e.g., ['Ensembl_canonical'] to load
-                 only canonical tx or ['basic'] for GENCODE basic entries. default:[]
-        - included_tids: list of transcript ids (tids) that will be included.
-                if a file path (str) is configured, the list of tids is loaded from the respective file that should
-                contain one tid per line. default:[]
-        - included_genetypes: list of gene_types to be included.  Use, e.g., ['protein_coding'] to load
-                only protein coding transcripts
-        - included_chrom: list of chromosomes to be included. default:[]
-        - included_regions: list of genomic regions to be included. NOTE: slow if many regions are provide here. default:[]
+    For filtering transcript annotations based on GFF/GTF locations, attributes or transcript ids (tid)s.
 
+    Parameters
+    ----------
+    config : dict
+        The configuration dictionary.
+    config_section : str, optional
+        The configuration section name. Default is 'transcript_filter'.
 
-        NOTE that gene objects that have no associated transcript left after filtering will be dropped .
+    Attributes
+    ----------
+    included_tags : set
+        A set of tags that must be set. Use, e.g., {'Ensembl_canonical'} to load only canonical tx or {'basic'} for
+        GENCODE basic entries. Default is an empty set.
+    included_tids : list
+        A list of transcript ids (tids) that will be included. If a file path (str) is configured, the list of tids is
+        loaded from the respective file that should contain one tid per line. Default is an empty list.
+    included_genetypes : set
+        A set of gene_types to be included. Use, e.g., {'protein_coding'} to load only protein coding genes.
+        Default is an empty set.
+    included_transcript_types : set
+        A set of transcript_types to be included. Use, e.g., {'protein_coding'} to load only protein coding transcripts.
+    included_chrom : list
+        A list of chromosomes to be included. Default is an empty list.
+    included_regions : list
+        A list of genomic regions to be included. NOTE: slow if many regions are provide here. Default is an empty list.
+    filter_missing_values : bool
+        If true, features that do not have the respective attribute will be filtered. Default is True.
 
-        TODO: add warning if wrong config keys used
+    Notes
+    -----
+    Gene objects that have no associated transcript left after filtering will be dropped by default.
+    TODO: add warning if wrong config keys used
     """
 
     def __init__(self, config, config_section='transcript_filter'):
         self.included_tags = set(get_config(config, [config_section, 'included_tags'], default_value=[]))
         self.included_tids = get_config(config, [config_section, 'included_tids'], default_value=[])
         self.included_genetypes = set(get_config(config, [config_section, 'included_genetypes'], default_value=[]))
+        self.included_transcript_types = set(get_config(config, [config_section, 'included_transcript_types'], default_value=[]))
         self.included_chrom = get_config(config, [config_section, 'included_chrom'], default_value=[])
         self.included_regions = get_config(config, [config_section, 'included_regions'], default_value=[])
+        self.filter_missing_values = get_config(config, [config_section, 'filter_missing_values'], default_value=True)
         if len(self.included_regions) > 0:
             self.included_regions = [gi.from_str(s) for s in self.included_regions]
         # load tids from file
@@ -899,7 +894,7 @@ class TranscriptFilter:
                 tids = [line.rstrip('\n') for line in f]
             self.included_tids = tids
 
-    def filter(self, loc, info):
+    def filter(self, loc, ftype, info):
         if len(self.included_tags) > 0:
             if 'tag' in info:
                 tags = set(info['tag'].split(','))
@@ -907,19 +902,27 @@ class TranscriptFilter:
                 if len(missing) > 0:
                     return True
             else:
-                return True  # no 'tag' found -> filter
-        if len(self.included_tids) > 0:
+                return self.filter_missing_values  # no 'tag' found -> filter
+        if ftype == 'transcript' and len(self.included_tids) > 0:
             tid = info.get('transcript_id', None)
             if tid and (tid not in self.included_tids):
                 return True
-        if len(self.included_genetypes) > 0:
+        if ftype == 'gene' and len(self.included_genetypes) > 0:
             if 'gene_type' in info:
                 gene_types = set(info['gene_type'].split(','))
                 missing = self.included_genetypes.difference(gene_types)
                 if len(missing) > 0:
                     return True
             else:
-                return True  # no 'gene_type' found -> filter
+                return self.filter_missing_values  # no 'gene_type' found -> filter
+        if ftype == 'transcript' and  len(self.included_transcript_types) > 0:
+            if 'transcript_type' in info:
+                transcript_types = set(info['transcript_type'].split(','))
+                missing = self.included_transcript_types.difference(transcript_types)
+                if len(missing) > 0:
+                    return True
+            else:
+                return self.filter_missing_values  # no 'transcript_type' found -> filter
         if len(self.included_chrom) > 0:
             if loc.chromosome not in self.included_chrom:
                 return True
@@ -937,26 +940,21 @@ class TranscriptFilter:
         if len(self.included_tags) + len(self.included_tids) + len(self.included_genetypes) + len(
                 self.included_chrom) + len(self.included_regions) == 0:
             return "unfiltered"
-        return f"Filtered ({len(self.included_tags)} tags, " \
-               f"{len(self.included_tids)} tids, " \
-               f"{len(self.included_genetypes)} genetypes, " \
-               f"{len(self.included_chrom)} chroms, " \
-               f"{len(self.included_regions)} regions)."
+        fil = []
+        if len(self.included_tags) > 0:
+            fil.append(f"n_tag={len(self.included_tags)}")
+        if len(self.included_tids) > 0:
+            fil.append(f"n_tid={len(self.included_tids)}")
+        if len(self.included_genetypes) > 0:
+            fil.append(f"n_gty={len(self.included_genetypes)}")
+        if len(self.included_transcript_types) > 0:
+            fil.append(f"n_tty={len(self.included_transcript_types)}")
+        if len(self.included_chrom) > 0:
+            fil.append(f"n_chr={len(self.included_chrom)}")
+        if len(self.included_regions) > 0:
+            fil.append(f"n_reg={len(self.included_regions)}")
+        if len(fil) == 0:
+            return "unfiltered"
+        return ",".join(fil)
 
 
-def calc_3end(tx, width=200):
-    """
-        Utility function that returns a list of genomic intervals containing the last <width> bases
-        of the passed transcript or None if not possible
-    """
-    ret = []
-    for ex in tx.exon[::-1]:
-        if len(ex) < width:
-            ret.append(ex.get_location())
-            width -= len(ex)
-        else:
-            s, e = (ex.start, ex.start + width - 1) if (ex.strand == '-') else (ex.end - width + 1, ex.end)
-            ret.append(gi(ex.chromosome, s, e, ex.strand))
-            width = 0
-            break
-    return ret if width == 0 else None

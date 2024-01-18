@@ -1,19 +1,9 @@
-import os
+"""
+Tests for GenomicInterval class
+"""
+
 from itertools import product, pairwise
-from pathlib import Path
-
-import pytest
-
-from pygenlib.utils import gi, ReferenceDict, MAX_INT
-
-
-@pytest.fixture(autouse=True)
-def base_path() -> Path:
-    """Go to testdata dir"""
-    testdir = Path(__file__).parent.parent / "testdata/"
-    print("Setting working dir to %s" % testdir)
-    os.chdir(testdir)
-    return testdir
+from pygenlib import gi, MAX_INT, ReferenceDict
 
 
 def merge_result_lists(lst):
@@ -57,14 +47,14 @@ def test_loc_overlaps():
     #   |-c-|
     #           |-d-|
     #                         |-e-|
-    #                     |-f--------|
+    #                     |-feature--------|
     d = {
         'a': gi('1', 1, 10),
         'b': gi('1', 11, 20),
         'c': gi('1', 5, 15),
         'd': gi('1', 30, 40),
         'e': gi('2', 21, 30),
-        'f': gi('2', 1, 50)
+        'feature': gi('2', 1, 50)
     }
     d_plus = {x: d[x].get_stranded('+') for x in d}
     d_minus = {x: d[x].get_stranded('-') for x in d}
@@ -73,12 +63,12 @@ def test_loc_overlaps():
     assert (d['a'].overlaps(d['c']))
     assert (d['c'].overlaps(d['a']))
     assert (d['b'].overlaps(d['c']))
-    assert (d['e'].overlaps(d['f']))
-    assert (d['f'].overlaps(d['e']))
+    assert (d['e'].overlaps(d['feature']))
+    assert (d['feature'].overlaps(d['e']))
     # is_adjacent
     assert (d['a'].is_adjacent(d['b']))
     # wrong chrom: no overlap
-    for x, y in product(['a', 'b', 'c', 'd'], ['e', 'f']):
+    for x, y in product(['a', 'b', 'c', 'd'], ['e', 'feature']):
         assert (not d[x].overlaps(d[y]))
         assert (not d[x].is_adjacent(d[y]))
     # wrong strand: no overlap
@@ -96,7 +86,7 @@ def test_loc_overlaps_unrestricted():
         'c': gi('1', 5, 15),
         'd': gi('1', 30, 40),
         'e': gi('2', 21, 30),
-        'f': gi('2', 1, 50)
+        'feature': gi('2', 1, 50)
     }
     # unrestricted intervals
     assert d['a'].overlaps(gi('1', None, None))
@@ -113,14 +103,14 @@ def test_loc_merge():
     #   |-c-|
     #           |-d-|
     #                         |-e-|
-    #                     |-f--------|
+    #                     |-feature--------|
     d = {
         'a': gi('1', 1, 10),
         'b': gi('1', 11, 20),
         'c': gi('1', 5, 15),
         'd': gi('1', 30, 40),
         'e': gi('2', 21, 30),
-        'f': gi('2', 1, 50)
+        'feature': gi('2', 1, 50)
     }
     d_plus = {x: d[x].get_stranded('+') for x in d}
     # d_minus = {x: d[x].get_stranded('-') for x in d}
@@ -128,7 +118,7 @@ def test_loc_merge():
     assert gi.merge([d['a'], d['a']]) == d['a']
     assert gi.merge([d['a'], d['b']]) == gi('1', 1, 20)
     assert gi.merge([d['a'], d['e']]) is None  # chrom mismatch
-    assert gi.merge([d['e'], d['f']]) == gi('2', 1, 50)  # containment
+    assert gi.merge([d['e'], d['feature']]) == gi('2', 1, 50)  # containment
     assert gi.merge([d['a'], d_plus['a']]) is None  # strand mismatch
     assert gi.merge([d_plus['a'], d_plus['a']]) == d_plus['a']
 
@@ -146,13 +136,13 @@ def test_loc_merge_unrestricted():
 #     a = {
 #         'a': gi('1', 1, 10),
 #         'c': gi('1', 5, 15),
-#         'f': gi('2', 1, 50),
+#         'feature': gi('2', 1, 50),
 #         'e': gi('2', 21, 30),
 #     }
 #     b = {
 #         'a': gi('1', 1, 10),
 #         'c': gi('3', 5, 15),
-#         'f': gi('4', 1, 50),
+#         'feature': gi('4', 1, 50),
 #         'e': gi('4', 21, 30)
 #     }
 #     for n,l in a.items():

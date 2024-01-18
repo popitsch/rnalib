@@ -1,23 +1,14 @@
-import os
-from pathlib import Path
+"""
+Test external APIs
+"""
 from collections import Counter
 
 import bioframe
 import pybedtools
-import pytest
 
-from pygenlib.iterators import AnnotationIterator, GFF3Iterator, BedIterator
+from pygenlib import gi, BedIterator, GFF3Iterator, AnnotationIterator
 from pygenlib.testdata import get_resource
-from pygenlib.utils import gi
 
-
-@pytest.fixture(autouse=True)
-def base_path() -> Path:
-    """Go to testdata dir"""
-    testdir = Path(__file__).parent.parent / "testdata/"
-    print("Setting working dir to %s" % testdir)
-    os.chdir(testdir)
-    return testdir
 
 def test_bioframe_pitfall_example():
     bioframe_gff = bioframe.read_table(get_resource("gencode_gff"), schema='gff')[['chrom', 'start', 'end', 'strand']]
@@ -77,13 +68,16 @@ def test_pybedtools_pitfall_example():
                 for g in v2:
                     gsnp[g.data['ID']] += 1
 
-    pbt_loc = {gi(pi.chrom, pi.start, pi.end) for pi in intergenic_snps if pi.start!=pi.end} # manually remove these wrong entries
+    # manually remove these wrong entries
+    pbt_loc = {gi(pi.chrom, pi.start, pi.end) for pi in intergenic_snps if pi.start!=pi.end}
     pgl_loc = {gi(loc.chromosome, loc.start-1, loc.end) for loc in isnp}
     # assert we found the same number of intergenic SNPs
     assert len(pbt_loc), len(pgl_loc)
 
-    # now we query for genes +/- 5kb using an interval tree. Note that this would report *all* genes within this genomic window, not just the closest one.
-    # However, we assume that this is the intended behaviour of this analysis and it does not make a difference for this dataset.
+    # now we query for genes +/- 5kb using an interval tree. Note that this would report *all* genes
+    # within this genomic window, not just the closest one.
+    # However, we assume that this is the intended behaviour of this analysis and it does not make a
+    # difference for this dataset.
     itree = GFF3Iterator(gff_file).to_intervaltrees()  # will drop empty intervals
     close_genes = set()
     for snp in isnp:
