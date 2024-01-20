@@ -65,7 +65,7 @@ test_resources = {
         },
         "flybase_gtf": {
             "uri": "ftp://ftp.flybase.net/genomes/Drosophila_melanogaster/dmel_r6.36_FB2020_05/gtf/dmel-all-r6.36.gtf.gz",
-            "regions": ["2L:1-30000"],
+            "regions": ["2L:1-100000"],
             "filename": "gff/flybase_dmel-2L-r6.36.gtf.gz"
         },
         "ensembl_gff": {
@@ -171,6 +171,11 @@ test_resources = {
         "test_bed": {
             "uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/static_files/test.bed.gz",
             "filename": "bed/test.bed.gz"
+        },
+        "test_bed12": {
+            "uri": f"file:///{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/"
+                   f"testdata/static_files/test_bed12.bed.gz",
+            "filename": "bed/test_bed12.bed.gz"
         },
         "deepvariant_test_bed": {
             "uri": "https://github.com/nf-core/test-datasets/raw/deepvariant/testdata/test_nist.b37_chr20_100kbp_at_10mb.bed",

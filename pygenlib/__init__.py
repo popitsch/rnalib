@@ -18,12 +18,12 @@
 
 
 """
+from ._version import __version__
 import json
 import numbers
 from abc import abstractmethod, ABC
 from collections import Counter, abc
 from dataclasses import dataclass, make_dataclass  # type: ignore # import dataclass to avoid PyCharm warnings
-from enum import Enum
 from itertools import chain
 from os import PathLike
 from typing import List, Callable, NamedTuple, Any
@@ -38,6 +38,7 @@ from sortedcontainers import SortedList, SortedSet
 
 from .constants import *
 from .utils import *
+from .testdata import get_resource, list_resources
 
 
 # ------------------------------------------------------------------------
@@ -47,7 +48,7 @@ from .utils import *
 class gi:  # noqa
     """
         Genomic intervals (gi) in pygenlib are inclusive, continuous and 1-based.
-        Points are represented by intervals with same start+stop coordinate, empty intervals by passing start>end
+        Points are represented by intervals with same start and stop coordinate, empty intervals by passing start>end
         coordinates (e.g., gi('chr1', 1,0).is_empty() -> True).
 
         GIs are implemented as frozen(immutable) dataclasses and can be used, e.g., as keys in a dict.
@@ -391,12 +392,13 @@ class Transcriptome:
         Overlap/envelop queries will first be applied to the respective intervaltree and the (typically small
         result sets) will then be filtered, e.g., for requested sub-feature types.
     *   When building a transcriptome model from a GFF/GTF file, contained transcripts can be filtered using a
-    :func:`TranscriptFilter <pygenlib.genemodel.TranscriptFilter>`.
+        :func:`TranscriptFilter <pygenlib.TranscriptFilter>`.
     * | The current implementation does not implement the full GFF3 format as specified in
       | https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
       | but currently supports various popular gff 'flavours' as published in
-      | encode, ensembl, ucsc, chess, mirgendb and flybase databases (see `gff_flavours`).
-      | As such this implementation will likely be extended in the future.
+      | encode, ensembl, ucsc, chess, mirgendb and flybase databases (see
+      | :func:`GFF_FLAVOURS <pygenlib.constants.GFF_FLAVOURS>`). As such this implementation will likely be extended
+      | in the future.
 
     @see the `README.ipynb <https://github.com/popitsch/pygenlib/blob/main/notebooks/README.ipynb>`_ jupyter
     notebook for various querying and iteration examples
@@ -566,8 +568,19 @@ class Transcriptome:
                             # add missing gene annotation (e.g., ucsc, flybase, chess)
                             if gid not in genes:
                                 if gid in missing_genes:
-                                    missing_genes[gid].loc = gi.merge([missing_genes[gid].loc, loc])  # update coords
-                                    missing_genes[gid].children['transcript'].append(transcripts[tid])  # add child
+                                    newloc = gi.merge([missing_genes[gid].loc, loc])
+                                    if newloc is None:
+                                        # special case, e.g., in Chess annotation/tx CHS.40038.9 is annotated on the
+                                        # opposite strand. We skip this tx and keep the gene annotation.
+                                        # In chess 3.0.1 there are 3 such entries, all pseudo genes.
+                                        print(f"WARNING: gene {gid} has tx with incompatible coordinates! "
+                                              f"{missing_genes[gid].loc} vs {loc}, skipping tx {tid}")
+                                        self.log[(f"filtered_"
+                                                  f"{info['feature_type']}_incompatible_coordinates_filtered")] += 1
+                                        del transcripts[tid]
+                                    else:
+                                        missing_genes[gid].loc = newloc
+                                        missing_genes[gid].children['transcript'].append(transcripts[tid])  # add child
                                 else:
                                     missing_genes[gid] = _Feature(self, 'gene', gid, loc, parent=None,
                                                                   children={'transcript': [transcripts[tid]]})
@@ -664,10 +677,10 @@ class Transcriptome:
                 assert f.parent.envelops(
                     f), f"parents intervals must envelop their child intervals: {f.parent}.envelops({f})==False"
         # build some auxiliary dicts
-        self.gene = {f.feature_id: f for f in self.__iter__(feature_types=['gene'])}
-        self.gene.update({f.gene_name: f for f in self.__iter__(feature_types=['gene'])})
-        self.transcript = {f.feature_id: f for f in self.__iter__(feature_types=['transcript'])}
-        self.transcripts = list(self.__iter__(feature_types=['transcript']))
+        self.transcripts = [f for f in self.anno.keys() if f.feature_type == 'transcript']
+        self.gene = {f.feature_id: f for f in self.anno.keys() if f.feature_type == 'gene'}
+        self.gene.update({f.gene_name: f for f in self.anno.keys() if f.feature_type == 'gene'})
+        self.transcript = {f.feature_id: f for f in self.transcripts}
         # Create a dict with genes that share the same gene_name (buf different ids), such as PAR genes
         self.duplicate_gene_names = Counter(g.gene_name for g in self.genes)
         self.duplicate_gene_names = {x: list() for x, count in self.duplicate_gene_names.items() if count > 1}
@@ -949,7 +962,7 @@ class Transcriptome:
             --------
             >>> transcriptome = ...
             >>> transcriptome.to_gff3('introns.gff3', feature_types=['intron'])
-            >>> # creates a file introns.gff3.gz containing all intron annotations
+            # creates a file containing all intron annotations
         """
 
         def write_line(o, feature_type, data_dict, out_stream):
@@ -968,14 +981,15 @@ class Transcriptome:
         copied_fields = [x for x in get_config(self.config, 'copied_fields', default_value=[]) if
                          x not in ['score', 'phase']]
         with open(out_file, 'w') as out:
-            for f in self.__iter__(feature_types):
-                if f.feature_type == 'gene':
-                    info = {'ID': f.feature_id, 'gene_name': f.gene_name}
-                else:
-                    info = {'ID': f.feature_id,
-                            'Parent': f.parent.feature_id}
-                info.update({k: getattr(f, k) for k in copied_fields})  # add copied fields
-                write_line(f, f.feature_type, info, out)
+            with self.iterator(feature_types=feature_types) as it:
+                for f, dat in it:
+                    if f.feature_type == 'gene':
+                        info = {'ID': f.feature_id, 'gene_name': f.gene_name}
+                    else:
+                        info = {'ID': f.feature_id,
+                                'Parent': f.parent.feature_id}
+                    info.update({k: getattr(f, k) for k in copied_fields})  # add copied fields
+                    write_line(f, f.feature_type, info, out)
         if bgzip:
             bgzip_and_tabix(out_file)
             return out_file + '.gz'
@@ -988,10 +1002,16 @@ class Transcriptome:
         return f"Transcriptome with {len(self.genes)} genes and {len(self.transcripts)} tx" + (
             " (+seq)" if self.has_seq else "") + (" (cached)" if self.cached else "")
 
-    def __iter__(self, feature_types=None):
-        for f in self.anno.keys():
-            if (not feature_types) or (f.feature_type in feature_types):
-                yield f
+    def iterator(self, chromosome=None, start=None, end=None, region=None, feature_types=None):
+        """ returns a :class:`.TranscriptomeIterator` for iterating over all features of the passed type(s).
+            If feature_types is None (default), all features will be returned.
+        """
+        return TranscriptomeIterator(self, chromosome=chromosome, start=start, end=end, region=region,
+                                     feature_types=feature_types)
+
+    def __iter__(self):
+        with self.iterator() as it:
+            yield from it
 
     def get_struct(self):
         """Return a dict mapping feature to child feature types"""
@@ -1055,7 +1075,7 @@ class Feature(gi):
         features that is unsorted by default. To iterate over features in a sorted order, consider using the
         TranscriptomeIterator class.
 
-        To inspect a features methods and attributes, use dir(feature) or help(feature).
+        To inspect a features methods and attributes, use vars(feature), dir(feature) or help(feature).
     """
     transcriptome: Transcriptome = None  # parent transcriptome
     feature_id: str = None  # unique feature id
@@ -1155,6 +1175,7 @@ class _Feature:
         self.parent = parent
         self.children = {} if children is None else children
         self.anno = {}
+        assert loc is not None
 
     def get_anno_rec(self):
         """compiles a dict containing all annotations of this feature and all its children per feature_type"""
@@ -1181,7 +1202,6 @@ class _Feature:
 
     def freeze(self, ft2class):
         """Create a frozen instance (recursively)"""
-        # print(feature"Freeze {self}")
         f = ft2class[self.feature_type].from_gi(self.loc)
         object.__setattr__(f, 'transcriptome', self.transcriptome)
         object.__setattr__(f, 'feature_id', self.feature_id)
@@ -1356,6 +1376,11 @@ class TranscriptFilter(AbstractFeatureFilter):
 
     def include_chromosomes(self, chromosomes: set):
         """Convenience method to add chromosomes to the included_chrom set"""
+        if not isinstance(chromosomes, set):
+            if isinstance(chromosomes, str):
+                chromosomes = {chromosomes}
+            else:
+                chromosomes = set(chromosomes)
         if self.included_chrom is None:
             self.included_chrom = chromosomes
         else:
@@ -1401,125 +1426,6 @@ class TranscriptFilter(AbstractFeatureFilter):
         self.config[self.config_section]['transcript']['included']['tag'] = list(gene_tags) + [
             None] if include_missing else list(gene_tags)
         return self
-
-
-@DeprecationWarning
-class _TranscriptFilter:
-    """
-    For filtering transcript annotations based on GFF/GTF locations, attributes or transcript ids (tid)s.
-
-    Parameters
-    ----------
-    config : dict
-        The configuration dictionary.
-    config_section : str, optional
-        The configuration section name. Default is 'transcript_filter'.
-
-    Attributes
-    ----------
-    included_tags : set
-        A set of tags that must be set. Use, e.g., {'Ensembl_canonical'} to load only canonical tx or {'basic'} for
-        GENCODE basic entries. Default is an empty set.
-    included_tids : list
-        A list of transcript ids (tids) that will be included. If a file path (str) is configured, the list of tids is
-        loaded from the respective file that should contain one tid per line. Default is an empty list.
-    included_genetypes : set
-        A set of gene_types to be included. Use, e.g., {'protein_coding'} to load only protein coding genes.
-        Default is an empty set.
-    included_transcript_types : set
-        A set of transcript_types to be included. Use, e.g., {'protein_coding'} to load only protein coding transcripts.
-    included_chrom : list
-        A list of chromosomes to be included. Default is an empty list.
-    included_regions : list
-        A list of genomic regions to be included. NOTE: slow if many regions are provide here. Default is an empty list.
-    filter_missing_values : bool
-        If true, features that do not have the respective attribute will be filtered. Default is True.
-
-    Notes
-    -----
-    Gene objects that have no associated transcript left after filtering will be dropped by default.
-    TODO: add warning if wrong config keys used
-    """
-
-    def __init__(self, config, config_section='transcript_filter'):
-        self.included_tags = set(get_config(config, [config_section, 'included_tags'], default_value=[]))
-        self.included_tids = get_config(config, [config_section, 'included_tids'], default_value=[])
-        self.included_genetypes = set(get_config(config, [config_section, 'included_genetypes'], default_value=[]))
-        self.included_transcript_types = set(
-            get_config(config, [config_section, 'included_transcript_types'], default_value=[]))
-        self.included_chrom = get_config(config, [config_section, 'included_chrom'], default_value=[])
-        self.included_regions = get_config(config, [config_section, 'included_regions'], default_value=[])
-        self.filter_missing_values = get_config(config, [config_section, 'filter_missing_values'], default_value=True)
-        if len(self.included_regions) > 0:
-            self.included_regions = [gi.from_str(s) for s in self.included_regions]
-        # load tids from file
-        if isinstance(self.included_tids, str):
-            with open(self.included_tids) as f:
-                tids = [line.rstrip('\n') for line in f]
-            self.included_tids = tids
-
-    def filter(self, loc, ftype, info):
-        if len(self.included_tags) > 0:
-            if 'tag' in info:
-                tags = set(info['tag'].split(','))
-                missing = self.included_tags.difference(tags)
-                if len(missing) > 0:
-                    return True
-            else:
-                return self.filter_missing_values  # no 'tag' found -> filter
-        if ftype == 'transcript' and len(self.included_tids) > 0:
-            tid = info.get('transcript_id', None)
-            if tid and (tid not in self.included_tids):
-                return True
-        if ftype == 'gene' and len(self.included_genetypes) > 0:
-            if 'gene_type' in info:
-                gene_types = set(info['gene_type'].split(','))
-                missing = self.included_genetypes.difference(gene_types)
-                if len(missing) > 0:
-                    return True
-            else:
-                return self.filter_missing_values  # no 'gene_type' found -> filter
-        if ftype == 'transcript' and len(self.included_transcript_types) > 0:
-            if 'transcript_type' in info:
-                transcript_types = set(info['transcript_type'].split(','))
-                missing = self.included_transcript_types.difference(transcript_types)
-                if len(missing) > 0:
-                    return True
-            else:
-                return self.filter_missing_values  # no 'transcript_type' found -> filter
-        if len(self.included_chrom) > 0:
-            if loc.chromosome not in self.included_chrom:
-                return True
-        if len(self.included_regions) > 0:
-            no_overlap = True
-            for reg in self.included_regions:
-                if loc.overlaps(reg):
-                    no_overlap = False
-                    break
-            if no_overlap:
-                return True
-        return False
-
-    def __repr__(self):
-        if len(self.included_tags) + len(self.included_tids) + len(self.included_genetypes) + len(
-                self.included_chrom) + len(self.included_regions) == 0:
-            return "unfiltered"
-        fil = []
-        if len(self.included_tags) > 0:
-            fil.append(f"n_tag={len(self.included_tags)}")
-        if len(self.included_tids) > 0:
-            fil.append(f"n_tid={len(self.included_tids)}")
-        if len(self.included_genetypes) > 0:
-            fil.append(f"n_gty={len(self.included_genetypes)}")
-        if len(self.included_transcript_types) > 0:
-            fil.append(f"n_tty={len(self.included_transcript_types)}")
-        if len(self.included_chrom) > 0:
-            fil.append(f"n_chr={len(self.included_chrom)}")
-        if len(self.included_regions) > 0:
-            fil.append(f"n_reg={len(self.included_regions)}")
-        if len(fil) == 0:
-            return "unfiltered"
-        return ",".join(fil)
 
 
 class ReferenceDict(abc.Mapping[str, int]):
@@ -1650,11 +1556,11 @@ class ReferenceDict(abc.Mapping[str, int]):
                 was_opened = True
                 fh = open_file_obj(fh)
             if isinstance(fh, pysam.Fastafile):  # @UndefinedVariable
-                return pygenlib.ReferenceDict({c: fh.get_reference_length(c) for c in fh.references},
-                                              name=f'References from FASTA file {fh.filename}', fun_alias=fun_alias)
+                return ReferenceDict({c: fh.get_reference_length(c) for c in fh.references},
+                                     name=f'References from FASTA file {fh.filename}', fun_alias=fun_alias)
             elif isinstance(fh, pysam.AlignmentFile):  # @UndefinedVariable
-                return pygenlib.ReferenceDict({c: fh.header.get_reference_length(c) for c in fh.references},
-                                              name=f'References from SAM/BAM file {fh.filename}', fun_alias=fun_alias)
+                return ReferenceDict({c: fh.header.get_reference_length(c) for c in fh.references},
+                                     name=f'References from SAM/BAM file {fh.filename}', fun_alias=fun_alias)
             elif isinstance(fh, pysam.TabixFile):  # @UndefinedVariable
                 if calc_chromlen:  # no ref length info in tabix, we need to iterate :-(
                     refdict = {}
@@ -1665,11 +1571,11 @@ class ReferenceDict(abc.Mapping[str, int]):
                         refdict[c] = int(line.split('\t')[2])
                 else:
                     refdict = {c: None for c in fh.contigs}  # no ref length info in tabix...
-                return pygenlib.ReferenceDict(refdict, name=f'References from TABIX file {fh.filename}',
-                                              fun_alias=fun_alias)
+                return ReferenceDict(refdict, name=f'References from TABIX file {fh.filename}',
+                                     fun_alias=fun_alias)
             elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
-                return pygenlib.ReferenceDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
-                                              name=f'References from VCF file {fh.filename}', fun_alias=fun_alias)
+                return ReferenceDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
+                                     name=f'References from VCF file {fh.filename}', fun_alias=fun_alias)
             else:
                 raise NotImplementedError(f"Unknown input object type {type(fh)}")
         finally:
@@ -1697,7 +1603,11 @@ class Item(NamedTuple):
 
 class LocationIterator:
     """
-        Superclass. A LocationIterator iterates over a genomic dataset and yields tuples of genomic intervals and
+        Superclass for genomic iterators (mostly based on pysam) for efficient, indexed iteration over genomic
+        datasets. Most pygenlib iterables inherit from this suoperclass and yield named tuples containing data and its
+        respective genomic location.
+
+        A LocationIterator iterates over a genomic dataset and yields tuples of genomic intervals and
         associated data. The data can be any object (e.g., a string, a dict, a list, etc.). The iterator can be
         restricted to genomic regions (e.g., chromosomes or regions) and/or strand.
 
@@ -1705,7 +1615,13 @@ class LocationIterator:
         the iterated and yielded items. They can be consumed and converted to lists (self.to_list()), pandas dataframes
         (self.to_dataframe()) or interval trees (self.to_intervaltrees()).
 
-        LocationIterators are iterable and implement the context manager protocol (with statement).
+        LocationIterators are iterable and implement the context manager protocol (with statement) and provide a
+        standard interface for region-type filtering (by passing chromosome sets or genomic regions of
+        interest). Where feasible and not supported by the underlying (pysam) implementation, they implement chunked
+        I/O where for efficient iteration (e.g., FastaIterator).
+
+        The maximu number of itereated items can be queried via the max_items() method which tries to guestimate this
+        number from the underlying index data structures (if available).
 
         Examples
         --------
@@ -1736,10 +1652,18 @@ class LocationIterator:
             optional, if True, the iterator will yield per-position items (e.g., FASTA files)
         fun_alias : Callable
             optional, if set, the iterator will use this function for aliasing chromosome names
-        refdict : pygenlib.ReferenceDict
+        refdict : ReferenceDict
             optional, if set, the iterator will use the passed reference dict instead of reading it from the file
         calc_chromlen : bool
             optional, if set, the iterator will calculate chromosome lengths from the file (if required)
+
+        Notes
+        -----
+        TODOs:
+        * strand specific iteration
+        * url streaming
+        * remove self.chromosome and get from self.location
+        * add is_exhausted flag?
     """
 
     @abstractmethod
@@ -1926,6 +1850,7 @@ class LocationIterator:
             chr2itree[loc.chromosome].addi(loc.start, loc.end + 1, item)
         return chr2itree
 
+    @abstractmethod
     def max_items(self):
         """ Maximum number of items yielded by this iterator or None if unknown.
             Note that this is the upper bound of yielded items but less (or even no) items may be yielded
@@ -2026,7 +1951,7 @@ class TranscriptomeIterator(LocationIterator):
         # add all annotation keys from the anno dict
         fun_col.update(dict.fromkeys(get_unique_keys(self.t.anno), None))
         # add annotation fields parsed from GFF
-        fun_col.update(dict.fromkeys(get_unique_keys(self.t._ft2anno_class), None)) # noqa
+        fun_col.update(dict.fromkeys(get_unique_keys(self.t._ft2anno_class), None))  # noqa
         # preserve order
         fun_col = tuple(fun_col.keys())
         # call super method
@@ -2066,14 +1991,15 @@ class TranscriptomeIterator(LocationIterator):
                                 disable_progressbar=disable_progressbar)
 
     def __iter__(self) -> Item:
-        for f in self.t.__iter__(feature_types=self.feature_types):
-            self.chromosome = f.chromosome
-            self._stats['iterated_items', self.chromosome] += 1
-            # filter by genomic region
-            if (self.region is not None) and (not f.overlaps(self.region)):
-                continue
-            self._stats['yielded_items', self.chromosome] += 1
-            yield Item(f, self.t.anno[f])
+        for f in self.t.anno.keys():
+            if (not self.feature_types) or (f.feature_type in self.feature_types):
+                self.chromosome = f.chromosome
+                self._stats['iterated_items', self.chromosome] += 1
+                # filter by genomic region
+                if (self.region is not None) and (not f.overlaps(self.region)):
+                    continue
+                self._stats['yielded_items', self.chromosome] += 1
+                yield Item(f, self.t.anno[f])
 
 
 class FastaIterator(LocationIterator):
@@ -2237,7 +2163,7 @@ class BedGraphIterator(TabixIterator):
 class BedRecord:
     """
         Parsed and mutable version of pysam.BedProxy
-        TODO add BED12 support
+        See https://genome.ucsc.edu/FAQ/FAQformat.html#format1 for BED format details
     """
 
     def __init__(self, tup):
@@ -2245,6 +2171,12 @@ class BedRecord:
         self.score = tup[4] if len(tup) >= 5 else None
         strand = tup[5] if len(tup) >= 6 else None
         self.loc = gi(tup[0], int(tup[1]) + 1, int(tup[2]), strand)  # convert -based to 1-based start
+        self.thick_start = int(tup[6]) + 1 if len(tup) >= 7 else None
+        self.thick_end = int(tup[7]) if len(tup) >= 8 else None
+        self.item_rgb = tup[8] if len(tup) >= 9 else None
+        self.block_count = int(tup[9]) if len(tup) >= 10 else None
+        self.block_sizes = [int(x) for x in tup[10].split(',') if x != ''] if len(tup) >= 11 else None
+        self.block_starts = [int(x) for x in tup[11].split(',') if x != ''] if len(tup) >= 12 else None
 
     def __repr__(self):
         return f"{self.loc.chromosome}:{self.loc.start}-{self.loc.end} ({self.name})"
@@ -2280,7 +2212,7 @@ class BedIterator(TabixIterator):
                                    # 0-based coordinates in pysam!
                                    end=self.end if (self.end < MAX_INT) else None,
                                    parser=pysam.asTuple()):  # @UndefinedVariable
-            rec = BedRecord(tuple(bed))
+            rec = BedRecord(tuple(bed))  # parse bed record
             self._stats['yielded_items', self.chromosome] += 1
             yield Item(rec.loc, rec)
 
@@ -2431,6 +2363,8 @@ class GFF3Iterator(TabixIterator):
         the respective info sections. The feature_type, source, score and phase fields from the GFF/GTF entries are
         copied to this dict (NOTE: attribute fields with the same name will be overloaded).
         @see https://pysam.readthedocs.io/en/latest/api.html#pysam.asGTF
+
+        This iterator is used to build a transcriptome object from a GFF3/GTF file.
 
         Notes
         -----
@@ -2609,6 +2543,13 @@ class BioframeIterator(PandasIterator):
                          refdict=refdict)
 
 
+# class PyrangesIterator(PandasIterator):
+#     def __init__(self, pyrangesobject, feature, chromosome=None, start=None, end=None, region=None, strand=None,
+#                  is_sorted=False, fun_alias=None):
+#         super().__init__(df, feature, chromosome, start, end, region, strand, \
+#         coord_columns=('Chromosome', 'Start', 'End', 'Strand'), coord_off=(1, 0), per_position=False)
+
+
 class MemoryIterator(LocationIterator):
     """
         A location iterator that iterates over intervals retrieved from one of the following datastructures:
@@ -2727,6 +2668,10 @@ class PybedtoolsIterator(LocationIterator):
     def close(self):
         pass
 
+
+# ---------------------------------------------------------
+# SAM/BAM iterators
+# ---------------------------------------------------------
 
 class ReadIterator(LocationIterator):
     """ Iterates over a BAM alignment.
@@ -2948,11 +2893,9 @@ class FastPileupIterator(LocationIterator):
             yield Item(self.location, self.count_dict[gpos] if gpos in self.count_dict else Counter())
 
 
-class BlockStrategy(Enum):
-    LEFT = 1  # same start coord
-    RIGHT = 2  # same end coord
-    BOTH = 3  # same start and end
-    OVERLAP = 4  # overlapping
+# ---------------------------------------------------------
+# grouped iterators
+# ---------------------------------------------------------
 
 
 class BlockLocationIterator(LocationIterator):
@@ -3270,6 +3213,10 @@ class TiledIterator(LocationIterator):
             self._stats['iterated_items', reg.chromosome] += 1
             yield Item(self.location, self.tile_items)
 
+
+# ---------------------------------------------------------
+# Additional, non location-bound iterators
+# ---------------------------------------------------------
 
 class FastqIterator:
     """

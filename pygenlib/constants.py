@@ -1,4 +1,4 @@
-from enum import IntEnum
+from enum import IntEnum, Enum
 
 from IPython.core.display import Markdown
 
@@ -43,7 +43,7 @@ GFF_FLAVOURS = {
     },
     ('flybase', 'gtf'): {
         'gid': 'gene_id', 'tid': 'transcript_id', 'tx_gid': 'gene_id', 'feat_tid': 'transcript_id',
-        'gene_name': 'GeneSymbol',
+        'gene_name': 'gene_symbol',
         'ftype_to_SO': FTYPE_TO_SO | {'pseudogene': 'transcript'}
         # 'pseudogene': maps to 'gene' in ensembl but to tx in flybase
     },
@@ -86,9 +86,17 @@ class BamFlag(IntEnum):
     BAM_SUPPLEMENTARY = 0x800  # optical or PCR duplicate
 
 
-#: default BAM flag filter (int 3844); comparable to samtools view -F 3844; also used as default filter in IGV
+#: default BAM flag filter (int 3844); comparable to samtools view -F 3844; also used as default filter in IGV.
 DEFAULT_FLAG_FILTER = BamFlag.BAM_FUNMAP | BamFlag.BAM_FSECONDARY | BamFlag.BAM_FQCFAIL \
                       | BamFlag.BAM_FDUP | BamFlag.BAM_SUPPLEMENTARY
 
-#: Markdown separator, usage: display(SEP)
+#: Markdown separator for jupyter notebooks; `display(SEP)`
 SEP = Markdown('---')
+
+
+class BlockStrategy(Enum):
+    """Block strategy for merging overlapping blocks"""
+    LEFT = 1  # same start coord
+    RIGHT = 2  # same end coord
+    BOTH = 3  # same start and end
+    OVERLAP = 4  # overlapping

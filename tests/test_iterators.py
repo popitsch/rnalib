@@ -136,7 +136,7 @@ def test_TabixIterator(base_path):
     assert len([(loc, t) for loc, t in ti.to_list()]) == 1
     with pytest.raises(AssertionError) as e_info:
         TabixIterator(vcf_file, 'unknown_contig', 5, 10)
-    print(feature'Expected assertion: {e_info}')
+    print(f'Expected assertion: {e_info}')
     # BED file with added 'chr' prefix
     ti = TabixIterator(bed_file, 'chr1', 1, 10, coord_inc=[1, 0], fun_alias=toggle_chr)
     assert (merge_yields(ti.to_list())[0] == gi('chr1', 6, 15))  # start is 0-based, end is 1-based
@@ -353,12 +353,12 @@ def test_SyncPerPositionIterator(base_path, testdata):
             self.dat = {}
             self.minmax = {}
             for it in range(n_it):
-                self.dat[feature'it{it}'] = {}
+                self.dat[f'it{it}'] = {}
                 for chrom in range(n_chr):
-                    self.dat[feature'it{it}'][feature'c{chrom}'] = self.create_rnd_int(it, feature'c{chrom}', n_int, n_pos)
+                    self.dat[f'it{it}'][f'c{chrom}'] = self.create_rnd_int(it, f'c{chrom}', n_int, n_pos)
 
         def __repr__(self):
-            return feature"SyncPerPositionIteratorTestDataset({self.seed})"
+            return f"SyncPerPositionIteratorTestDataset({self.seed})"
 
         def create_rnd_int(self, it, chrom, n_int, n_pos):
             random.seed(self.seed)
@@ -367,7 +367,7 @@ def test_SyncPerPositionIterator(base_path, testdata):
                 start = random.randrange(n_pos)
                 end = random.randrange(start, n_pos)
                 g = test_feature.from_gi(gi(chrom, start, end), feature_id=it,
-                                         name=feature'it{it}_{chrom}:{start}-{end}_{len(ret)}')
+                                         name=f'it{it}_{chrom}:{start}-{end}_{len(ret)}')
                 if g.chromosome not in self.minmax:
                     self.minmax[g.chromosome] = range(g.start, g.end)
                 self.minmax[g.chromosome] = range(min(self.minmax[g.chromosome].start, g.start),
@@ -405,11 +405,11 @@ def test_SyncPerPositionIterator(base_path, testdata):
     # test with random datasets
     found_differences = set()
     for seed in range(0, 100):
-        print(feature"======================================={seed}============================")
+        print(f"======================================={seed}============================")
         t = SyncPerPositionIteratorTestDataset(seed)
         # print('found', t.found())
         # print('expected', t.expected())
-        assert len(t.found()) == len(t.expected()), feature"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
+        assert len(t.found()) == len(t.expected()), f"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
         for a, b in zip(t.found(), t.expected()):
             if a != b:
                 if SortedSet(a[1]) != SortedSet(b[1]):
@@ -418,9 +418,9 @@ def test_SyncPerPositionIterator(base_path, testdata):
     # use more intervals, iterators, chromosomes; heavy overlaps
     found_differences = set()
     for seed in range(0, 10):
-        print(feature"======================================={seed}============================")
+        print(f"======================================={seed}============================")
         t = SyncPerPositionIteratorTestDataset(seed, n_it=5, n_pos=100, n_chr=5, n_int=500)
-        assert len(t.found()) == len(t.expected()), feature"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
+        assert len(t.found()) == len(t.expected()), f"invalid length for {t}, {len(t.found())} != {len(t.expected())}"
         for a, b in zip(t.found(), t.expected()):
             if a != b:
                 if SortedSet(a[1][0]) != SortedSet(b[1][0]):
@@ -602,6 +602,8 @@ def test_VcfIterator(base_path):
 def test_BedIterator(base_path):
     # simple test
     assert len(BedIterator(get_resource('test_bed')).to_list()) == 3
+    # bed12 test
+    assert len(BedIterator(get_resource('test_bed12')).to_list()) == 1
 
 
 def test_vcf_and_gff_it(base_path):

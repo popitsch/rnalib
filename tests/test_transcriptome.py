@@ -87,11 +87,14 @@ def test_transcriptome(base_path, default_testdata):
     for tx in t.transcripts[:10]:
         # check for premature stop codons which indicate wrong in-silico splicing/translation
         # note that this is not a safe test for any annotated tx as there are special cases, see e.g., FBtr0329895
-        assert len(seq.NucleotideSequence(tx.translated_sequence).translate(complete=True)) == len(tx.translated_sequence) // 3
+        assert len(seq.NucleotideSequence(tx.translated_sequence).translate(complete=True)) == len(
+            tx.translated_sequence) // 3
+
 
 def test_to_dataframe(base_path, default_testdata):
     t = Transcriptome(default_testdata)
     TranscriptomeIterator(t).to_dataframe()
+
 
 def test_itree(base_path, default_testdata):
     t = Transcriptome(default_testdata)
@@ -218,14 +221,17 @@ def test_filter(base_path, default_testdata):
                 'excluded': {'regions': ['2L:1-21376']}
             }
         }
-    , None)
+        , None)
     # test location filter
     assert tf.filter(gi('2L', 1, 1000), {'feature_type': 'gene'}) == (True, 'excluded_region')
     assert tf.filter(gi('2R', 1, 1000), {'feature_type': 'gene'}) == (True, 'included_chromosome')
     assert tf.filter(gi('2L', 50000, 100000), {'feature_type': 'gene'}) == (False, 'passed')
     assert tf.filter(gi('2L', 50000, 100000), {'feature_type': 'gene', 'gene_id': 'ENSG...'}) == (False, 'passed')
-    assert tf.filter(gi('2L', 50000, 100000), {'feature_type': 'gene', 'gene_id': 'ENSG...', 'tag': 'A,B'}) == (True, 'missing_tag_value')
-    assert tf.filter(gi('2L', 50000, 100000), {'feature_type': 'gene', 'gene_id': 'ENSG...', 'tag': 'Ensembl_canonical,A,B'}) == (False, 'passed')
+    assert tf.filter(gi('2L', 50000, 100000), {'feature_type': 'gene', 'gene_id': 'ENSG...', 'tag': 'A,B'}) == (
+    True, 'missing_tag_value')
+    assert tf.filter(gi('2L', 50000, 100000),
+                     {'feature_type': 'gene', 'gene_id': 'ENSG...', 'tag': 'Ensembl_canonical,A,B'}) == (
+           False, 'passed')
     assert tf.get_chromosomes() == {'2L'}
     # test filter builder
     tf = TranscriptFilter().include_chromosomes(['2L'])
@@ -240,49 +246,52 @@ def test_filter(base_path, default_testdata):
     # }
     # filter for non-existent tag, all tx should be filtered as well
     t = Transcriptome(config, TranscriptFilter({'transcript_filter': {
-            'gene': {'included': {'tags': ['protein_coding']}}
-        }}))
+        'gene': {'included': {'tags': ['protein_coding']}}
+    }}))
     assert t.log == {'parsed_gff_lines': 345,
-         'filtered_transcript_parent_gene_filtered': 89,
-         'filtered_gene_missing_tags': 5} and len(t.transcripts) == 0
+                     'filtered_transcript_parent_gene_filtered': 89,
+                     'filtered_gene_missing_tags': 5} and len(t.transcripts) == 0
     # filter for list of transcript ids.
     t = Transcriptome(config, TranscriptFilter().include_transcript_ids(['ENST00000325404.3', 'ENST00000674681.1']))
     assert t.log == {'parsed_gff_lines': 345,
-         'filtered_transcript_missing_transcript_id_value': 87,
-         'dropped_empty_genes': 3}
+                     'filtered_transcript_missing_transcript_id_value': 87,
+                     'dropped_empty_genes': 3}
     assert len(t.transcripts) == 2 and len(t.genes) == 2
     assert {tx.feature_id for tx in t.transcripts} == {'ENST00000325404.3', 'ENST00000674681.1'}
     # filter for gene_type
     t = Transcriptome(config, TranscriptFilter().include_gene_types(['protein_coding']))
     assert t.log == {'parsed_gff_lines': 345,
-         'filtered_transcript_missing_gene_type_value': 65,
-         'filtered_gene_missing_gene_type_value': 3}
+                     'filtered_transcript_missing_gene_type_value': 65,
+                     'filtered_gene_missing_gene_type_value': 3}
     assert len(t.transcripts) == 24 and len(t.genes) == 2
     # assert copied fields
     assert all([hasattr(tx, 'gene_type') for tx in t.transcripts])
     assert set([tx.gene_type for tx in t.transcripts]) == {'protein_coding'}
+
     # test custom filter class
     class MyFilter(AbstractFeatureFilter):
         """A simple custom example filter that rejects all non protein coding genes (but keeps entries
         without gene_type annotation) and drops genes outside the first 6 Mb of each chromosome.
         """
-        def filter(self, loc, info): # -> bool, str:
+
+        def filter(self, loc, info):  # -> bool, str:
             if info.get('feature_type', '') == 'gene':
                 if info.get('gene_type', 'protein_coding') != 'protein_coding':
                     return True, 'not_protein_coding'
-                if loc.end > 6000000: # consider only first 6 Mb
+                if loc.end > 6000000:  # consider only first 6 Mb
                     return True, 'out_of_bounds'
             return False, 'passed'
+
     t = Transcriptome(config, MyFilter())
-    assert all([f.end <= 6000000 for f in t])
-
-
+    assert all([f.end <= 6000000 for f, dat in t.iterator()])
 
 
 def test_triples(base_path, default_testdata):
     """ TODO: more max_dist checks (same chrom) """
+
     def get_name(x):
         return None if x is None else x.gene_name
+
     t = Transcriptome(default_testdata)
     assert [(get_name(x), get_name(y), get_name(z)) for x, y, z in t.gene_triples()] == \
            [(None, 'SOX2', 'ACTB'), ('SOX2', 'ACTB', None)]
@@ -324,7 +333,7 @@ def test_gff_flavours(base_path):
         'annotation_gff': get_resource('mirgendb_dme_gff'),
         'annotation_flavour': 'mirgenedb',
     }
-    t = Transcriptome(config) # 322 miRNA entries, 161 pre_miRNA entries
+    t = Transcriptome(config)  # 322 miRNA entries, 161 pre_miRNA entries
     assert Counter([f.feature_type for f in t.anno]) == {'gene': 483, 'transcript': 483}
 
     # flybase
@@ -359,7 +368,7 @@ def test_gff_flavours(base_path):
     t = Transcriptome(config)
     assert 'feature_type' in t.genes[0].__dict__, "Did not copy feature_type field"
     # NOTE there should be *no* intron as the exons are directly adjacent to each other
-    assert Counter([f.feature_type for f in t.anno]) == {'exon': 2, 'gene': 1, 'transcript': 1}#, 'intron': 1}
+    assert Counter([f.feature_type for f in t.anno]) == {'exon': 2, 'gene': 1, 'transcript': 1}  # , 'intron': 1}
 
     # Chess 3 GFF/GTF
     config = {
@@ -368,7 +377,7 @@ def test_gff_flavours(base_path):
         'annotation_gff': get_resource('chess_gff'),
         'annotation_flavour': 'chess',
         'transcript_filter': {
-            'location': { 'included': { 'chromosomes': ['chr3'] } }
+            'location': {'included': {'chromosomes': ['chr3']}}
         },
         'copied_fields': ['gene_type', 'source'],
     }
@@ -382,7 +391,7 @@ def test_gff_flavours(base_path):
         'annotation_gff': get_resource('chess_gtf'),
         'annotation_flavour': 'chess',
         'transcript_filter': {
-           'location': { 'included': { 'chromosomes': ['chr3'] } }
+            'location': {'included': {'chromosomes': ['chr3']}}
         },
         'copied_fields': ['gene_type', 'source'],
     }
@@ -390,6 +399,7 @@ def test_gff_flavours(base_path):
     assert len(t.genes) == 2 and len(t.transcripts) == 8
     assert t.gene['SOX2'].gene_type == 'protein_coding'
     assert Counter(tx.source for tx in t.transcripts) == {'RefSeq': 6, 'GENCODE': 1, 'MANE': 1}
+
 
 def test_iterator(base_path):
     config = {
@@ -399,7 +409,7 @@ def test_iterator(base_path):
         'annotation_flavour': 'gencode'
     }
     t = Transcriptome(config)
-    assert len(TranscriptomeIterator(t, 'chr3', feature_types=['gene']).to_list()) == 2 # 2 annotated genes on chr3
+    assert len(TranscriptomeIterator(t, 'chr3', feature_types=['gene']).to_list()) == 2  # 2 annotated genes on chr3
 
 
 def test_annotate(base_path):
@@ -448,6 +458,7 @@ def test_annotate_read_counts(base_path):
         'load_sequences': False
     }
     t = Transcriptome(config)
+
     # annotate genes with read counts
     def count_reads(item):
         """Read counter"""
@@ -458,6 +469,7 @@ def test_annotate_read_counts(base_path):
         anno['rc']['reads_ss'] += len([r for l, r in reads if l.strand == loc.strand])
         anno['rc']['reads_ss_tc'] += len(
             [r for l, r in reads if l.strand == loc.strand and r.has_tag('xc') and r.get_tag('xc') > 0])
+
     # coungt the reads
     t.annotate(iterators=ReadIterator(get_resource('small_ACTB+SOX2_bam')),
                fun_anno=count_reads)
@@ -491,8 +503,9 @@ def test_eq_PAR_genes(base_path):  # needs access to /Volumes
     for chroms in [(g.chromosome, g.par_regions[0].chromosome) for g in par_genes]:
         assert chroms == ('chrX', 'chrY')
     # check for false introns between two PAR locations (several have len==0 as start>end coordinate)
-    false_introns = [i for i in t.__iter__(['intron']) if len(i) == 0]
+    false_introns = [i for i, _ in t.iterator(feature_types=['intron']) if len(i) == 0]
     assert len(false_introns) == 0
+
 
 # def test_full_gff3:
 #     # Example from https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
