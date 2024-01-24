@@ -8,4 +8,5 @@
 /testdata/README
 /testdata/div/
 !/testdata/static_files/GRCh38.chr7.k24.umap.bedgraph.gz
-
+!/pygenlib/_delme/
+!/notebooks/large_test_resources/
