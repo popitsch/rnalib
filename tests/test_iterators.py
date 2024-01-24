@@ -433,7 +433,7 @@ def test_SyncPerPositionIterator(base_path, testdata):
     assert len(found_differences) == 0
     # for seed in found_differences:
     #     t=SyncPerPositionIteratorTestDataset(seed)
-    #     print(feature"differences in {t}")
+    #     print(f"differences in {t}")
     #     for a, b in zip(t.found(), t.expected()):
     #         if a != b:
     #             print('>', a, b)
