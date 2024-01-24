@@ -46,7 +46,7 @@ from pygenlib import guess_file_format, print_dir_tree, download_file
 """
     Predefined test resources.
 """
-#__file__= '/Users/niko/projects/pygenlib/pygenlib/testdata.py'
+# __file__= '/Users/niko/projects/pygenlib/pygenlib/testdata.py'
 test_resources = {
     "outdir": f"{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/",
     "resources": {

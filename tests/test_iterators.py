@@ -17,7 +17,7 @@ from sortedcontainers import SortedList, SortedSet
 from pygenlib import open_file_obj, TagFilter, FastaIterator, TabixIterator, \
     BedGraphIterator, BedIterator, gt2zyg, VcfIterator, GFF3Iterator, PandasIterator, BioframeIterator, MemoryIterator, \
     PybedtoolsIterator, DEFAULT_FLAG_FILTER, ReadIterator, FastPileupIterator, BlockStrategy, BlockLocationIterator, \
-    SyncPerPositionIterator, AnnotationIterator, FastqIterator, gi, ReferenceDict
+    SyncPerPositionIterator, AnnotationIterator, FastqIterator, gi, ReferenceDict, PyrangesIterator
 from pygenlib.testdata import get_resource
 from pygenlib.utils import toggle_chr
 
@@ -184,6 +184,11 @@ def test_PandasIterator(base_path, testdata):
     d1 = {n: gi('chr' + l.chromosome, l.start, l.end, l.strand) for n, l in d.items()}
     assert {k: v for v, k in it} == d1
 
+
+def test_PyrangesIterator(base_path):
+    with PyrangesIterator(get_resource('pybedtools_snps')) as it:
+        stats = Counter([dat.Strand for loc, dat in it])
+    assert stats == Counter({'+': 740893, '-': 59107})
 
 def test_BlockLocationIterator(base_path, testdata):
     with BlockLocationIterator(TabixIterator(get_resource('test_bed'), coord_inc=[1, 0], fun_alias=toggle_chr),

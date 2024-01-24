@@ -181,7 +181,7 @@ def test_reference_dict(base_path):
 
 
 def test_calc_3end(base_path, default_testdata):
-    t = Transcriptome(default_testdata)
+    t = Transcriptome(**default_testdata)
     # test whether returned 3'end intervals are in sum 200bp long or None (if tx too short)
     for tx in t.transcripts:
         assert calc_3end(tx) is None or sum([len(x) for x in calc_3end(tx)]) == 200

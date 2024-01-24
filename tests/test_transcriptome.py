@@ -16,8 +16,8 @@ from pygenlib.testdata import get_resource
 
 
 def test_eq(base_path, default_testdata):
-    t1 = Transcriptome(default_testdata)
-    t2 = Transcriptome(default_testdata)
+    t1 = Transcriptome(**default_testdata)
+    t2 = Transcriptome(**default_testdata)
     assert t1 != t2  # different hash
     # __eq__ based on coordinates only
     for o1, o2 in zip(t1.genes, t2.genes):
@@ -35,7 +35,7 @@ def test_eq(base_path, default_testdata):
 
 def test_transcriptome(base_path, default_testdata):
     """ complex transcriptome test """
-    t = Transcriptome(default_testdata)
+    t = Transcriptome(**default_testdata)
     assert len(t.genes) == 2 and len(t.transcripts) == 24
     assert t.transcript['ENST00000325404.3'].location == gi('chr3', 181711925, 181714436, '+')
     t.load_sequences()
@@ -74,13 +74,11 @@ def test_transcriptome(base_path, default_testdata):
         'genome_fa': get_resource('dmel_genome'),
         'annotation_gff': get_resource('flybase_gtf'),
         'annotation_flavour': 'flybase',
-        'transcript_filter': {
-            'location': {'included': {'region': ['2L:1-21376']}}
-        },
+        'feature_filter': {'location': {'included': {'region': ['2L:1-21376']}}},
         'copied_fields': ['gene_type'],
-        'load_sequences': True
+        'load_sequence_data': True
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     assert t.transcript['FBtr0306591'].parent == t.gene['FBgn0002121']
     assert t.transcript['FBtr0306591'].gff_feature_type == 'mRNA'
     assert t.gene['FBgn0031208'].sequence[:10] == 'CTACTCGCAT' and t.gene['FBgn0031208'].sequence[-10:] == 'TTCCCCAAGT'
@@ -92,12 +90,12 @@ def test_transcriptome(base_path, default_testdata):
 
 
 def test_to_dataframe(base_path, default_testdata):
-    t = Transcriptome(default_testdata)
+    t = Transcriptome(**default_testdata)
     TranscriptomeIterator(t).to_dataframe()
 
 
 def test_itree(base_path, default_testdata):
-    t = Transcriptome(default_testdata)
+    t = Transcriptome(**default_testdata)
     # 1 gene, exons of 5 tx but only one 3'UTR annotation at this coordinate
     assert {e.gene_name for e in t.query(gi('chr7', 5529026, 5529026), 'gene')} == {'ACTB'}
     assert {e.parent.feature_id for e in t.query(gi('chr7', 5529026, 5529026), 'exon')} == \
@@ -113,7 +111,7 @@ def test_itree(base_path, default_testdata):
 
 
 def test_clear_annotations(base_path, default_testdata):
-    t = Transcriptome(default_testdata)
+    t = Transcriptome(**default_testdata)
 
     # there should be no annotation keys
     assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])} == {0}
@@ -142,7 +140,7 @@ def test_genmodel_persistence(base_path, default_testdata):
     # save and load
     with tempfile.TemporaryDirectory() as tmp:
         pkfile = os.path.join(tmp, 'transcriptome.pk')
-        t1 = Transcriptome(default_testdata)
+        t1 = Transcriptome(**default_testdata)
         t1.save(pkfile)
         t2 = Transcriptome.load(pkfile)
         print_dir_tree(tmp)
@@ -153,7 +151,7 @@ def test_genmodel_anno_persistence(base_path, default_testdata):
     # save and load
     with tempfile.TemporaryDirectory() as tmp:
         pkfile = os.path.join(tmp, 'transcriptome_anno.pk')
-        t = Transcriptome(default_testdata)
+        t = Transcriptome(**default_testdata)
         for f in t.genes[0].features():
             t.anno[f]['test'] = 1
         # some annotations are set
@@ -180,7 +178,7 @@ def test_genmodel_anno_persistence(base_path, default_testdata):
 
         oldid = id(t.genes[0].__class__)
         # can we load for new model? (here the ids of all feature classes differ!)
-        t = Transcriptome(default_testdata)
+        t = Transcriptome(**default_testdata)
         t.load_annotations(pkfile)
         for f in t.genes[0].features():
             assert t.anno[f]['test'] == 1
@@ -196,12 +194,12 @@ def test_genmodel_gff3(base_path, default_testdata):
         config['copied_fields'] = ['tag',
                                    'gene_type']  # NOTE we must copy these fields or remove the filter for config2!
         config['calc_introns'] = True
-        t1 = Transcriptome(config)
+        t1 = Transcriptome(**config)
         t1.to_gff3(gff3file, bgzip=True)
         config2 = config.copy()
         config2['annotation_gff'] = gff3file + '.gz'
         config2['calc_introns'] = False
-        t2 = Transcriptome(config2)
+        t2 = Transcriptome(**config2)
         assert len(t1) == len(t2)
         assert Counter([f.feature_type for f in t1.anno]) == Counter([f.feature_type for f in t2.anno])
 
@@ -220,8 +218,7 @@ def test_filter(base_path, default_testdata):
                 'included': {'chromosomes': ['2L']},
                 'excluded': {'regions': ['2L:1-21376']}
             }
-        }
-        , None)
+        })
     # test location filter
     assert tf.filter(gi('2L', 1, 1000), {'feature_type': 'gene'}) == (True, 'excluded_region')
     assert tf.filter(gi('2R', 1, 1000), {'feature_type': 'gene'}) == (True, 'included_chromosome')
@@ -238,6 +235,8 @@ def test_filter(base_path, default_testdata):
     assert tf.filter(gi('2R', 1, 1000), {'feature_type': 'gene'}) == (True, 'included_chromosome')
     # test with transcriptome
     config = copy.deepcopy(default_testdata)
+    config['feature_filter'] = TranscriptFilter({'gene': {'included': {'tags': [
+        'protein_coding']}}})
     # config = {
     #     'genome_fa': 'testdata/static_files/ACTB+SOX2.fa.gz',  # get_resource('ACTB+SOX2_genome'),
     #     'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
@@ -245,21 +244,21 @@ def test_filter(base_path, default_testdata):
     #     'annotation_flavour': 'gencode'
     # }
     # filter for non-existent tag, all tx should be filtered as well
-    t = Transcriptome(config, TranscriptFilter({'transcript_filter': {
-        'gene': {'included': {'tags': ['protein_coding']}}
-    }}))
+    t = Transcriptome(**config )
     assert t.log == {'parsed_gff_lines': 345,
                      'filtered_transcript_parent_gene_filtered': 89,
                      'filtered_gene_missing_tags': 5} and len(t.transcripts) == 0
     # filter for list of transcript ids.
-    t = Transcriptome(config, TranscriptFilter().include_transcript_ids(['ENST00000325404.3', 'ENST00000674681.1']))
+    config['feature_filter'] = TranscriptFilter().include_transcript_ids(['ENST00000325404.3', 'ENST00000674681.1'])
+    t = Transcriptome(**config)
     assert t.log == {'parsed_gff_lines': 345,
                      'filtered_transcript_missing_transcript_id_value': 87,
                      'dropped_empty_genes': 3}
     assert len(t.transcripts) == 2 and len(t.genes) == 2
     assert {tx.feature_id for tx in t.transcripts} == {'ENST00000325404.3', 'ENST00000674681.1'}
     # filter for gene_type
-    t = Transcriptome(config, TranscriptFilter().include_gene_types(['protein_coding']))
+    config['feature_filter'] = TranscriptFilter().include_gene_types(['protein_coding'])
+    t = Transcriptome(**config)
     assert t.log == {'parsed_gff_lines': 345,
                      'filtered_transcript_missing_gene_type_value': 65,
                      'filtered_gene_missing_gene_type_value': 3}
@@ -282,7 +281,8 @@ def test_filter(base_path, default_testdata):
                     return True, 'out_of_bounds'
             return False, 'passed'
 
-    t = Transcriptome(config, MyFilter())
+    config['feature_filter'] = MyFilter()
+    t = Transcriptome(**config)
     assert all([f.end <= 6000000 for f, dat in t.iterator()])
 
 
@@ -292,7 +292,7 @@ def test_triples(base_path, default_testdata):
     def get_name(x):
         return None if x is None else x.gene_name
 
-    t = Transcriptome(default_testdata)
+    t = Transcriptome(**default_testdata)
     assert [(get_name(x), get_name(y), get_name(z)) for x, y, z in t.gene_triples()] == \
            [(None, 'SOX2', 'ACTB'), ('SOX2', 'ACTB', None)]
     assert [(get_name(x), get_name(y), get_name(z)) for x, y, z in t.gene_triples(max_dist=1000)] == \
@@ -308,7 +308,7 @@ def test_gff_flavours(base_path):
         'annotation_flavour': 'ensembl',
         'annotation_fun_alias': 'toggle_chr'
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     assert len(t.genes) == 5
     assert 'gene:ENSG00000181449' in t.gene
 
@@ -318,11 +318,9 @@ def test_gff_flavours(base_path):
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
         'annotation_gff': get_resource('ucsc_gtf'),
         'annotation_flavour': 'ucsc',
-        'transcript_filter': {
-            'transcript': {'included': {'transcript_id': ['NM_001101.5']}}
-        }
+        'feature_filter': TranscriptFilter({'transcript': {'included': {'transcript_id': ['NM_001101.5']}}})
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     assert Counter([f.feature_type for f in t.anno]) == {'exon': 6, 'CDS': 5, 'intron': 5, 'five_prime_UTR': 2,
                                                          'three_prime_UTR': 1, 'gene': 1, 'transcript': 1}
     assert len(t.genes) == 1
@@ -333,7 +331,7 @@ def test_gff_flavours(base_path):
         'annotation_gff': get_resource('mirgendb_dme_gff'),
         'annotation_flavour': 'mirgenedb',
     }
-    t = Transcriptome(config)  # 322 miRNA entries, 161 pre_miRNA entries
+    t = Transcriptome(**config)  # 322 miRNA entries, 161 pre_miRNA entries
     assert Counter([f.feature_type for f in t.anno]) == {'gene': 483, 'transcript': 483}
 
     # flybase
@@ -341,11 +339,11 @@ def test_gff_flavours(base_path):
         'genome_fa': get_resource('dmel_genome'),
         'annotation_gff': get_resource('flybase_gtf'),
         'annotation_flavour': 'flybase',
-        'transcript_filter': {
+        'feature_filter': TranscriptFilter({
             'location': {'included': {'regions': ['2L:1-10000']}}
-        }
+        })
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     print(t.log)
     assert len(t.genes) == 2 and len(t.transcripts) == 12
     assert (Counter([f.feature_type for f in t.anno]) ==
@@ -365,7 +363,7 @@ def test_gff_flavours(base_path):
         'annotation_flavour': 'generic',
         'copied_fields': ['Alias', 'ID']
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     assert 'feature_type' in t.genes[0].__dict__, "Did not copy feature_type field"
     # NOTE there should be *no* intron as the exons are directly adjacent to each other
     assert Counter([f.feature_type for f in t.anno]) == {'exon': 2, 'gene': 1, 'transcript': 1}  # , 'intron': 1}
@@ -376,12 +374,12 @@ def test_gff_flavours(base_path):
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
         'annotation_gff': get_resource('chess_gff'),
         'annotation_flavour': 'chess',
-        'transcript_filter': {
+        'feature_filter': {
             'location': {'included': {'chromosomes': ['chr3']}}
         },
         'copied_fields': ['gene_type', 'source'],
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     assert len(t.genes) == 2 and len(t.transcripts) == 8
     assert t.gene['SOX2'].gene_type == 'protein_coding'
     assert Counter(tx.source for tx in t.transcripts) == {'RefSeq': 6, 'GENCODE': 1, 'MANE': 1}
@@ -390,12 +388,12 @@ def test_gff_flavours(base_path):
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
         'annotation_gff': get_resource('chess_gtf'),
         'annotation_flavour': 'chess',
-        'transcript_filter': {
+        'feature_filter': {
             'location': {'included': {'chromosomes': ['chr3']}}
         },
         'copied_fields': ['gene_type', 'source'],
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     assert len(t.genes) == 2 and len(t.transcripts) == 8
     assert t.gene['SOX2'].gene_type == 'protein_coding'
     assert Counter(tx.source for tx in t.transcripts) == {'RefSeq': 6, 'GENCODE': 1, 'MANE': 1}
@@ -408,7 +406,7 @@ def test_iterator(base_path):
         'annotation_gff': get_resource('gencode_gff'),
         'annotation_flavour': 'gencode'
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     assert len(TranscriptomeIterator(t, 'chr3', feature_types=['gene']).to_list()) == 2  # 2 annotated genes on chr3
 
 
@@ -418,12 +416,10 @@ def test_annotate(base_path):
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
         'annotation_gff': get_resource('gencode_gff'),
         'annotation_flavour': 'gencode',
-        'transcript_filter': {
-            'transcript': {'included': {'transcript_id': ['ENST00000473257.3']}}
-        },
-        'load_sequences': True
+        'feature_filter': {'transcript': {'included': {'transcript_id': ['ENST00000473257.3']}}},
+        'load_sequence_data': True
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     assert Counter([f.location.feature_type for f in TranscriptomeIterator(t, feature_types=['exon', 'intron'])]) == \
            {'exon': 5, 'intron': 4}
 
@@ -455,9 +451,9 @@ def test_annotate_read_counts(base_path):
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
         'annotation_gff': get_resource('gencode_gff'),
         'annotation_flavour': 'gencode',
-        'load_sequences': False
+        'load_sequence_data': False
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
 
     # annotate genes with read counts
     def count_reads(item):
@@ -496,9 +492,9 @@ def test_eq_PAR_genes(base_path):  # needs access to /Volumes
             'included_chrom': ['chrX', 'chrY']
         },
         'copied_fields': ['gene_type'],
-        'load_sequences': False
+        'load_sequence_data': False
     }
-    t = Transcriptome(config)
+    t = Transcriptome(**config)
     par_genes = [g for g in t.genes if hasattr(g, 'par_regions')]
     for chroms in [(g.chromosome, g.par_regions[0].chromosome) for g in par_genes]:
         assert chroms == ('chrX', 'chrY')
@@ -514,7 +510,7 @@ def test_eq_PAR_genes(base_path):  # needs access to /Volumes
 #         'annotation_gff': 'gff_examples/gff3_example1.sorted.gff3.gz',
 #         'annotation_flavour': 'ensembl'
 #     }
-#     t = Transcriptome(config)
+#     t = Transcriptome(**config)
 
 def test_read_alias_file(base_path):
     aliases, current_symbols = read_alias_file(get_resource('hgnc_gene_aliases'))

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from pygenlib import TranscriptFilter
 from pygenlib.testdata import get_resource
 
 
@@ -23,8 +24,6 @@ def default_testdata() -> dict:
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
         'annotation_gff': get_resource('gencode_gff'),  # get_resource('gencode_gff'),,
         'annotation_flavour': 'gencode',
-        'transcript_filter': {
-            'gene': {'included': { 'gene_type': ['protein_coding'] }}
-        }
+        'feature_filter': {'gene': {'included': {'gene_type': ['protein_coding']}}}
     }
     return config
