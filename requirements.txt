@@ -1,3 +1,5 @@
+setuptools==69.0.3
+wheel==0.42.0
 bioframe==0.6.1
 biotite==0.39.0
 dill==0.3.7
