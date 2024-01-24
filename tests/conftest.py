@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from pygenlib import TranscriptFilter
-from pygenlib.testdata import get_resource
+from rnalib import TranscriptFilter
+from rnalib.testdata import get_resource
 
 
 @pytest.fixture(autouse=True)

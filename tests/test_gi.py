@@ -3,7 +3,7 @@ Tests for GenomicInterval class
 """
 
 from itertools import product, pairwise
-from pygenlib import gi, MAX_INT, ReferenceDict
+from rnalib import gi, MAX_INT, ReferenceDict
 
 
 def merge_result_lists(lst):

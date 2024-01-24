@@ -2,7 +2,7 @@
     Provides access to test files and can be used to initially build the testdata folder.
 
     testdata creation:
-        Pygenlib tests use various test data files that can be created by running this python script.
+        Rnalib tests use various test data files that can be created by running this python script.
         The contained test_resources dict describes the various test resources and their origin.
         Briefly, this script does the following for each configured resource:
 
@@ -41,12 +41,12 @@ import numpy as np
 import pandas as pd
 import pybedtools
 
-from pygenlib import guess_file_format, print_dir_tree, download_file
+from rnalib import guess_file_format, print_dir_tree, download_file
 
 """
     Predefined test resources.
 """
-# __file__= '/Users/niko/projects/pygenlib/pygenlib/testdata.py'
+# __file__= '/Users/niko/projects/rnalib/rnalib/testdata.py'
 test_resources = {
     "outdir": f"{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/testdata/",
     "resources": {

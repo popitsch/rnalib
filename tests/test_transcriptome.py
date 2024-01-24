@@ -10,9 +10,9 @@ import os
 import copy
 import biotite.sequence as seq
 
-from pygenlib import gi, BedGraphIterator, ReadIterator, read_alias_file, norm_gn, Transcriptome, Feature, \
+from rnalib import gi, BedGraphIterator, ReadIterator, read_alias_file, norm_gn, Transcriptome, Feature, \
     TranscriptomeIterator, print_dir_tree, TranscriptFilter, AbstractFeatureFilter
-from pygenlib.testdata import get_resource
+from rnalib.testdata import get_resource
 
 
 def test_eq(base_path, default_testdata):

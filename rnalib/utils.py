@@ -28,7 +28,7 @@ from IPython.core.display_functions import display
 from matplotlib import pyplot as plt
 from tqdm.auto import tqdm
 
-import pygenlib
+import rnalib
 
 
 # --------------------------------------------------------------
@@ -1090,7 +1090,7 @@ def calc_3end(tx, width=200):
             width -= len(ex)
         else:
             s, e = (ex.start, ex.start + width - 1) if (ex.strand == '-') else (ex.end - width + 1, ex.end)
-            ret.append(pygenlib.gi(ex.chromosome, s, e, ex.strand))
+            ret.append(rnalib.gi(ex.chromosome, s, e, ex.strand))
             width = 0
             break
     return ret if width == 0 else None

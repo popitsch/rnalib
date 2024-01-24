@@ -9,11 +9,11 @@ import numpy as np
 import pysam
 import pytest
 
-from pygenlib import get_config, guess_file_format, intersect_lists, \
+from rnalib import get_config, guess_file_format, intersect_lists, \
     to_str, count_lines, reverse_complement, \
     parse_gff_attributes, bgzip_and_tabix, Transcriptome, ReferenceDict, gi, GFF_FLAVOURS
-from pygenlib.testdata import get_resource
-from pygenlib.utils import split_list, cmp_sets, write_data, print_dir_tree, gunzip, slugify, complement, rnd_seq, \
+from rnalib.testdata import get_resource
+from rnalib.utils import split_list, cmp_sets, write_data, print_dir_tree, gunzip, slugify, complement, rnd_seq, \
     count_gc, longest_hp_gc_len, kmer_search, TMAP, ParseMap, toggle_chr, count_reads, geneid2symbol, calc_3end
 
 

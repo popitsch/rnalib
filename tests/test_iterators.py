@@ -14,12 +14,12 @@ import pysam
 import pytest
 from sortedcontainers import SortedList, SortedSet
 
-from pygenlib import open_file_obj, TagFilter, FastaIterator, TabixIterator, \
+from rnalib import open_file_obj, TagFilter, FastaIterator, TabixIterator, \
     BedGraphIterator, BedIterator, gt2zyg, VcfIterator, GFF3Iterator, PandasIterator, BioframeIterator, MemoryIterator, \
     PybedtoolsIterator, DEFAULT_FLAG_FILTER, ReadIterator, FastPileupIterator, BlockStrategy, BlockLocationIterator, \
     SyncPerPositionIterator, AnnotationIterator, FastqIterator, gi, ReferenceDict, PyrangesIterator
-from pygenlib.testdata import get_resource
-from pygenlib.utils import toggle_chr
+from rnalib.testdata import get_resource
+from rnalib.utils import toggle_chr
 
 
 def merge_yields(lst) -> (gi, tuple):

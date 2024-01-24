@@ -1,4 +1,4 @@
-# pygenlib: a python-based genomics library
+# rnalib: a python-based transcriptomics library
 
-Pygenlib is a python utilities library for handling genomics data.
-Please see the [documentation](https://pygenlib.readthedocs.io/en/latest/) for more information.
+Rnalib is a python utilities library for handling transcriptomics data.
+Please see the [documentation](https://rnalib.readthedocs.io/en/latest/) for more information.

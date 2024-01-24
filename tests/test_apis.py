@@ -6,8 +6,8 @@ from collections import Counter
 import bioframe
 import pybedtools
 
-from pygenlib import gi, BedIterator, GFF3Iterator, AnnotationIterator
-from pygenlib.testdata import get_resource
+from rnalib import gi, BedIterator, GFF3Iterator, AnnotationIterator
+from rnalib.testdata import get_resource
 
 
 def test_bioframe_pitfall_example():
@@ -54,7 +54,7 @@ def test_pybedtools_pitfall_example():
     assert len([loc for loc, _ in BedIterator(snp_file)]) == 800000
     assert len([loc for loc, x in BedIterator(snp_file) if not loc.is_empty()]) == 800000-1564
 
-    # now we recreate with pygenlib methods.
+    # now we recreate with rnalib methods.
     # first we collect intergenic snps, i.e., we use an AnnotationIterator and save all snps with no overlapping gene(s)
     isnp = []
     gsnp, esnp = Counter(), Counter()
@@ -85,7 +85,7 @@ def test_pybedtools_pitfall_example():
             close_genes.add(g.data['ID'])
     # now assert we found the same (unique) gene names:
     assert len(set(nbgenes)) == len(set(close_genes))
-    # NOTE that this pygenlib approach is much slower but also more flexible. We can now easily filter, e.g., only for
+    # NOTE that this rnalib approach is much slower but also more flexible. We can now easily filter, e.g., only for
     # an upstream window or we could use intervaltree envelop queries for reporting genes that are fully within the
     # query window or treat genes with different annotated gene_type differently.
     # Note that we also collected the number of genic SNPs per gene in the gsnp Counter.

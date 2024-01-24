@@ -1,5 +1,5 @@
 """
-    Pygenlib is a python utilities library for handling genomics data.
+    Rnalib is a python utilities library for handling genomics data.
 
     It implements a transcriptome model that can be instantiated from various popular
     GFF 'flavours' as published in encode, ensembl, ucsc, chess, mirgendb and flybase databases.
@@ -48,7 +48,7 @@ from .testdata import get_resource, list_resources
 @dataclass(frozen=True, init=True)
 class gi:  # noqa
     """
-        Genomic intervals (gi) in pygenlib are inclusive, continuous and 1-based.
+        Genomic intervals (gi) in rnalib are inclusive, continuous and 1-based.
         Points are represented by intervals with same start and stop coordinate, empty intervals by passing start>end
         coordinates (e.g., gi('chr1', 1,0).is_empty() -> True).
 
@@ -327,7 +327,7 @@ class gi:  # noqa
     def to_pybedtools(self):
         """
             Returns a corresponding pybedtools interval object.
-            Note that this will fail on open or empty intervals as those are not supported by pygenlib.
+            Note that this will fail on open or empty intervals as those are not supported by rnalib.
 
             Examples
             --------
@@ -393,15 +393,15 @@ class Transcriptome:
         Overlap/envelop queries will first be applied to the respective intervaltree and the (typically small
         result sets) will then be filtered, e.g., for requested sub-feature types.
     *   When building a transcriptome model from a GFF/GTF file, contained transcripts can be filtered using a
-        :func:`TranscriptFilter <pygenlib.TranscriptFilter>`.
+        :func:`TranscriptFilter <rnalib.TranscriptFilter>`.
     * | The current implementation does not implement the full GFF3 format as specified in
       | https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
       | but currently supports various popular gff 'flavours' as published in
       | encode, ensembl, ucsc, chess, mirgendb and flybase databases (see
-      | :func:`GFF_FLAVOURS <pygenlib.constants.GFF_FLAVOURS>`). As such this implementation will likely be extended
+      | :func:`GFF_FLAVOURS <rnalib.constants.GFF_FLAVOURS>`). As such this implementation will likely be extended
       | in the future.
 
-    @see the `README.ipynb <https://github.com/popitsch/pygenlib/blob/main/notebooks/README.ipynb>`_ jupyter
+    @see the `README.ipynb <https://github.com/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ jupyter
     notebook for various querying and iteration examples
 
     Parameters
@@ -982,7 +982,7 @@ class Transcriptome:
         def write_line(o, feature_type, data_dict, out_stream):
             print("\t".join([str(x) for x in [
                 o.chromosome,
-                'pygenlib',
+                'rnalib',
                 feature_type,
                 o.start,  # start
                 o.end,  # end
@@ -1070,7 +1070,7 @@ class Feature(gi):
         Transcriptome.annotate() function).
 
         This also includes dynamically calculated (derived) annotations such as feature sequences that are  sliced from
-        a feature's predecessor via the get_sequence() method. Pygenlib stores sequences only at the gene level and
+        a feature's predecessor via the get_sequence() method. Rnalib stores sequences only at the gene level and
         slices the subsequences of child features from those to minimize storage requirements.
 
         For example, if the sequence of an exon is requested via `exon.sequence` then the Feature implementation will
@@ -1633,7 +1633,7 @@ class Item(NamedTuple):
 class LocationIterator:
     """
         Superclass for genomic iterators (mostly based on pysam) for efficient, indexed iteration over genomic
-        datasets. Most pygenlib iterables inherit from this suoperclass and yield named tuples containing data and its
+        datasets. Most rnalib iterables inherit from this suoperclass and yield named tuples containing data and its
         respective genomic location.
 
         A LocationIterator iterates over a genomic dataset and yields tuples of genomic intervals and
@@ -2484,7 +2484,7 @@ class PandasIterator(LocationIterator):
             Names of coordinate columns, default: ['Chromosome', 'Start', 'End', 'Strand']
         coord_off : list
             Coordinate offsets, default: (1, 0). These offsets will be added to the  read start/end coordinates to
-            convert to the pygenlib convention.
+            convert to the rnalib convention.
         feature : str
             Name of column to yield. If null, the whole row will be yielded
 
@@ -2515,7 +2515,7 @@ class PandasIterator(LocationIterator):
         >>>     print(Counter(it.df['feature'])) # count minus strand features
         >>>     # you can also use this code to then iterate the data which may be convenient/readable if the
         >>>     # dataframe is small:
-        >>>     for loc, row in it: # now iterate with pygenlib iterator
+        >>>     for loc, row in it: # now iterate with rnalib iterator
         >>>         # do something with location and pandas data row
     """
 

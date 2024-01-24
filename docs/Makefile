@@ -19,5 +19,5 @@ help:
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 %: Makefile
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
-	@$(SPHINXAPIDOC) --no-toc --module-first -f -o "$(BUILDDIR)/_api" ../pygenlib
+	@$(SPHINXAPIDOC) --no-toc --module-first -f -o "$(BUILDDIR)/_api" ../rnalib
 
