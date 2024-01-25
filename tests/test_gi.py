@@ -3,9 +3,12 @@ Tests for GenomicInterval class
 """
 
 from itertools import product, pairwise
+
+import rnalib
 from rnalib import gi, MAX_INT, ReferenceDict
 
-
+assert rnalib.__RNALIB_TESTDATA__ is not None, ("Please set rnalib.__RNALIB_TESTDATA__ variable to the testdata "
+                                                "directory path")
 def merge_result_lists(lst):
     """ helper function """
     l1, l2 = zip(*lst)

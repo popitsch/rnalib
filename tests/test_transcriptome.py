@@ -10,12 +10,26 @@ import os
 import copy
 import biotite.sequence as seq
 
+import rnalib
 from rnalib import gi, BedGraphIterator, ReadIterator, read_alias_file, norm_gn, Transcriptome, Feature, \
     TranscriptomeIterator, print_dir_tree, TranscriptFilter, AbstractFeatureFilter
 from rnalib.testdata import get_resource
 
+assert rnalib.__RNALIB_TESTDATA__ is not None, ("Please set rnalib.__RNALIB_TESTDATA__ variable to the testdata "
+                                                "directory path")
+@pytest.fixture(autouse=True)
+def default_testdata() -> dict:
+    config = {
+        'genome_fa': get_resource('ACTB+SOX2_genome', rnalib.__RNALIB_TESTDATA__),  # get_resource('ACTB+SOX2_genome'),
+        'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
+        'annotation_gff': get_resource('gencode_gff', rnalib.__RNALIB_TESTDATA__),  # get_resource('gencode_gff'),,
+        'annotation_flavour': 'gencode',
+        'feature_filter': {'gene': {'included': {'gene_type': ['protein_coding']}}}
+    }
+    return config
 
-def test_eq(base_path, default_testdata):
+
+def test_eq(default_testdata):
     t1 = Transcriptome(**default_testdata)
     t2 = Transcriptome(**default_testdata)
     assert t1 != t2  # different hash
@@ -33,7 +47,7 @@ def test_eq(base_path, default_testdata):
     assert f1 != f2
 
 
-def test_transcriptome(base_path, default_testdata):
+def test_transcriptome(default_testdata):
     """ complex transcriptome test """
     t = Transcriptome(**default_testdata)
     assert len(t.genes) == 2 and len(t.transcripts) == 24
@@ -89,12 +103,12 @@ def test_transcriptome(base_path, default_testdata):
             tx.translated_sequence) // 3
 
 
-def test_to_dataframe(base_path, default_testdata):
+def test_to_dataframe(default_testdata):
     t = Transcriptome(**default_testdata)
     TranscriptomeIterator(t).to_dataframe()
 
 
-def test_itree(base_path, default_testdata):
+def test_itree(default_testdata):
     t = Transcriptome(**default_testdata)
     # 1 gene, exons of 5 tx but only one 3'UTR annotation at this coordinate
     assert {e.gene_name for e in t.query(gi('chr7', 5529026, 5529026), 'gene')} == {'ACTB'}
@@ -110,7 +124,7 @@ def test_itree(base_path, default_testdata):
     assert [len(t.query(gi('chr7', pos, pos), 'gene')) for pos in [5526408, 5526409, 5563902, 5563903]] == [0, 1, 1, 0]
 
 
-def test_clear_annotations(base_path, default_testdata):
+def test_clear_annotations(default_testdata):
     t = Transcriptome(**default_testdata)
 
     # there should be no annotation keys
@@ -135,7 +149,7 @@ def test_clear_annotations(base_path, default_testdata):
 
 
 # @pytest.mark.skip(reason="Currently broken")
-def test_genmodel_persistence(base_path, default_testdata):
+def test_genmodel_persistence(default_testdata):
     # by_ref is currently broken, see https://oegedijk.github.io/blog/pickle/dill/python/2020/11/10/serializing-dill-references.html#Workaround:-move-definitions-to-__main__:
     # save and load
     with tempfile.TemporaryDirectory() as tmp:
@@ -147,7 +161,7 @@ def test_genmodel_persistence(base_path, default_testdata):
         assert len(t1) == len(t2)
 
 
-def test_genmodel_anno_persistence(base_path, default_testdata):
+def test_genmodel_anno_persistence(default_testdata):
     # save and load
     with tempfile.TemporaryDirectory() as tmp:
         pkfile = os.path.join(tmp, 'transcriptome_anno.pk')
@@ -186,7 +200,7 @@ def test_genmodel_anno_persistence(base_path, default_testdata):
         assert oldid != newid  # different 'feature' classes!
 
 
-def test_genmodel_gff3(base_path, default_testdata):
+def test_genmodel_gff3(default_testdata):
     """ Write to GFF3, load and compare"""
     with tempfile.TemporaryDirectory() as tmp:
         gff3file = os.path.join(tmp, 'transcriptome.gff3')
@@ -204,7 +218,7 @@ def test_genmodel_gff3(base_path, default_testdata):
         assert Counter([f.feature_type for f in t1.anno]) == Counter([f.feature_type for f in t2.anno])
 
 
-def test_filter(base_path, default_testdata):
+def test_filter(default_testdata):
     # simple filter tests
     tf = TranscriptFilter(
         {
@@ -238,9 +252,9 @@ def test_filter(base_path, default_testdata):
     config['feature_filter'] = TranscriptFilter({'gene': {'included': {'tags': [
         'protein_coding']}}})
     # config = {
-    #     'genome_fa': 'testdata/static_files/ACTB+SOX2.fa.gz',  # get_resource('ACTB+SOX2_genome'),
+    #     'genome_fa': '_delme_testdata/static_test_files/ACTB+SOX2.fa.gz',  # get_resource('ACTB+SOX2_genome'),
     #     'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
-    #     'annotation_gff': 'testdata/gff/gencode_44.ACTB+SOX2.gff3.gz',  # get_resource('gencode_gff'),,
+    #     'annotation_gff': '_delme_testdata/gff/gencode_44.ACTB+SOX2.gff3.gz',  # get_resource('gencode_gff'),,
     #     'annotation_flavour': 'gencode'
     # }
     # filter for non-existent tag, all tx should be filtered as well
@@ -286,7 +300,7 @@ def test_filter(base_path, default_testdata):
     assert all([f.end <= 6000000 for f, dat in t.iterator()])
 
 
-def test_triples(base_path, default_testdata):
+def test_triples(default_testdata):
     """ TODO: more max_dist checks (same chrom) """
 
     def get_name(x):
@@ -299,7 +313,7 @@ def test_triples(base_path, default_testdata):
            [(None, 'SOX2', None), (None, 'ACTB', None)]
 
 
-def test_gff_flavours(base_path):
+def test_gff_flavours():
     # Ensembl with chrom aliasing
     config = {
         'genome_fa': get_resource('ACTB+SOX2_genome'),  # get_resource('ACTB+SOX2_genome'),
@@ -399,7 +413,7 @@ def test_gff_flavours(base_path):
     assert Counter(tx.source for tx in t.transcripts) == {'RefSeq': 6, 'GENCODE': 1, 'MANE': 1}
 
 
-def test_iterator(base_path):
+def test_iterator():
     config = {
         'genome_fa': get_resource('ACTB+SOX2_genome'),
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
@@ -410,7 +424,7 @@ def test_iterator(base_path):
     assert len(TranscriptomeIterator(t, 'chr3', feature_types=['gene']).to_list()) == 2  # 2 annotated genes on chr3
 
 
-def test_annotate(base_path):
+def test_annotate():
     config = {
         'genome_fa': get_resource('ACTB+SOX2_genome'),
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
@@ -435,7 +449,7 @@ def test_annotate(base_path):
     # annotate exons and introns with mappability scores
     # this is just an example, it would be more efficient to annotate genes with
     # mappability score arrays and calculate for each exon from there (as for sequences)
-    t.annotate(iterators=BedGraphIterator('bed/GRCh38.k24.umap.ACTB_ex1+2.bedgraph.gz'),
+    t.annotate(iterators=BedGraphIterator(get_resource('human_umap_k24')),
                fun_anno=calc_mean_score('mappability'),
                feature_types=['exon', 'intron'])
     # for feature, anno in TranscriptomeIterator(t, feature_types=['exon', 'intron']):
@@ -445,7 +459,7 @@ def test_annotate(base_path):
            sum([0.958 * 2 + 0.917 * 23 + 1 * (len(ex) - 25)]) / len(ex)  # checked in IGV
 
 
-def test_annotate_read_counts(base_path):
+def test_annotate_read_counts():
     config = {
         'genome_fa': get_resource('ACTB+SOX2_genome'),
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
@@ -476,7 +490,7 @@ def test_annotate_read_counts(base_path):
     assert t.transcript['ENST00000674681.1'].exon[0].rc == {'reads': 13, 'reads_ss': 7, 'reads_ss_tc': 3}
 
 
-def test_eq_PAR_genes(base_path):  # needs access to /Volumes
+def test_eq_PAR_genes():  # needs access to /Volumes
     if not os.path.isfile(
             '/Volumes/groups/ameres/Niko/ref/genomes/GRCh38/GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna'):
         pytest.skip("No access to /Volumes/groups/ameres/Niko/, test skipped")
@@ -512,7 +526,7 @@ def test_eq_PAR_genes(base_path):  # needs access to /Volumes
 #     }
 #     t = Transcriptome(**config)
 
-def test_read_alias_file(base_path):
+def test_read_alias_file():
     aliases, current_symbols = read_alias_file(get_resource('hgnc_gene_aliases'))
     assert [norm_gn(g, current_symbols, aliases) for g in ['A2MP', 'FLJ23569', 'p170']] == \
            ['A2MP1', 'A1BG-AS1', 'A2ML1']

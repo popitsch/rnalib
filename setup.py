@@ -2,18 +2,22 @@ from setuptools import setup
 
 setup(
     name='rnalib',
-    version='1.0.0',
-    packages=['tests', 'rnalib'],
+    version='1.0.0_dev1',
+    download_url = 'https://github.com/popitsch/rnalib/archive/refs/tags/1.0.0.tar.gz',
+    packages=['rnalib', 'rnalib.static_test_files'],
+    package_data={'rnalib.static_test_files': ["*"]},
+    include_package_data=True,
     url='https://github.com/popitsch/rnalib',
     license='Apache-2.0',
     author='niko.popitsch@univie.ac.at',
     author_email='niko.popitsch@univie.ac.at',
     description='a python-based transcriptomics library',
+    scripts=['rnalib/rnalib_create_testdata'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'Topic :: Software Development :: Libraries :: Python Modules',
-        'License :: OSI Approved :: Apache-2.0',
+        'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python :: 3'
       ],
     install_requires=[

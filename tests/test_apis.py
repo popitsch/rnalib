@@ -6,10 +6,12 @@ from collections import Counter
 import bioframe
 import pybedtools
 
+import rnalib
 from rnalib import gi, BedIterator, GFF3Iterator, AnnotationIterator
 from rnalib.testdata import get_resource
 
-
+assert rnalib.__RNALIB_TESTDATA__ is not None, ("Please set rnalib.__RNALIB_TESTDATA__ variable to the testdata "
+                                                "directory path")
 def test_bioframe_pitfall_example():
     bioframe_gff = bioframe.read_table(get_resource("gencode_gff"), schema='gff')[['chrom', 'start', 'end', 'strand']]
     bioframe_bed = bioframe.read_table(get_resource("gencode_bed"), schema='bed')[['chrom', 'start', 'end', 'strand']]

@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""Script to create test data for rnalib."""
+import argparse
+
+from rnalib.testdata import create_testdata, test_resources, large_test_resources
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='''Create test data directory.''')
+    parser.add_argument("-o", "--outdir", type=str, required=True, help='Output directory.')
+    parser.add_argument("-a", "--all", type=bool, required=False, help='if set, both sets of \
+        resources are created (small + large)', default=False)
+    args = parser.parse_args()
+    # create test data
+    create_testdata(args.outdir, test_resources, show_data_dir=True)
+    if args.all:
+        create_testdata(args.outdir, large_test_resources, show_data_dir=True)
+    print("Done. Add the following monkeypatch if you want to use get_resource(<name>) in your code:")
+    print(f"import rnalib; rnalib.__RNALIB_TESTDATA__ = '{args.outdir}'")

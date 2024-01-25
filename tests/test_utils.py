@@ -9,6 +9,7 @@ import numpy as np
 import pysam
 import pytest
 
+import rnalib
 from rnalib import get_config, guess_file_format, intersect_lists, \
     to_str, count_lines, reverse_complement, \
     parse_gff_attributes, bgzip_and_tabix, Transcriptome, ReferenceDict, gi, GFF_FLAVOURS
@@ -16,7 +17,8 @@ from rnalib.testdata import get_resource
 from rnalib.utils import split_list, cmp_sets, write_data, print_dir_tree, gunzip, slugify, complement, rnd_seq, \
     count_gc, longest_hp_gc_len, kmer_search, TMAP, ParseMap, toggle_chr, count_reads, geneid2symbol, calc_3end
 
-
+assert rnalib.__RNALIB_TESTDATA__ is not None, ("Please set rnalib.__RNALIB_TESTDATA__ variable to the testdata "
+                                                "directory path")
 def from_str(s):
     return [gi.from_str(x) for x in s.split(',')]
 
@@ -43,7 +45,7 @@ def test_get_config():
     assert get_config(config, 'prop3') is None
 
 
-def test_parse_gff_attributes(base_path):
+def test_parse_gff_attributes():
     """ shallow test of GFF/GTF info field parsing.
     """
     for fn, dialect in [(get_resource('gencode_gff'), GFF_FLAVOURS['gencode', 'gff']),
@@ -61,7 +63,7 @@ def test_parse_gff_attributes(base_path):
         assert shared == expected_fields, f"missing fields in {fn}"
 
 
-def test_get_reference_dict(base_path):
+def test_get_reference_dict():
     """Test reference dict implementation and aliasing"""
     assert ReferenceDict.load(get_resource('ensembl_gff'), fun_alias=toggle_chr).keys() == {'chr3', 'chr7'}
     assert ReferenceDict.load(get_resource('ensembl_gff')).orig.keys() == \
@@ -134,7 +136,7 @@ def test_rnd_seq():
     assert 0.55 < np.mean(gc_perc) < 0.65
 
 
-def test_bgzip_and_tabix(base_path):
+def test_bgzip_and_tabix():
     # create temp dir, gunzip a GFF3 file and bgzip+tabix via pysam.
     # just asserts that file exists.
     with tempfile.TemporaryDirectory() as tmp:
@@ -145,9 +147,9 @@ def test_bgzip_and_tabix(base_path):
         print_dir_tree(tmp)
 
 
-def test_count_reads(base_path):
-    assert count_lines('fastq/Test01_L001_R1_001.top20.fastq'), 80
-    assert count_reads('fastq/Test01_L001_R1_001.top20.fastq'), 20
+def test_count_reads():
+    assert count_lines(get_resource('small_PE_fastq1')), 80
+    assert count_reads(get_resource('small_PE_fastq1')), 20
 
 
 def test_write_data():
@@ -158,7 +160,7 @@ def test_slugify():
     assert slugify("this/is/an invalid filename!.txt"), "thisisan_invalid_filenametxt"
 
 
-def test_reference_dict(base_path):
+def test_reference_dict():
     r1 = ReferenceDict({'chr1': 1, 'chr2': 2, 'chrM': 23, 'chrX': 24}, "A", None)
     r2 = ReferenceDict({'chr1': 1, 'chrX': 24}, "B", None)
     r3 = ReferenceDict({'chr1': 1, 'chrX': 24, 'chrM': 23}, "C", None)  # different order
@@ -180,8 +182,15 @@ def test_reference_dict(base_path):
         "chr1:1-10, chr2:1-10,  chr2:11-20, chrM:1-10,  chrM:11-20, chrM:21-23, chrX:1-10,  chrX:11-12")
 
 
-def test_calc_3end(base_path, default_testdata):
-    t = Transcriptome(**default_testdata)
+def test_calc_3end():
+    config = {
+        'genome_fa': get_resource('ACTB+SOX2_genome'),  # get_resource('ACTB+SOX2_genome'),
+        'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
+        'annotation_gff': get_resource('gencode_gff'),  # get_resource('gencode_gff'),,
+        'annotation_flavour': 'gencode',
+        'feature_filter': {'gene': {'included': {'gene_type': ['protein_coding']}}}
+    }
+    t = Transcriptome(**config)
     # test whether returned 3'end intervals are in sum 200bp long or None (if tx too short)
     for tx in t.transcripts:
         assert calc_3end(tx) is None or sum([len(x) for x in calc_3end(tx)]) == 200

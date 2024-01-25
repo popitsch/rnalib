@@ -41,6 +41,10 @@ from .constants import *
 from .utils import *
 from .testdata import get_resource, list_resources
 
+# location of the test data directory. Use the 'RNALIB_TESTDATA' environment variable or monkey patching to set to your
+# favourite location, e.g., rnalib.__RNALIB_TESTDATA__ = "your_path'
+__RNALIB_TESTDATA__ = os.environ.get('RNALIB_TESTDATA')
+
 
 # ------------------------------------------------------------------------
 # Genomic Interval (gi) model
@@ -2588,16 +2592,19 @@ class BioframeIterator(PandasIterator):
         The genomic coordinates of yielded locations are corrected automatically.
     """
 
-    def __init__(self, df, feature=None, chromosome=None, start=None, end=None, region=None, strand=None,
-                 is_sorted=False, fun_alias=None, schema=None, coord_columns=('chrom', 'start', 'end', 'strand'),
+    def __init__(self, df, feature: str = None, chromosome: str = None, start: int = None, end: int = None,
+                 region: gi = None,
+                 strand: str = None, is_sorted=False, fun_alias=None, schema=None,
+                 coord_columns: tuple = ('chrom', 'start', 'end', 'strand'),
                  calc_chromlen=False, refdict=None):
         if isinstance(df, str):
             # assume a filename and read via bioframe read_table method and make sure that dtypes match
             self.file = df
-            df = bioframe.read_table(self.file, schema=guess_file_format(self.file) if schema is None else schema). \
-                astype({coord_columns[0]: str, coord_columns[1]: int, coord_columns[2]: int}, errors='ignore')
+            df = bioframe.read_table(self.file, schema=guess_file_format(self.file) if schema is None else schema)
             # filter the 'chrom' column for header lines and replace NaN's
             df = df[~df.chrom.str.startswith('#', na=False)].replace(np.nan, ".")
+            # ensure proper dtypes
+            df = df.astype({coord_columns[0]: str, coord_columns[1]: int, coord_columns[2]: int})
             if coord_columns[3] in df.columns:
                 df[coord_columns[3]] = df[coord_columns[3]].astype(str)
         super().__init__(df if is_sorted else bioframe.sort_bedframe(df),
