@@ -42,47 +42,46 @@ Installation
 Test data
 ---------
 
-Rnalib tests use various test data files that can be created by running the `rnalib_create_testdata` python
-script. Briefly, this script does the following for each internally configured resource:
+The rnalib test suite and the tutorial notebooks shown below use various genomic test data files.
+These files are not included in the rnalib package but can be produced in one of the following ways:
 
-        * Download source files from a public URL or copy from the rnalib/static_test_files directory
-        * Ensure that the files are sorted by genomic coordinates and are compressed and indexed with bgzip and tabix.
-        * Slice genomic subregions from the files if configured
-        * Copy the result files and corresponding indices to the testdata directory
+* A zipped version (~260M) of the files can be downloaded from the GitHub release page of the rnalib repository.
+* The files can be created by running the `rnalib_create_testdata` python script that is included in the rnalib
+  package. This script downloads the source files from public URLs and creates the test files by slicing,
+  sorting, compressing and indexing the files.
 
-Once you have created the testdata folder, you need to set the `RNALIB_TESTDATA` environment variable or monkey-patch
-the global __RNALIB_TESTDATA__ variable to point to your testdata directory.
+Once you have created the testdata folder, you need to tell rnalib about its location.
+To do so, you can either
+
+* set the `RNALIB_TESTDATA` environment variable
+* monkey-patch the global __RNALIB_TESTDATA__ variable to point to your testdata directory as done in the ipython
+  notebooks
+
 You can then acccess test resources via the `get_resource(<resource_id>)` method. If `<resource_id>` starts with
 'pybedtools::<id>' then this method will return the filename of the respective test file from the `pybedtools` package.
 The list of valid ids is accessible via the `rnalib.testdata.list_resources()` method.
-
-Additionally, some of the more complex usage examples in the `README.ipynb` notebook require some
-larger genomics files that are not included in the testdata folder. Follow the respective documentation
-in the notebook to download these files.
 
 Usage
 -----
 
 A detailed description of the API, its design and several usage examples can be found in the
-`README.ipynb <https://github.com/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ jupyter
-notebook.
-
-.. raw:: html
-
-    <a target="_blank" href="https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/README.ipynb">
-      <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
-    </a>
+`README.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ jupyter
+notebook. To successfully run the notebook on Google Colab, you need to install rnalib and its dependencies first
+(see fist, commented code cell). You also need to upload the test data files to your Google Drive and mount the drive
+or upload the files to the Colab runtime.
 
 
-Tutorials:
+We provide a set of tutorials for demonstrating rnalib in realistic usage scenarios:
 
-* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_compare_annotation_sets.ipynb>`_
-* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_CTCF_analysis.ipynb>`_
-* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_expression_analysis.ipynb>`_
-* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_mismatch_analysis.ipynb>`_
-* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_shRNA_analysis.ipynb>`_
-* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_transcriptome_annotation.ipynb>`_
+* `Tutorial: Read mismatch analysis <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_mismatch_analysis.ipynb>`_
+* `Tutorial: Comparison of gene annotation sets <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_compare_annotation_sets.ipynb>`_
+* `Tutorial: shRNA analysis <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_shRNA_analysis.ipynb>`_
+* `Tutorial: Transcriptome analysis <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_transcriptome_annotation.ipynb>`_
 
+Finally, we showcase how the combination of (the strengths of) multiple genomics libraries leads to an overall benefit in multiple tutorials:
+
+* `Tutorial: CTCF analysis with rnalib and bioframe <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_CTCF_analysis.ipynb>`_
+* `Tutorial: Expression analysis with rnalib and genemunge <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_expression_analysis.ipynb>`_
 
 Related work
 ------------

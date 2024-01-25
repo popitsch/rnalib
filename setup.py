@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='rnalib',
-    version='1.0.0_dev1',
+    version='0.0.1',
     download_url = 'https://github.com/popitsch/rnalib/archive/refs/tags/1.0.0.tar.gz',
     packages=['rnalib', 'rnalib.static_test_files'],
     package_data={'rnalib.static_test_files': ["*"]},
