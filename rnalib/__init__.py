@@ -1254,65 +1254,65 @@ class AbstractFeatureFilter(ABC):
 
 class TranscriptFilter(AbstractFeatureFilter):
     """A transcript filter that can be used to filter genes/transcripts by location and/or feature type
-        specific info fields.
+    specific info fields.
 
-        The filter is configured via a config dict that can be passed to the constructor.
-        Alternatively, the config can be built via the include_* methods.
+    The filter is configured via a config dict that can be passed to the constructor.
+    Alternatively, the config can be built via the include_* methods.
 
-        The config dict has the following structure:
-        { 'transcript_filter': {
-            'location': {
-                'included': {
-                    'chromosomes': ['chr1', 'chr2', ...],
-                    'regions': ['chr1:100-200', ...]
-                },
-                'excluded': {
-                        'chromosomes': ['chr3', ...],
-                        'regions': ['chr5:100-200', ...]
-                    }
-            },
-            'gene': {
-                'included': {
-                    'gene_id': ['ENSG000001', ...],
-                    'gene_type': ['protein_coding', ...]
-                    'myannotation': ['value1', 'value2', ...]
-                },
-                'excluded': {
-                    'gene_id': ['ENSG000002', ...],
-                    'gene_type': ['lincRNA', ...]
-                    'myannotation': ['value3', 'value4', ...]
-                }
-            },
-            'transcript': {
-                'included': {
-                    'transcript_id': ['ENST000001', ...],
-                    'myannotation': ['value1', 'value2', ...]
-                },
-                'excluded': {
-                    'transcript_id': ['ENST000002', ...],
-                    'myannotation': ['value3', 'value4', ...]
-                }
-            }
-        }
-    }
+    The config dict has the following structure:
+    >>>    {
+    >>>     'location': {
+    >>>            'included': {
+    >>>                'chromosomes': ['chr1', 'chr2', ...],
+    >>>                'regions': ['chr1:100-200', ...]
+    >>>            },
+    >>>            'excluded': {
+    >>>                    'chromosomes': ['chr3', ...],
+    >>>                    'regions': ['chr5:100-200', ...]
+    >>>                }
+    >>>        },
+    >>>        'gene': {
+    >>>            'included': {
+    >>>                'gene_id': ['ENSG000001', ...],
+    >>>                'gene_type': ['protein_coding', ...]
+    >>>                'myannotation': ['value1', 'value2', ...]
+    >>>            },
+    >>>            'excluded': {
+    >>>                'gene_id': ['ENSG000002', ...],
+    >>>                'gene_type': ['lincRNA', ...]
+    >>>                'myannotation': ['value3', 'value4', ...]
+    >>>            }
+    >>>        },
+    >>>        'transcript': {
+    >>>            'included': {
+    >>>                'transcript_id': ['ENST000001', ...],
+    >>>                'myannotation': ['value1', 'value2', ...]
+    >>>            },
+    >>>            'excluded': {
+    >>>                'transcript_id': ['ENST000002', ...],
+    >>>                'myannotation': ['value3', 'value4', ...]
+    >>>            }
+    >>>        }
+    >>>    }
 
     Features will first be filtered by location, then by included and then by excluded feature type specific
     info fields.
 
     For location filtering, the following rules apply:
-        - if included_chrom is not None, only transcripts on these chromosomes will be included
-        - if excluded_chrom is not None, transcripts on these chromosomes will be excluded
-        - if included_regions is not None, only transcripts overlapping these regions will be included
-        - if excluded_regions is not None, transcripts overlapping these regions will be excluded
+
+    - if included_chrom is not None, only transcripts on these chromosomes will be included
+    - if excluded_chrom is not None, transcripts on these chromosomes will be excluded
+    - if included_regions is not None, only transcripts overlapping these regions will be included
+    - if excluded_regions is not None, transcripts overlapping these regions will be excluded
 
     For feature type specific filtering, the following rules apply:
 
-        - if included is not None, only transcripts with the specified feature type specific info fields
-            will be included. Info fields are parsed to sets of values by splitting on `','`.
-            if the feature type specific info field is not present, the feature will be
-            filtered unless None is added to the included list.
-        - if excluded is not None, transcripts with the specified feature type specific info fields
-            will be excluded. Info fields are parsed to sets of values by splitting on `','`.
+    - if included is not None, only transcripts with the specified feature type specific info fields
+        will be included. Info fields are parsed to sets of values by splitting on `','`.
+        if the feature type specific info field is not present, the feature will be
+        filtered unless None is added to the included list.
+    - if excluded is not None, transcripts with the specified feature type specific info fields
+        will be excluded. Info fields are parsed to sets of values by splitting on `','`.
 
     Examples
     --------

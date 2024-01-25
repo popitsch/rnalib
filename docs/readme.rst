@@ -38,6 +38,28 @@ Installation
 
    $ pip install rnalib
 
+
+Test data
+---------
+
+Rnalib tests use various test data files that can be created by running the `rnalib_create_testdata` python
+script. Briefly, this script does the following for each internally configured resource:
+
+        * Download source files from a public URL or copy from the rnalib/static_test_files directory
+        * Ensure that the files are sorted by genomic coordinates and are compressed and indexed with bgzip and tabix.
+        * Slice genomic subregions from the files if configured
+        * Copy the result files and corresponding indices to the testdata directory
+
+Once you have created the testdata folder, you need to set the `RNALIB_TESTDATA` environment variable or monkey-patch
+the global __RNALIB_TESTDATA__ variable to point to your testdata directory.
+You can then acccess test resources via the `get_resource(<resource_id>)` method. If `<resource_id>` starts with
+'pybedtools::<id>' then this method will return the filename of the respective test file from the `pybedtools` package.
+The list of valid ids is accessible via the `rnalib.testdata.list_resources()` method.
+
+Additionally, some of the more complex usage examples in the `README.ipynb` notebook require some
+larger genomics files that are not included in the testdata folder. Follow the respective documentation
+in the notebook to download these files.
+
 Usage
 -----
 
@@ -52,27 +74,15 @@ notebook.
     </a>
 
 
+Tutorials:
 
-Tests
------
+* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_compare_annotation_sets.ipynb>`_
+* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_CTCF_analysis.ipynb>`_
+* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_expression_analysis.ipynb>`_
+* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_mismatch_analysis.ipynb>`_
+* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_shRNA_analysis.ipynb>`_
+* `<https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/notebooks/Tutorial_transcriptome_annotation.ipynb>`_
 
-rnalib tests use various test data files that can be created by running the testdata python script.
-This class contains a `test_resources` dict that describes the various test resources and their origin.
-Briefly, this script does the following for each configured resource:
-
-        * Download source file from a public URL or copy from the static_test_files directory
-        * Ensure that the files are sorted by genomic coordinates and are compressed and indexed with bgzip and tabix.
-        * Slice genomic subregions from the files if configured
-        * Copy the result files and corresponding indices to the testdata directory
-
-Once you have created the testdata folder, you can get the filenames of test resources via the
-`get_resource(<resource_id>)` method. If `<resource_id>` starts with 'pybedtools::<id>' then this method
-will return the filename of the respective  test file from the `pybedtools` package.
-To list the ids of all available test resources, use the `list_resources()` method.
-
-Additionally, some of the more complex usage examples in the `README.ipynb` notebook require some
-larger genomics files that are not included in the testdata folder. Follow the respective documentation
-in the notebook to download these files.
 
 Related work
 ------------

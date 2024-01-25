@@ -12,7 +12,7 @@ Welcome to rnalib's documentation!
 
    README <readme.rst>
 
-   API <_api/modules>
+   API <_api/rnalib.rst>
 
 
 
