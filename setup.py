@@ -1,8 +1,12 @@
 from setuptools import setup
 
+# read the contents of your README file
+from pathlib import Path
+long_description = (Path(__file__).parent / "README.md").read_text()
+
 setup(
     name='rnalib',
-    version='0.0.1',
+    version='0.0.2',
     download_url = 'https://github.com/popitsch/rnalib/archive/refs/tags/1.0.0.tar.gz',
     packages=['rnalib', 'rnalib.static_test_files'],
     package_data={'rnalib.static_test_files': ["*"]},
@@ -12,7 +16,9 @@ setup(
     author='niko.popitsch@univie.ac.at',
     author_email='niko.popitsch@univie.ac.at',
     description='a python-based transcriptomics library',
-    scripts=['rnalib/rnalib_create_testdata'],
+    long_description=long_description,
+    long_description_content_type='text/markdown',
+    scripts=['rnalib/rnalib_create_testdata', 'rnalib/rnalib'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
@@ -37,6 +43,7 @@ setup(
         "pysam==0.22.0",
         "pytest==7.4.4",
         "sortedcontainers==2.4.0",
-        "tqdm==4.65.2"
+        "tqdm==4.65.2",
+        "HTSeq==2.0.5"
     ]
 )

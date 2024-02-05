@@ -12,7 +12,7 @@ CANONICAL_CHROMOSOMES = {
 #: maximum integer value, assuming 32-bit ints
 MAX_INT = 2 ** 31 - 1
 
-#: Maps feature types to Sequence Ontology terms
+#: Maps valid sub-feature types (e.g., 'exon', 'CDS') types to Sequence Ontology terms (e.g., '3UTR' -> 'three_prime_UTR')
 FTYPE_TO_SO = {
     'gene': 'gene', 'ncRNA_gene': 'gene',
     'transcript': 'transcript', 'mRNA': 'transcript', 'ncRNA': 'transcript', 'lnc_RNA': 'transcript',
@@ -25,7 +25,7 @@ FTYPE_TO_SO = {
     'five_prime_UTR': 'five_prime_UTR', '5UTR': 'five_prime_UTR', 'UTR5': 'five_prime_UTR'
 }
 
-#: Maps info field names for various GFF fto feature types
+#: Maps info field names for various GFF fto feature types.
 GFF_FLAVOURS = {
     ('gencode', 'gff'): {
         'gid': 'ID', 'tid': 'ID', 'tx_gid': 'Parent', 'feat_tid': 'Parent', 'gene_name': 'gene_name',
@@ -100,3 +100,6 @@ class BlockStrategy(Enum):
     RIGHT = 2  # same end coord
     BOTH = 3  # same start and end
     OVERLAP = 4  # overlapping
+
+
+

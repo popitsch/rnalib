@@ -144,6 +144,10 @@ test_resources = {
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small.ACTB+SOX2.bam",
         "filename": "bam/small.ACTB+SOX2.bam"
     },
+    "small_ACTB+SOX2_clean_MD_bam": {
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small.ACTB+SOX2.clean.MD.bam",
+        "filename": "bam/small.ACTB+SOX2.clean.MD.bam"
+    },
     # -------------- VCF -------------------------------
     "dmel_multisample_vcf": {
         "#uri": "https://www.ebi.ac.uk/eva/webservices/vcf-dumper/v1/segments/2L%3A574291-575734/variants?species=dmelanogaster_6&studies=SNPASSAY_4_SUBMISSION_2010_11_14",

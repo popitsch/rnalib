@@ -20,3 +20,4 @@ pysam==0.22.0
 pytest==7.4.4
 sortedcontainers==2.4.0
 tqdm==4.65.2
+HTSeq~=2.0.5

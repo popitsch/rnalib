@@ -18,8 +18,6 @@
 
 
 """
-import json
-import numbers
 from abc import abstractmethod, ABC
 from collections import Counter, abc
 from dataclasses import dataclass, make_dataclass  # type: ignore # import dataclass to avoid PyCharm warnings
@@ -28,18 +26,19 @@ from os import PathLike
 from typing import List, Callable, NamedTuple, Any, Tuple
 
 import bioframe
-import pyranges
+import HTSeq
 import dill
-import numpy as np
-import pybedtools
+import pyranges
 from intervaltree import IntervalTree
 from more_itertools import pairwise, triplewise, windowed, peekable
 from sortedcontainers import SortedList, SortedSet
 
 from ._version import __version__
 from .constants import *
-from .utils import *
+from .interfaces import Archs4Dataset
 from .testdata import get_resource, list_resources
+from .tools import *
+from .utils import *
 
 # location of the test data directory. Use the 'RNALIB_TESTDATA' environment variable or monkey patching to set to your
 # favourite location, e.g., rnalib.__RNALIB_TESTDATA__ = "your_path'
@@ -49,15 +48,12 @@ __RNALIB_TESTDATA__ = os.environ.get('RNALIB_TESTDATA')
 # ------------------------------------------------------------------------
 # Genomic Interval (gi) model
 # ------------------------------------------------------------------------
-@dataclass(frozen=True, init=True)
-class gi:  # noqa
+import typing
+class GI(typing.NamedTuple):  # noqa
     """
         Genomic intervals (gi) in rnalib are inclusive, continuous and 1-based.
         Points are represented by intervals with same start and stop coordinate, empty intervals by passing start>end
         coordinates (e.g., gi('chr1', 1,0).is_empty() -> True).
-
-        GIs are implemented as frozen(immutable) dataclasses and can be used, e.g., as keys in a dict.
-        They can be instantiated by passing chrom/start/stop coordinates or can be parsed form a string.
 
         Intervals can be stranded.
         Using None for each component of the coordinates is allowed to represent unbounded intervals
@@ -66,6 +62,10 @@ class gi:  # noqa
         To sort also by chromosome, one can use a @ReferenceDict which defined the chromosome order:
         sorted(gis, key=lambda x: (refdict.index(x.chromosome), x))
         Note that the index of chromosome 'None' is always 0
+
+        GIs are implemented as named tuples and can be used, e.g., as keys in a dict.
+        They can be instantiated by passing chrom/start/stop coordinates or can be parsed form a string.
+        There is also a frozen(immutable) dataclass version of this class, GI_dataclass.
 
         Attributes
         ----------
@@ -86,24 +86,11 @@ class gi:  # noqa
         >>> gi('chr1', 1, 10, strand=None)
         >>> gi('chr1', 1, 10, strand='.')
         >>> gi('chr1', 1, 10, strand='u')
-
     """
     chromosome: str = None
     start: int = 0  # unbounded, ~-inf
-    end: int = MAX_INT  # unbounded, ~+inf
+    end: int = rna.MAX_INT  # unbounded, ~+inf
     strand: str = None
-
-    def __post_init__(self):
-        """ Some sanity checks and default values """
-        object.__setattr__(self, 'start', 0 if self.start is None else self.start)
-        object.__setattr__(self, 'end', MAX_INT if self.end is None else self.end)
-        object.__setattr__(self, 'strand', self.strand if self.strand != '.' else None)
-        if self.start > self.end:  # empty interval, set start/end to 0/-1
-            object.__setattr__(self, 'start', 0)
-            object.__setattr__(self, 'end', -1)
-        assert isinstance(self.start, numbers.Number)
-        assert isinstance(self.end, numbers.Number)
-        assert self.strand in [None, '+', '-']
 
     def __len__(self):
         if self.is_empty():  # empty intervals have zero length
@@ -121,7 +108,7 @@ class gi:  # noqa
             return None
         chromosome, start, end, strand = match[0]
         strand = None if strand == '' else strand
-        return cls(chromosome, int(start), int(end), strand)
+        return gi(chromosome, int(start), int(end), strand)
 
     @staticmethod
     def sort(intervals, refdict):
@@ -301,6 +288,10 @@ class gi:  # noqa
         else:
             return None
 
+    def get_extended(self, width=100):
+        """Returns an genomic interval that is extended up- and downstream by width nt"""
+        return gi(self.chromosome, self.start - width, self.end + width, self.strand)
+
     def split_by_maxwidth(self, maxwidth):
         """ Splits this into n intervals of maximum width """
         k, m = divmod(self.end - self.start + 1, maxwidth)
@@ -312,7 +303,7 @@ class gi:  # noqa
         return ret
 
     def copy(self):
-        """ Deep copy """
+        """ Returns a copy of this gi """
         return gi(self.chromosome, self.start, self.end, self.strand)
 
     def distance(self, other, strand_specific=False):
@@ -331,7 +322,7 @@ class gi:  # noqa
     def to_pybedtools(self):
         """
             Returns a corresponding pybedtools interval object.
-            Note that this will fail on open or empty intervals as those are not supported by rnalib.
+            Note that this will fail on open or empty intervals as those are not supported by pybedtools.
 
             Examples
             --------
@@ -349,24 +340,465 @@ class gi:  # noqa
         return pybedtools.Interval(self.chromosome, start - 1, self.end,  # noqa
                                    strand='.' if self.strand is None else self.strand)
 
+    def to_htseq(self):
+        """
+            Returns a corresponding HTSeq interval object.
+            Note that this will fail on open or empty intervals as those are not supported by HTSeq.
+
+            Examples
+            --------
+            >>> gi('chr1',1,10).to_htseq()
+            >>> gi('chr1',1,10, strand='-').to_htseq()
+            >>> gi('chr1').to_htseq()
+        """
+        return HTSeq.GenomicInterval(self.chromosome, self.start - 1, self.end, strand=self.strand)
+
     def __iter__(self):
         for pos in range(self.start, self.end + 1):
             yield gi(self.chromosome, pos, pos, self.strand)
 
+def gi(chromosome: str = None, start: int = 0, end: int = MAX_INT, strand: str = None):
+    """ Factory function for genomic intervals (GI) """
+    if chromosome is not None and ':' in chromosome:
+        return GI.from_str(chromosome)
+    start = 0 if start is None else start
+    end = rna.MAX_INT if end is None else end
+    if strand == '.':
+        strand = None
+    elif strand is not None:
+        assert strand in [None, '+', '-']
+    if start > end:  # empty interval, set start/end to 0/-1
+        start, end = 0, -1
+    return GI(chromosome, start, end, strand)
 
-"""
-    Lists valid sub-feature types (e.g., 'exon', 'CDS') and maps their different string representations in various
-    GFF3 flavours to the corresponding sequence ontology term (e.g., '3UTR' -> 'three_prime_UTR').
-"""
+@dataclass(frozen=True, init=True, slots=True)
+class GI_dataclass:  # noqa
+    """
+        Dataclass for genomic intervals (gi) in rnalib.
+        Copies the functionality of the named tuple GI, but is slower to instantiate due to the post_init assertions.
+        Needed for feture hierarchies and other dataclasses that need to be frozen.
+    """
+    chromosome: str = None
+    start: int = 0  # unbounded, ~-inf
+    end: int = MAX_INT  # unbounded, ~+inf
+    strand: str = None
 
-"""
-    List of supported gff flavours and the respective GFF field names.
-"""
+    def __post_init__(self):
+        """ Some sanity checks and default values.
+            This is slow, adds ~500ns per object creation, so we disable it for performance critical code.
+        """
+        object.__setattr__(self, 'start', 0 if self.start is None else self.start)
+        object.__setattr__(self, 'end', MAX_INT if self.end is None else self.end)
+        object.__setattr__(self, 'strand', self.strand if self.strand != '.' else None)
+        assert isinstance(self.start, numbers.Number)
+        assert isinstance(self.end, numbers.Number)
+        if self.start > self.end:  # empty interval, set start/end to 0/-1
+            object.__setattr__(self, 'start', 0)
+            object.__setattr__(self, 'end', -1)
+        assert self.strand in [None, '+', '-']
+    # copy the methods from the GI named tuple implementation
+    __len__ = GI.__len__
+    __repr__ = GI.__repr__
+    get_stranded = GI.get_stranded
+    to_file_str = GI.to_file_str
+    is_unbounded = GI.is_unbounded
+    is_empty = GI.is_empty
+    is_stranded = GI.is_stranded
+    cs_match = GI.cs_match
+    __cmp__ = GI.__cmp__
+    __lt__ = GI.__lt__
+    __le__ = GI.__le__
+    __gt__ = GI.__gt__
+    __ge__ = GI.__ge__
+    left_match = GI.left_match
+    right_match = GI.right_match
+    left_pos = GI.left_pos
+    right_pos = GI.right_pos
+    envelops = GI.envelops
+    overlaps = GI.overlaps
+    overlap = GI.overlap
+    split_coordinates = GI.split_coordinates
+    merge = GI.merge
+    is_adjacent = GI.is_adjacent
+    get_downstream = GI.get_downstream
+    get_upstream = GI.get_upstream
+    get_extended = GI.get_extended
+    split_by_maxwidth = GI.split_by_maxwidth
+    copy = GI.copy
+    distance = GI.distance
+    to_pybedtools = GI.to_pybedtools
+    to_htseq = GI.to_htseq
+    __iter__ = GI.__iter__
+
+
+# @DeprecationWarning('Replaced by GI and GI_dataclass as dataclass instantiation is slow')
+# @dataclass(frozen=True, init=True, slots=True)
+# class ORIG_GI_dataclass:  # noqa
+#     """
+#         Genomic intervals (gi) in rnalib are inclusive, continuous and 1-based.
+#         Points are represented by intervals with same start and stop coordinate, empty intervals by passing start>end
+#         coordinates (e.g., gi('chr1', 1,0).is_empty() -> True).
+#
+#         GIs are implemented as frozen(immutable) dataclasses and can be used, e.g., as keys in a dict.
+#         They can be instantiated by passing chrom/start/stop coordinates or can be parsed form a string.
+#
+#         Intervals can be stranded.
+#         Using None for each component of the coordinates is allowed to represent unbounded intervals
+#
+#         Chromosomes group intervals and the order of intervals from different groups (chromosomes) is left undefined.
+#         To sort also by chromosome, one can use a @ReferenceDict which defined the chromosome order:
+#         sorted(gis, key=lambda x: (refdict.index(x.chromosome), x))
+#         Note that the index of chromosome 'None' is always 0
+#
+#         Attributes
+#         ----------
+#         chromosome: str
+#             Chromosome (default: None)
+#         start: int
+#             First included position, 1-based (default: 0).
+#         end: int
+#             Last included position, 1-based (default: MAX_INT)
+#         strand: str
+#             Strand, either '+' or '-' or None if unstranded. Note that '.' will be converted to None. Default: None
+#
+#         Examples
+#         --------
+#         >>> gi('chr1', 1, 10)
+#         >>> gi('chr1', 1, 10, strand='+')
+#         >>> gi('chr1', 1, 10, strand='-')
+#         >>> gi('chr1', 1, 10, strand=None)
+#         >>> gi('chr1', 1, 10, strand='.')
+#         >>> gi('chr1', 1, 10, strand='u')
+#
+#     """
+#     chromosome: str = None
+#     start: int = 0  # unbounded, ~-inf
+#     end: int = MAX_INT  # unbounded, ~+inf
+#     strand: str = None
+#
+#     def __post_init__(self):
+#         """ Some sanity checks and default values.
+#             This is slow, adds ~500ns per object creation, so we disable it for performance critical code.
+#         """
+#         object.__setattr__(self, 'start', 0 if self.start is None else self.start)
+#         object.__setattr__(self, 'end', MAX_INT if self.end is None else self.end)
+#         object.__setattr__(self, 'strand', self.strand if self.strand != '.' else None)
+#         assert isinstance(self.start, numbers.Number)
+#         assert isinstance(self.end, numbers.Number)
+#         if self.start > self.end:  # empty interval, set start/end to 0/-1
+#             object.__setattr__(self, 'start', 0)
+#             object.__setattr__(self, 'end', -1)
+#         assert self.strand in [None, '+', '-']
+#
+#     def __len__(self):
+#         if self.is_empty():  # empty intervals have zero length
+#             return 0
+#         if self.start == 0 or self.end == MAX_INT:
+#             return MAX_INT  # length of (partially) unbounded intervals is always max_int.
+#         return self.end - self.start + 1
+#
+#     @classmethod
+#     def from_str(cls, loc_string):
+#         """ Parse from <chr>:<start>-<end> (<strand>). Strand is optional"""
+#         pattern = re.compile(r"(\w+):(\d+)-(\d+)(?:[\s]*\(([+-])\))?$")  # noqa
+#         match = pattern.findall(loc_string.strip().replace(',', ''))  # convenience
+#         if len(match) == 0:
+#             return None
+#         chromosome, start, end, strand = match[0]
+#         strand = None if strand == '' else strand
+#         return cls(chromosome, int(start), int(end), strand)
+#
+#     @staticmethod
+#     def sort(intervals, refdict):
+#         """ Returns a chromosome + coordinate sorted iterable over the passed intervals. Chromosome order is defined by
+#         the passed reference dict."""
+#         return sorted(intervals, key=lambda x: (refdict.index(x.chromosome), x))
+#
+#     def __repr__(self):
+#         if self.is_empty():
+#             return f"{self.chromosome}:<empty>"
+#         return f"{self.chromosome}:{self.start}-{self.end}{'' if self.strand is None else f' ({self.strand})'}"
+#
+#     def get_stranded(self, strand):
+#         """Get a new object with same coordinates; the strand will be set according to the passed variable."""
+#         return gi(self.chromosome, self.start, self.end, strand)
+#
+#     def to_file_str(self):
+#         """ returns a sluggified string representation "<chrom>_<start>_<end>_<strand>"        """
+#         return f"{self.chromosome}_{self.start}_{self.end}_{'u' if self.strand is None else self.strand}"
+#
+#     def is_unbounded(self):
+#         return [self.chromosome, self.start, self.end, self.strand] == [None, 0, MAX_INT, None]
+#
+#     def is_empty(self):
+#         return self.start > self.end
+#
+#     def is_stranded(self):
+#         return self.strand is not None
+#
+#     def cs_match(self, other, strand_specific=False):
+#         """ True if this location is on the same chrom/strand as the passed one.
+#             will not compare chromosomes if they are unrestricted in one of the intervals.
+#             Empty intervals always return False hee
+#         """
+#         if strand_specific and self.strand != other.strand:
+#             return False
+#         if self.chromosome and other.chromosome and (self.chromosome != other.chromosome):
+#             return False
+#         return True
+#
+#     def __cmp__(self, other, cmp_str, refdict=None):
+#         if not self.cs_match(other, strand_specific=False):
+#             if refdict is not None:
+#                 return getattr(refdict.index(self.chromosome), cmp_str)(refdict.index(other.chromosome))
+#             return None
+#         if self.start != other.start:
+#             return getattr(self.start, cmp_str)(other.start)
+#         return getattr(self.end, cmp_str)(other.end)
+#
+#     def __lt__(self, other):
+#         """
+#             Test whether this interval is smaller than the other.
+#             Defined only on same chromosome but allows unrestricted coordinates.
+#             If chroms do not match, None is returned.
+#         """
+#         return self.__cmp__(other, '__lt__')
+#
+#     def __le__(self, other):
+#         """
+#             Test whether this interval is smaller or equal than the other.
+#             Defined only on same chromosome but allows unrestricted coordinates.
+#             If chroms do not match, None is returned.
+#         """
+#         return self.__cmp__(other, '__le__')
+#
+#     def __gt__(self, other):
+#         """
+#             Test whether this interval is greater than the other.
+#             Defined only on same chromosome but allows unrestricted coordinates.
+#             If chroms do not match, None is returned.
+#         """
+#         return self.__cmp__(other, '__gt__')
+#
+#     def __ge__(self, other):
+#         """
+#             Test whether this interval is greater or equal than the other.
+#             Defined only on same chromosome but allows unrestricted coordinates.
+#             If chroms do not match, None is returned.
+#         """
+#         return self.__cmp__(other, '__ge__')
+#
+#     def left_match(self, other, strand_specific=False):
+#         if not self.cs_match(other, strand_specific):
+#             return False
+#         return self.start == other.start
+#
+#     def right_match(self, other, strand_specific=False):
+#         if not self.cs_match(other, strand_specific):
+#             return False
+#         return self.end == other.end
+#
+#     def left_pos(self):
+#         return gi(self.chromosome, self.start, self.start, strand=self.strand)
+#
+#     def right_pos(self):
+#         return gi(self.chromosome, self.end, self.end, strand=self.strand)
+#
+#     def envelops(self, other, strand_specific=False) -> bool:
+#         """ Tests whether this interval envelops the passed one.
+#         """
+#         if self.is_unbounded():  # envelops all
+#             return True
+#         if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
+#             return False
+#         if not self.cs_match(other, strand_specific):
+#             return False
+#         return self.start <= other.start and self.end >= other.end
+#
+#     def overlaps(self, other, strand_specific=False) -> bool:
+#         """ Tests whether this interval overlaps the passed one.
+#             Supports unrestricted start/end coordinates and optional strand check
+#         """
+#         if self.is_unbounded() or other.is_unbounded():  # overlaps all
+#             return True
+#         if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
+#             return False
+#         if not self.cs_match(other, strand_specific):
+#             return False
+#         return self.start <= other.end and other.start <= self.end
+#
+#     def overlap(self, other, strand_specific=False) -> float:
+#         """Calculates the overlap with the passed one"""
+#         if self.is_unbounded() or other.is_unbounded():  # overlaps all
+#             return MAX_INT
+#         if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
+#             return 0
+#         if not self.cs_match(other, strand_specific):
+#             return 0
+#         return min(self.end, other.end) - max(self.start, other.start) + 1.
+#
+#     def split_coordinates(self) -> (str, int, int):
+#         return self.chromosome, self.start, self.end
+#
+#     @staticmethod
+#     def merge(loc):
+#         """ Merges a list of intervals.
+#             If intervals are not on the same chromosome or if strand is not matching, None is returned
+#             The resulting interval will inherit the chromosome and strand of the first passed one.
+#         """
+#         if loc is None:
+#             return None
+#         if len(loc) == 1:
+#             return loc[0]
+#         merged = None
+#         for x in loc:
+#             if x is None:
+#                 continue
+#             if merged is None:
+#                 merged = [x.chromosome, x.start, x.end, x.strand]
+#             else:
+#                 if (x.chromosome != merged[0]) or (x.strand != merged[3]):
+#                     return None
+#                 merged[1] = min(merged[1], x.start)
+#                 merged[2] = max(merged[2], x.end)
+#         return gi(*merged)
+#
+#     def is_adjacent(self, other, strand_specific=False):
+#         """ true if intervals are directly next to each other (not overlapping!) """
+#         if not self.cs_match(other, strand_specific=strand_specific):
+#             return False
+#         a, b = (self.end + 1, other.start) if self.end < other.end else (other.end + 1, self.start)
+#         return a == b
+#
+#     def get_downstream(self, width=100):
+#         """Returns an upstream genomic interval """
+#         if self.is_stranded():
+#             s, e = (self.end + 1, self.end + width) if self.strand == '+' else (self.start - width, self.start - 1)
+#             return gi(self.chromosome, s, e, self.strand)
+#         else:
+#             return None
+#
+#     def get_upstream(self, width=100):
+#         """Returns an upstream genomic interval """
+#         if self.is_stranded():
+#             s, e = (self.end + 1, self.end + width) if self.strand == '-' else (self.start - width, self.start - 1)
+#             return gi(self.chromosome, s, e, self.strand)
+#         else:
+#             return None
+#
+#     def get_extended(self, width=100):
+#         """Returns an genomic interval that is extended up- and downstream by width nt"""
+#         return gi(self.chromosome, self.start - width, self.end + width, self.strand)
+#
+#     def split_by_maxwidth(self, maxwidth):
+#         """ Splits this into n intervals of maximum width """
+#         k, m = divmod(self.end - self.start + 1, maxwidth)
+#         ret = [
+#             gi(self.chromosome, self.start + i * maxwidth, self.start + (i + 1) * maxwidth - 1, strand=self.strand)
+#             for i in range(k)]
+#         if m > 0:
+#             ret += [gi(self.chromosome, self.start + k * maxwidth, self.end, strand=self.strand)]
+#         return ret
+#
+#     def copy(self):
+#         """ Returns a copy of this gi """
+#         return gi(self.chromosome, self.start, self.end, self.strand)
+#
+#     def distance(self, other, strand_specific=False):
+#         """
+#             Distance to other interval.
+#             - None if chromosomes do not match
+#             - 0 if intervals overlap
+#             - negative if other < self
+#         """
+#         if self.cs_match(other, strand_specific=strand_specific):
+#             if self.overlaps(other):
+#                 return 0
+#             return other.start - self.end if other > self else other.end - self.start
+#         return None
+#
+#     def to_pybedtools(self):
+#         """
+#             Returns a corresponding pybedtools interval object.
+#             Note that this will fail on open or empty intervals as those are not supported by pybedtools.
+#
+#             Examples
+#             --------
+#             >>> gi('chr1',1,10).to_pybedtools()
+#             >>> gi('chr1',1,10, strand='-').to_pybedtools()
+#             >>> gi('chr1').to_pybedtools() # uses maxint as end coordinate
+#
+#             Warning
+#             -------
+#             Note that len(gi('chr1',12,10).to_pybedtools()) reports wrong length 4294967295 for this empty interval!
+#         """
+#         # pybedtools cannot deal with unbounded intervals, so we replace with [0; maxint]
+#         start = 1 if self.start == 0 else self.start
+#         # pybedtools: `start` is *always* the 0-based start coordinate
+#         return pybedtools.Interval(self.chromosome, start - 1, self.end,  # noqa
+#                                    strand='.' if self.strand is None else self.strand)
+#
+#     def to_htseq(self):
+#         """
+#             Returns a corresponding HTSeq interval object.
+#             Note that this will fail on open or empty intervals as those are not supported by HTSeq.
+#
+#             Examples
+#             --------
+#             >>> gi('chr1',1,10).to_htseq()
+#             >>> gi('chr1',1,10, strand='-').to_htseq()
+#             >>> gi('chr1').to_htseq()
+#         """
+#         import HTSeq
+#         return HTSeq.GenomicInterval(self.chromosome, self.start - 1, self.end, strand=self.strand)
+#
+#     def __iter__(self):
+#         for pos in range(self.start, self.end + 1):
+#             yield gi(self.chromosome, pos, pos, self.strand)
+#
+#
+# # class gi_unsafe(gi):
+# #     """ Genomic interval without post_init assertions for performance critical code. """
+#
+#     def __post_init__(self):
+#         pass
+
 
 
 # ------------------------------------------------------------------------
 # Transcriptome model
 # ------------------------------------------------------------------------
+
+
+def _transcript_to_bed(idx, tx, item):
+    """ Default conversion of transcripts to BED12 format.
+        CDS are used as thickStart/thickEnd if available, otherwise the transcript start/end is used.
+        Note that the BED12 format is 0-based, half-open, i.e., the end coordinate is not included.
+
+        Parameters
+        ----------
+        idx : int
+            Index of the transcript in the transcriptome
+        tx : Transcript
+            Transcript object
+        item : Any
+            Item associated with the transcript (not used here)
+        Returns
+        -------
+         tuple
+            name, score, thickStart, thickEnd, rgb, blockCount, blockSizes, blockStarts as required by BED12
+    """
+    if len(tx.CDS) > 0:
+        thickStart, thickEnd = (tx.CDS[-1].start - 1, tx.CDS[0].end) if tx.strand == "-" else (
+            tx.CDS[0].start - 1, tx.CDS[-1].end)
+    else:
+        thickStart, thickEnd = (tx.start - 1, tx.end)
+    blockCount = len(tx.exon)
+    blockSizes, blockStarts = zip(*[(str(len(ex)), str(ex.start - tx.start)) \
+                                    for ex in (reversed(tx.exon) if tx.strand == "-" else tx.exon)])
+    color = "255,153,153" if tx.strand == "-" else "153,255,153"  # this works in standalone IGV but not JS !
+    return tx.feature_id, '.', thickStart, thickEnd, color, blockCount, ','.join(blockSizes), ','.join(
+        blockStarts)
 
 
 class Transcriptome:
@@ -434,6 +866,8 @@ class Transcriptome:
         If true, progressbars will be disabled.
     genome_offsets : dict
         A dict mapping chromosome names to offsets. If provided, the offset will be added to all coordinates.
+    name : str
+        Abn (optional) human-readable name of the transcriptome object. default: 'Transcriptome'
     feature_filter : TranscriptFilter
         A TranscriptFilter object that will be used to filter transcripts.
 
@@ -460,6 +894,7 @@ class Transcriptome:
                  calc_introns: bool = True,
                  disable_progressbar: bool = False,
                  genome_offsets: dict = None,
+                 name="Transcriptome",
                  feature_filter=None):
         self.annotation_gff = annotation_gff
         self.file_format = guess_file_format(self.annotation_gff)
@@ -481,6 +916,7 @@ class Transcriptome:
         self.calc_introns = calc_introns
         self.disable_progressbar = disable_progressbar
         self.genome_offsets = {} if genome_offsets is None else genome_offsets
+        self.name = name
         self.feature_filter = TranscriptFilter() if feature_filter is None else TranscriptFilter(
             feature_filter) if isinstance(feature_filter, dict) else feature_filter
         self.log = Counter()
@@ -581,14 +1017,15 @@ class Transcriptome:
                             # create transcript object
                             transcripts[tid] = _Feature(self, 'transcript', tid, loc,
                                                         parent=genes.get(gid, None),
-                                                        children={k: [] for k in set(fmt['ftype_to_SO'].values())})
+                                                        children={k: [] for k in set(fmt['ftype_to_SO'].values()) - {
+                                                            'gene', 'transcript'}})
                             for cf in self.copied_fields:
                                 transcripts[tid].anno[cf] = info.get(cf, None)
                             transcripts[tid].anno['gff_feature_type'] = info['feature_type']
                             # add missing gene annotation (e.g., ucsc, flybase, chess)
                             if gid not in genes:
                                 if gid in missing_genes:
-                                    newloc = gi.merge([missing_genes[gid].loc, loc])
+                                    newloc = GI.merge([missing_genes[gid].loc, loc])
                                     if newloc is None:
                                         # special case, e.g., in Chess annotation/tx CHS.40038.9 is annotated on the
                                         # opposite strand. We skip this tx and keep the gene annotation.
@@ -735,6 +1172,17 @@ class Transcriptome:
                 # print(start,end, len(prefix), len(self.anno[g]['dna_seq']), len(g))
         self.has_seq = True
 
+    def __getitem__(self, key):
+        """ Returns the feature with the passed feature_id """
+        if isinstance(key, str):
+            if key in self.gene:
+                return self.gene[key]
+            return self.transcript[key]
+        elif isinstance(key, GI) or isinstance(key, GI_dataclass):
+            return self.anno[key]
+        else:
+            raise TypeError('Index must be a GI or a feature id string, not {type(key).__name__}')
+
     def find_attr_rec(self, f, attr):
         """ recursively finds attribute from parent(s) """
         if f is None:
@@ -840,7 +1288,7 @@ class Transcriptome:
 
             Parameters
             ----------
-            query : GenomicInterval
+            query : GenomicInterval or string that is parsed by GI.from_str()
                 Query interval
             feature_types : str or List[str]
                 Feature types to query. If None, all feature types will be queried.
@@ -849,6 +1297,8 @@ class Transcriptome:
             sort : bool
                 If true, the returned features will be sorted by chromosome and start coordinate.
         """
+        if isinstance(query, str):
+            query = GI.from_str(query)
         if query.chromosome not in self.chr2itree:
             return []
         if isinstance(feature_types, str):
@@ -1012,11 +1462,54 @@ class Transcriptome:
             return out_file + '.gz'
         return out_file
 
+    def to_bed(self, out,
+               chromosome=None, start=None, end=None, region=None, feature_types=('transcript',),
+               fun_anno=_transcript_to_bed, bed_header=None, disable_progressbar=True, no_header=False,
+               ):
+        """Outputs transcripts of this transcriptome in BED format.
+            Pass your custom annotation function via fun_anno to output custom BED fields (e.g., color based on
+            transcript type).
+
+            Parameters
+            ----------
+            out : file-like object
+                The output file-like object.
+            chromosome : str
+                The chromosome to be considered. If None (default), all chromosomes will be considered.
+            start : int
+                The start coordinate to be considered. If None (default), all features will be considered.
+            end : int
+                The end coordinate to be considered. If None (default), all features will be considered.
+            region : str
+                A string of the form 'chr:start-end' that specifies the region to be considered.
+                If None (default), all features will be considered.
+            feature_types : tuple
+                The feature types to be included in the output file. Default: transcripts only.
+            fun_anno : function
+                A function that takes a feature index, a location and a feature as input and returns a tuple of
+                strings that will be added to the BED output file.
+            bed_header : dict
+                A dict containing the BED header fields. If None (default), a default header will be used.
+            disable_progressbar : bool
+                If true, the progressbar will be disabled.
+            no_header : bool
+                If true, no header will be written to the output file.
+
+            Example
+            -------
+            >>> transcriptome = ...
+            >>> transcriptome.to_bed('transcripts.bed')
+        """
+        if bed_header is None:
+            bed_header = {"name": self.name, "description": self.name, "useScore": 0, "itemRgb": "On"}
+        self.iterator(chromosome, start, end, region, feature_types).to_bed(out, fun_anno, bed_header,
+                                                                            disable_progressbar, no_header)
+
     def __len__(self):
         return len(self.anno)
 
     def __repr__(self):
-        return f"Transcriptome with {len(self.genes)} genes and {len(self.transcripts)} tx" + (
+        return f"{self.name} with {len(self.genes)} genes and {len(self.transcripts)} tx" + (
             " (+seq)" if self.has_seq else "") + (" (cached)" if self.cached else "")
 
     def iterator(self, chromosome=None, start=None, end=None, region=None, feature_types=None):
@@ -1036,7 +1529,7 @@ class Transcriptome:
 
 
 @dataclass(frozen=True, repr=False)
-class Feature(gi):
+class Feature(GI_dataclass):
     """
         A (frozen) genomic feature, e.g., a gene, a transcript, an exon, an intron,
         a CDS or a three_prime_UTR/_prime_UTR. Features are themselves containers of sub-features
@@ -1351,9 +1844,9 @@ class TranscriptFilter(AbstractFeatureFilter):
         if self.excluded_chrom is not None:
             self.excluded_chrom = set(self.excluded_chrom)
         if self.included_regions is not None:
-            self.included_regions = {gi.from_str(s) for s in self.included_regions}
+            self.included_regions = {GI.from_str(s) for s in self.included_regions}
         if self.excluded_regions is not None:
-            self.excluded_regions = {gi.from_str(s) for s in self.excluded_regions}
+            self.excluded_regions = {GI.from_str(s) for s in self.excluded_regions}
 
     def filter(self, loc, info):
         # location filtering
@@ -1730,7 +2223,7 @@ class LocationIterator:
         self.chunk_size = chunk_size
         self.strand = strand
         if region is not None:
-            self.region = gi.from_str(region) if isinstance(region, str) else region
+            self.region = GI.from_str(region) if isinstance(region, str) else region
         else:
             self.region = gi(chromosome, start, end, strand)
         self.chromosome, self.start, self.end = self.region.split_coordinates()
@@ -1750,7 +2243,7 @@ class LocationIterator:
         """ Update the iterated region of this iterator.
             Note that the region's chromosome must be in this iterators refdict (if any)
         """
-        self.region = gi.from_str(region) if isinstance(region, str) else region
+        self.region = GI.from_str(region) if isinstance(region, str) else region
         self.chromosome, self.start, self.end = self.region.split_coordinates()
         if self.refdict is not None and self.chromosome is not None:
             assert self.chromosome in self.refdict, f"Invalid chromosome {self.chromosome} not in \
@@ -1761,6 +2254,41 @@ class LocationIterator:
             For debugging/testing only
         """
         return [x for x in self]
+
+    def to_bed(self, out,
+               fun_anno=lambda idx, loc, item: (f"item{idx}", '.', loc.start - 1, loc.end, "0,0,0", 1, len(loc), 0),
+               bed_header=None, disable_progressbar=True, no_header=False, n_col=12
+               ):
+        """ Consumes iterator and returns results in BED format to the passed output stream.
+            out : file-like object
+                The output file-like object.
+            fun_anno : function
+                A function that takes a feature index, a location and a feature as input and returns a tuple of
+                strings that will be added to the BED output file.
+            bed_header : dict
+                A dict containing the BED header fields. If None (default), a default header will be used.
+            disable_progressbar : bool
+                If true, the progressbar will be disabled.
+            no_header : bool
+                If true, no header will be written to the output file.
+
+            Example
+            -------
+            >>> out_file = ...
+            >>> with open_file_obj(out_file, 'wt') as out:
+            >>>     with LocationIterator(...) as it: # use respective subclass here
+            >>>         it.to_bed(out)
+            >>> bgzip_and_tabix(out_file)
+        """
+        if not no_header:
+            if bed_header is None:
+                bed_header = {'visibility': 1, 'itemRgb': 'On', 'useScore': 1}
+            print(f'track {' '.join([f'{x}={bed_header[x]}' for x in bed_header])}', file=out)
+        for idx, (loc, item) in tqdm(enumerate(self), desc=f"Writing bed file", disable=disable_progressbar):
+            name, score, thickStart, thickEnd, rgb, blockCount, blockSizes, blockStarts = fun_anno(idx, loc, item)
+            print(to_str([loc.chromosome, loc.start - 1, loc.end, name, score, loc.strand,
+                          thickStart, thickEnd, rgb, blockCount, blockSizes, blockStarts][:n_col], sep='\t', na='.'),
+                  file=out)
 
     def to_dataframe(self,
                      fun=lambda loc, item, fun_col, default_value: [str(item)],  # default: convert item to string repr
@@ -1811,7 +2339,7 @@ class LocationIterator:
             df = pd.DataFrame([[loc.chromosome,
                                 loc.start,
                                 loc.end,
-                                '.' if loc.strand is None else loc.strand] + fun(loc, item, fun_col, None) for
+                                '.' if loc.strand is None else loc.strand] + fun(loc, item, fun_col, default_value) for
                                idx, (loc, item) in
                                enumerate(tqdm(self, desc=f"Building dataframe", disable=disable_progressbar))],
                               columns=coord_colnames + fun_col)
@@ -1930,8 +2458,8 @@ class TranscriptomeIterator(LocationIterator):
         --------
         >>> # advanced usage: convert to pandas dataframe with a custom conversion function
         >>> # here we add a 'feature length' column
-        >>> def my_fun(loc, item, fun_col, default_value):
-        >>>     return [len(loc) if col == 'feature_len' else loc.get(col, default_value) for col in fun_col] # noqa
+        >>> def my_fun(tx, item, fun_col, default_value):
+        >>>     return [len(tx) if col == 'feature_len' else tx.get(col, default_value) for col in fun_col] # noqa
         >>> t = Transcriptome(...)
         >>> TranscriptomeIterator(t).to_dataframe(fun=my_fun, included_annotations=['feature_len']).head()
 
@@ -2519,12 +3047,12 @@ class PandasIterator(LocationIterator):
         >>>     print(Counter(it.df['feature'])) # count minus strand features
         >>>     # you can also use this code to then iterate the data which may be convenient/readable if the
         >>>     # dataframe is small:
-        >>>     for loc, row in it: # now iterate with rnalib iterator
+        >>>     for tx, row in it: # now iterate with rnalib iterator
         >>>         # do something with location and pandas data row
     """
 
     def __init__(self, df, feature=None, chromosome=None, start=None, end=None, region=None, strand=None,
-                 coord_columns=('Chromosome', 'Start', 'End', 'Strand'), is_sorted=False, per_position=False,
+                 coord_columns: tuple = ('Chromosome', 'Start', 'End', 'Strand'), is_sorted=False, per_position=False,
                  coord_off=(0, 0), fun_alias: Callable = None, calc_chromlen=False, refdict=None):
         self._stats = Counter()
         self.location = None
@@ -2703,6 +3231,12 @@ class MemoryIterator(LocationIterator):
                          strand=None, file_format=None, chunk_size=1024, per_position=False,
                          fun_alias=fun_alias, refdict=self.refdict, calc_chromlen=False)
 
+    def to_bed(self, out,
+               fun_anno=lambda idx, loc, item: (f"{item}", '.', loc.start - 1, loc.end, "0,0,0", 1, len(loc), 0),
+               bed_header=None, disable_progressbar=True, no_header=False, n_col=4
+               ):
+        super().to_bed(out, fun_anno, bed_header, disable_progressbar, no_header, n_col)
+
     def __iter__(self) -> Item[gi, object]:
         for self.chromosome in self.chromosomes:
             for name, self.location in dict(
@@ -2745,7 +3279,7 @@ class PybedtoolsIterator(LocationIterator):
                 self.refdict = None
         # intersect with region if any
         if region is not None:
-            self.region = gi.from_str(region) if isinstance(region, str) else region
+            self.region = GI.from_str(region) if isinstance(region, str) else region
         else:
             self.region = gi(chromosome, start, end, strand)
         self.chromosome = chromosome
@@ -3009,15 +3543,24 @@ class FastPileupIterator(LocationIterator):
 # ---------------------------------------------------------
 
 
-class BlockLocationIterator(LocationIterator):
-    """ Returns locations and lists of values that share the same location wrt. a
-        given matching strategy (e.g., same start, same end, same coords, overlapping).
+class GroupedLocationIterator(LocationIterator):
+    """
+        Wraps another location iterator and yields groups of items sharing (parts of) the same location
+        given a matching strategy  (e.g., same start, same end, same coords, overlapping).
+        The iterator yields tuples of (merged) group location and a (locations, items) tuple containing lists of
+        locations/items yielded from the wrapped iterator.
 
-        Expects a coordinate-sorted location iterator!
 
+        Parameters
+        ----------
+        it : LocationIterator
+            The wrapped location iterator
+        strategy : BlockStrategy
+            The block strategy to use: LEFT (start coordinate match), RIGHT (end coordinate match), BOTH (complete
+            location match; default), OVERLAP (coordinate overlap).
     """
 
-    def __init__(self, it, strategy=BlockStrategy.LEFT):
+    def __init__(self, it: LocationIterator, strategy=BlockStrategy.BOTH):
         self.orgit = it
         self.it = peekable(it)
         self.strategy = strategy
@@ -3037,25 +3580,25 @@ class BlockLocationIterator(LocationIterator):
                     loc, v = next(self.it)
                     locations += [loc]
                     values += [v]
-                    mloc = gi.merge((mloc, loc))
+                    mloc = GI.merge((mloc, loc))
             elif self.strategy == BlockStrategy.RIGHT:
                 while self.it.peek(None) and self.it.peek()[0].right_match(mloc):
                     loc, v = next(self.it)
                     locations += [loc]
                     values += [v]
-                    mloc = gi.merge((mloc, loc))
+                    mloc = GI.merge((mloc, loc))
             elif self.strategy == BlockStrategy.BOTH:
                 while self.it.peek(None) and self.it.peek()[0] == mloc:
                     loc, v = next(self.it)
                     locations += [loc]
                     values += [v]
-                    mloc = gi.merge((mloc, loc))
+                    mloc = GI.merge((mloc, loc))
             elif self.strategy == BlockStrategy.OVERLAP:
                 while self.it.peek(None) and self.it.peek()[0].overlaps(mloc):
                     loc, v = next(self.it)
                     locations += [loc]
                     values += [v]
-                    mloc = gi.merge((mloc, loc))
+                    mloc = GI.merge((mloc, loc))
             yield Item(mloc, (locations, values))
 
     def close(self):
@@ -3077,7 +3620,7 @@ class SyncPerPositionIterator(LocationIterator):
         >>> it1, it2, it3 = ...
         >>> for pos, (i1,i2,i3) in SyncPerPositionIterator([it1, it2, it3]):
         >>>     print(pos,i1,i2,i3)
-        >>>     # where i1,...,i3 are lists of loc/data tuples from the passed LocationIterators
+        >>>     # where i1,...,i3 are lists of tx/data tuples from the passed LocationIterators
 
         Notes
         -----
@@ -3187,7 +3730,7 @@ class AnnotationIterator(LocationIterator):
     """
         Annotates locations in the first iterator with data from the ano_its location iterators.
         The returned data is a namedtuple with the following fields:
-        Item(location=gi, data=Result(anno=dat_from_it, label1=[Item(loc, dat_from_anno_it1)], ..., labeln=[Item(loc,
+        Item(location=gi, data=Result(anno=dat_from_it, label1=[Item(tx, dat_from_anno_it1)], ..., labeln=[Item(tx,
         dat_from_anno_itn)])
 
         This enables access to the following data:
@@ -3200,7 +3743,7 @@ class AnnotationIterator(LocationIterator):
 
         Yields
         ------
-        Item(location=gi, data=Result(anno=dat_from_it, label1=[Item(loc, dat_from_anno_it1)], ..., labeln=[Item(loc,
+        Item(location=gi, data=Result(anno=dat_from_it, label1=[Item(tx, dat_from_anno_it1)], ..., labeln=[Item(tx,
         dat_from_anno_itn)])
 
 

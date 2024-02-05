@@ -34,9 +34,14 @@ gaps. For example, rnalib provides interfaces for integrating with `pybedtools <
 Installation
 ------------
 
+Rnalib is hosted on PyPI and can be installed via pip:
+
 .. code:: bash
 
    $ pip install rnalib
+
+The source code is `available on GitHub <https://github.com/popitsch/rnalib>`_.
+
 
 
 Test data

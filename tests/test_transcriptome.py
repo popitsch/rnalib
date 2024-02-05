@@ -1,6 +1,7 @@
 """
 Tests for the genemodel module
 """
+import io
 import tempfile
 from collections import Counter
 from itertools import pairwise
@@ -11,12 +12,14 @@ import copy
 import biotite.sequence as seq
 
 import rnalib
-from rnalib import gi, BedGraphIterator, ReadIterator, read_alias_file, norm_gn, Transcriptome, Feature, \
+from rnalib import gi, GI, BedGraphIterator, ReadIterator, read_alias_file, norm_gn, Transcriptome, Feature, \
     TranscriptomeIterator, print_dir_tree, TranscriptFilter, AbstractFeatureFilter
 from rnalib.testdata import get_resource
 
 assert rnalib.__RNALIB_TESTDATA__ is not None, ("Please set rnalib.__RNALIB_TESTDATA__ variable to the testdata "
                                                 "directory path")
+
+
 @pytest.fixture(autouse=True)
 def default_testdata() -> dict:
     config = {
@@ -45,6 +48,9 @@ def test_eq(default_testdata):
     f1 = Feature('chr1', 1, 10, '+', feature_id=1, feature_type='a', parent=1)
     f2 = Feature('chr2', 1, 10, '+', feature_id=1, feature_type='a', parent=1)
     assert f1 != f2
+    # compare with GI
+    assert f1.overlap(gi('chr1', 1, 10)) and not f1.overlap(gi('chr1', 11, 20))
+    assert f1 < gi('chr1', 11, 20) and f1 > gi('chr1', 0, 5)
 
 
 def test_transcriptome(default_testdata):
@@ -82,7 +88,7 @@ def test_transcriptome(default_testdata):
     assert t.get_sequence(tx.intron[-1], mode='rna') == \
            "GTGGGTGTCTTTCCTGCCTGAGCTGACCTGGGCAGGTCGGCTGTGGGGTCCTGTGGTGTGTGGGGAGCTGTCACATCCAGGGTCCTCACTGCCTGTCCCCTTCCCTCCTCAG"
     # introns 4+5 are in 3'-UTR
-    assert [i.get_rnk() for i in tx.intron if i.overlaps(gi.merge(tx.three_prime_UTR))] == [4, 5]
+    assert [i.get_rnk() for i in tx.intron if i.overlaps(GI.merge(tx.three_prime_UTR))] == [4, 5]
     # assert that links are correct
     config = {
         'genome_fa': get_resource('dmel_genome'),
@@ -200,7 +206,7 @@ def test_genmodel_anno_persistence(default_testdata):
         assert oldid != newid  # different 'feature' classes!
 
 
-def test_genmodel_gff3(default_testdata):
+def test_to_gff3(default_testdata):
     """ Write to GFF3, load and compare"""
     with tempfile.TemporaryDirectory() as tmp:
         gff3file = os.path.join(tmp, 'transcriptome.gff3')
@@ -216,6 +222,13 @@ def test_genmodel_gff3(default_testdata):
         t2 = Transcriptome(**config2)
         assert len(t1) == len(t2)
         assert Counter([f.feature_type for f in t1.anno]) == Counter([f.feature_type for f in t2.anno])
+
+
+def test_to_bed(default_testdata):
+    t = Transcriptome(**default_testdata)
+    with io.StringIO() as out:
+        t.to_bed(out)
+        print(out.getvalue())
 
 
 def test_filter(default_testdata):
@@ -239,10 +252,10 @@ def test_filter(default_testdata):
     assert tf.filter(gi('2L', 50000, 100000), {'feature_type': 'gene'}) == (False, 'passed')
     assert tf.filter(gi('2L', 50000, 100000), {'feature_type': 'gene', 'gene_id': 'ENSG...'}) == (False, 'passed')
     assert tf.filter(gi('2L', 50000, 100000), {'feature_type': 'gene', 'gene_id': 'ENSG...', 'tag': 'A,B'}) == (
-    True, 'missing_tag_value')
+        True, 'missing_tag_value')
     assert tf.filter(gi('2L', 50000, 100000),
                      {'feature_type': 'gene', 'gene_id': 'ENSG...', 'tag': 'Ensembl_canonical,A,B'}) == (
-           False, 'passed')
+               False, 'passed')
     assert tf.get_chromosomes() == {'2L'}
     # test filter builder
     tf = TranscriptFilter().include_chromosomes(['2L'])
@@ -258,7 +271,7 @@ def test_filter(default_testdata):
     #     'annotation_flavour': 'gencode'
     # }
     # filter for non-existent tag, all tx should be filtered as well
-    t = Transcriptome(**config )
+    t = Transcriptome(**config)
     assert t.log == {'parsed_gff_lines': 345,
                      'filtered_transcript_parent_gene_filtered': 89,
                      'filtered_gene_missing_tags': 5} and len(t.transcripts) == 0
@@ -369,7 +382,7 @@ def test_gff_flavours():
              'three_prime_UTR': 11,
              'gene': 2})
     assert Counter([tx.gff_feature_type for tx in t.transcripts]) == {'mRNA': 11, 'pseudogene': 1}
-    assert {l.chromosome for l in t.transcripts} == {'2L'}
+    assert {loc.chromosome for loc in t.transcripts} == {'2L'}
     # Generic
     config = {
         'genome_fa': get_resource('dmel_genome'),
@@ -476,9 +489,9 @@ def test_annotate_read_counts():
         if 'rc' not in anno:
             anno['rc'] = Counter()
         anno['rc']['reads'] += len(reads)
-        anno['rc']['reads_ss'] += len([r for l, r in reads if l.strand == loc.strand])
+        anno['rc']['reads_ss'] += len([r for l1, r in reads if l1.strand == loc.strand])
         anno['rc']['reads_ss_tc'] += len(
-            [r for l, r in reads if l.strand == loc.strand and r.has_tag('xc') and r.get_tag('xc') > 0])
+            [r for l1, r in reads if l1.strand == loc.strand and r.has_tag('xc') and r.get_tag('xc') > 0])
 
     # coungt the reads
     t.annotate(iterators=ReadIterator(get_resource('small_ACTB+SOX2_bam')),

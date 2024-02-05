@@ -6,12 +6,14 @@ from collections import Counter
 import bioframe
 import pybedtools
 
-import rnalib
-from rnalib import gi, BedIterator, GFF3Iterator, AnnotationIterator
+import rnalib as rna
+from rnalib import gi
 from rnalib.testdata import get_resource
 
-assert rnalib.__RNALIB_TESTDATA__ is not None, ("Please set rnalib.__RNALIB_TESTDATA__ variable to the testdata "
-                                                "directory path")
+assert rna.__RNALIB_TESTDATA__ is not None, ("Please set rnalib.__RNALIB_TESTDATA__ variable to the testdata  "
+                                             "directory path")
+
+
 def test_bioframe_pitfall_example():
     bioframe_gff = bioframe.read_table(get_resource("gencode_gff"), schema='gff')[['chrom', 'start', 'end', 'strand']]
     bioframe_bed = bioframe.read_table(get_resource("gencode_bed"), schema='bed')[['chrom', 'start', 'end', 'strand']]
@@ -19,13 +21,19 @@ def test_bioframe_pitfall_example():
     # now assert that the number of differing rows equals the number of input rows
     assert len(bioframe_gff.compare(bioframe_bed).index) == len(bioframe_gff.index), "Does this work with bioframe now?"
 
+
 def test_pybedtools_pitfall_example():
     """
-    The following code block was copy-pasted from the [pybedtools page](https://github.com/daler/pybedtools) and the idea is to create a list of gene names that are <5 kb away from intergenic SNPs. However, this example does not work properly (with pybedtools v0.9.1) due to inconsistent chromosome order of the two input files (hg19.gff: chr1, chr21; snps.bed.gz: chr21, chr1; both are pybedtools test resources).
+    The following code block was copy-pasted from the [pybedtools page](https://github.com/daler/pybedtools) and the
+    idea is to create a list of gene names that are <5 kb away from intergenic SNPs. However, this example does not
+    work properly (with pybedtools v0.9.1) due to inconsistent chromosome order of the two input files
+    (hg19.gff: chr1, chr21; snps.bed.gz: chr21, chr1; both are pybedtools test resources).
 
-    As a result, genes.closest reports only -1 as distance which is why all closes genes will be reported, not just the ones at max 5kb distance.
-    Notably, the code runs without errors/warnings and returns a reasonable-sized list of gene names which makes it hard to spot the error.
-    Only when omitting the `stream=True flag`, genes.closest fails and reports the inconsistent chrom order.
+    As a result, `genes.closest` reports only -1 as distance which is why all closes genes will be reported, not just
+    the ones at max 5kb distance.
+    Notably, the code runs without errors/warnings and returns a reasonable-sized list of gene names which makes it
+    hard to spot the error. Only when omitting the `stream=True flag`, `genes.closest` fails and reports the
+    inconsistent chrom order.
 
     """
     # pybedtools example code with unsorted data
@@ -51,16 +59,18 @@ def test_pybedtools_pitfall_example():
     # NOTE: the snps BED file contains 800000 lines with 799218 unique locations of which 1564
     # share the same start and stop coordinate (i.e., empty intervals). proof:
     # cat bed/pybedtools_snps.bed.gz | gunzip | cut -f1-3  | awk '{if($2==$3){print $1"\t"$2"\t"$3 }}' | wc -l
-    esnp=[x for loc,x in BedIterator(snp_file).to_list() if loc.is_empty()] # count 'empty' intervals in this BED file
-    assert len(esnp)==1564
-    assert len([loc for loc, _ in BedIterator(snp_file)]) == 800000
-    assert len([loc for loc, x in BedIterator(snp_file) if not loc.is_empty()]) == 800000-1564
+    esnp = [x for loc, x in rna.BedIterator(snp_file).to_list() if
+            loc.is_empty()]  # count 'empty' intervals in this BED
+    # file
+    assert len(esnp) == 1564
+    assert len([loc for loc, _ in rna.BedIterator(snp_file)]) == 800000
+    assert len([loc for loc, x in rna.BedIterator(snp_file) if not loc.is_empty()]) == 800000 - 1564
 
     # now we recreate with rnalib methods.
     # first we collect intergenic snps, i.e., we use an AnnotationIterator and save all snps with no overlapping gene(s)
     isnp = []
     gsnp, esnp = Counter(), Counter()
-    with AnnotationIterator(BedIterator(snp_file), GFF3Iterator(gff_file)) as it:
+    with rna.AnnotationIterator(rna.BedIterator(snp_file), rna.GFF3Iterator(gff_file)) as it:
         for loc, (v1, v2) in it:
             if loc.is_empty():
                 esnp['empty'] += 1
@@ -71,16 +81,16 @@ def test_pybedtools_pitfall_example():
                     gsnp[g.data['ID']] += 1
 
     # manually remove these wrong entries
-    pbt_loc = {gi(pi.chrom, pi.start, pi.end) for pi in intergenic_snps if pi.start!=pi.end}
-    pgl_loc = {gi(loc.chromosome, loc.start-1, loc.end) for loc in isnp}
+    pbt_loc = {gi(pi.chrom, pi.start, pi.end) for pi in intergenic_snps if pi.start != pi.end}
+    pgl_loc = {gi(loc.chromosome, loc.start - 1, loc.end) for loc in isnp}
     # assert we found the same number of intergenic SNPs
     assert len(pbt_loc), len(pgl_loc)
 
     # now we query for genes +/- 5kb using an interval tree. Note that this would report *all* genes
     # within this genomic window, not just the closest one.
-    # However, we assume that this is the intended behaviour of this analysis and it does not make a
+    # However, we assume that this is the intended behaviour of this analysis, and it does not make a
     # difference for this dataset.
-    itree = GFF3Iterator(gff_file).to_intervaltrees()  # will drop empty intervals
+    itree = rna.GFF3Iterator(gff_file).to_intervaltrees()  # will drop empty intervals
     close_genes = set()
     for snp in isnp:
         for g in itree[snp.chromosome][snp.start - 5000:snp.end + 5000]:
@@ -88,6 +98,6 @@ def test_pybedtools_pitfall_example():
     # now assert we found the same (unique) gene names:
     assert len(set(nbgenes)) == len(set(close_genes))
     # NOTE that this rnalib approach is much slower but also more flexible. We can now easily filter, e.g., only for
-    # an upstream window or we could use intervaltree envelop queries for reporting genes that are fully within the
+    # an upstream window, or we could use intervaltree envelop queries for reporting genes that are fully within the
     # query window or treat genes with different annotated gene_type differently.
     # Note that we also collected the number of genic SNPs per gene in the gsnp Counter.

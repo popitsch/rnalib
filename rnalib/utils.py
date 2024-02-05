@@ -3,6 +3,7 @@ This module implements various general (low-level) utility methods
 
 """
 import gzip
+import numbers
 import os
 import random
 import re
@@ -19,12 +20,14 @@ from itertools import groupby, zip_longest, islice
 from pathlib import Path
 from typing import Optional, List
 
-import h5py
 import mygene
+import numpy as np
 import pandas as pd
+import pybedtools
 import pysam
-from IPython.core.display import HTML
+from IPython.core.display import HTML, clear_output
 from IPython.core.display_functions import display
+import h5py
 from matplotlib import pyplot as plt
 from tqdm.auto import tqdm
 
@@ -34,47 +37,6 @@ import rnalib
 # --------------------------------------------------------------
 # Commandline and config handling
 # --------------------------------------------------------------
-
-
-# --------------------------------------------------------------
-# Collection helpers
-# --------------------------------------------------------------
-
-
-# --------------------------------------------------------------
-# I/O handling
-# --------------------------------------------------------------
-
-
-# --------------------------------------------------------------
-# Sequence handling
-# --------------------------------------------------------------
-
-
-# --------------------------------------------------------------
-# genomics helpers
-# --------------------------------------------------------------
-
-
-# --------------------------------------------------------------
-# genomics helpers :: SAM/BAM specific
-# --------------------------------------------------------------
-
-
-# --------------------------------------------------------------
-# genomics helpers :: VCF specific
-# --------------------------------------------------------------
-
-
-# --------------------------------------------------------------
-# genomics helpers :: nanopore specific
-# --------------------------------------------------------------
-
-
-# --------------------------------------------------------------
-# Utility functions for ipython notebooks
-# --------------------------------------------------------------
-
 
 def parse_args(args, parser_dict, usage):
     """
@@ -107,6 +69,10 @@ def ensure_outdir(outdir=None) -> os.PathLike:
         os.makedirs(outdir)
     return outdir
 
+
+# --------------------------------------------------------------
+# Collection helpers
+# --------------------------------------------------------------
 
 def check_list(lst, mode='inc1') -> bool:
     """
@@ -225,6 +191,10 @@ def grouper(iterable, n, fill_value=None):
     return zip_longest(*args, fillvalue=fill_value)
 
 
+# --------------------------------------------------------------
+# I/O handling
+# --------------------------------------------------------------
+
 def to_str(*args, sep=',', na='NA') -> str:
     """
         Converts an object to a string representation. Iterables will be joined by the configured separator.
@@ -249,7 +219,7 @@ def to_str(*args, sep=',', na='NA') -> str:
     if isinstance(args, str):
         return args
     if hasattr(args, '__len__') and hasattr(args, '__iter__') and callable(getattr(args, '__iter__')):
-        return sep.join([to_str(x) for x in args])
+        return sep.join([to_str(x, sep=sep, na=na) for x in args])
     return str(args)
 
 
@@ -388,6 +358,10 @@ def download_file(url, filename, show_progress=True):
     urllib.request.urlretrieve(url, filename, print_progress if show_progress else None)
     return filename
 
+
+# --------------------------------------------------------------
+# Sequence handling
+# --------------------------------------------------------------
 
 def reverse_complement(seq, tmap='dna') -> str:
     """
@@ -542,10 +516,12 @@ def parse_gff_attributes(info, fmt='gff3'):
     return {k.strip(): v for k, v in [a.split('=') for a in info.split(';') if '=' in a]}
 
 
-def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=True,
-                    preset='auto', seq_col=0, start_col=1, end_col=1, line_skip=0, zerobased=False):
+def bgzip_and_tabix(in_file, out_file=None, sort=False, create_index=True, del_uncompressed=True,
+                    preset='auto', seq_col=0, start_col=1, end_col=1, meta_char=ord('#'),
+                    line_skip=0, zerobased=False):
     """
     BGZIP the input file and create a tabix index with the given parameters if create_index is True.
+    File is sorted with pybedtools if sort is True.
 
     Parameters
     ----------
@@ -553,6 +529,8 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
         The input file to be compressed.
     out_file : str, optional
         The output file name. Default is in_file + '.gz'.
+    sort : bool, optional
+        Whether to sort the input file. Default is False.
     create_index : bool, optional
         Whether to create a tabix index. Default is True.
     del_uncompressed : bool, optional
@@ -566,12 +544,15 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
         * 'sam' : (TBX_SAM, 3, 4, 0, ord('@'), 0),
         * 'vcf' : (TBX_VCF, 1, 2, 0, ord('#'), 0),
         * 'auto': guess from file extension
+
     seq_col : int, optional
         The column number for the sequence name. Default is 0.
     start_col : int, optional
         The column number for the start position. Default is 1.
     end_col : int, optional
         The column number for the end position. Default is 1.
+    meta_char : int, optional
+        The character that indicates a comment line. Default is ord('#').
     line_skip : int, optional
         The number of lines to skip at the beginning of the file. Default is 0.
     zerobased : bool, optional
@@ -579,7 +560,7 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
 
     Returns
     -------
-    None
+    The filename of the compressed file.
 
     Raises
     ------
@@ -599,19 +580,46 @@ def bgzip_and_tabix(in_file, out_file=None, create_index=True, del_uncompressed=
     if out_file is None:
         out_file = in_file + '.gz'
     assert out_file.endswith(".gz"), "out_file must be a .gz file"
+    if sort:
+        pre, post = os.path.splitext(in_file)
+        sorted_in_file = pre + '.sorted' + post
+        pybedtools.BedTool(in_file).sort().saveas(sorted_in_file)
+        if del_uncompressed:
+            os.remove(in_file)
+        in_file = sorted_in_file
     pysam.tabix_compress(in_file, out_file, force=True)  # @UndefinedVariable
     if create_index:
         if preset == 'auto':
             preset = guess_file_format(in_file)
             if preset == 'gtf':
                 preset = 'gff'  # pysam default
-            if preset not in ['gff', 'bed', 'psltbl', 'sam', 'vcf']:  # currently supported by tabix
-                preset = None
-            # print(f"Detected file format for index creation: {preset}")
+        if preset not in ['gff', 'bed', 'psltbl', 'sam', 'vcf']:  # currently supported by tabix
+            preset = None
+        if preset is not None and line_skip > 0:
+            # NOTE that there seems to be a bug in pysam that causes the line_skip parameter to be overwritten if a
+            # preset code is used. Here we catch this case and use explicit seq_col, start_col, end_col instead.
+            # @see https://github.com/samtools/htslib/blob/develop/htslib/tbx.h#L41 and
+            # https://github.com/pysam-developers/pysam/blob/master/pysam/libctabix.pyx
+            # preset_code : (seq_col, start_col, end_col, meta_char, zero_based)
+            _PYSAM_PRESET_CONF = {
+                'gff': (0, 3, 4, '#', False),
+                'bed': (0, 1, 2, '#', True),
+                'psltbl': (14, 16, 17, '#', False),
+                'sam': (2, 3, -1, '@', False),
+                'vcf': (0, 1, -1, '#', False),
+            }
+            seq_col, start_col, end_col, meta_char, zerobased = _PYSAM_PRESET_CONF[preset]
+            preset = None  # now call w/o preset code
         pysam.tabix_index(out_file, preset=preset, force=True, seq_col=seq_col, start_col=start_col, end_col=end_col,
-                          meta_char='#', line_skip=line_skip, zerobased=zerobased)  # noqa @UndefinedVariable
+                          meta_char=meta_char, line_skip=line_skip, zerobased=zerobased)  # noqa @UndefinedVariable
     if del_uncompressed:
         os.remove(in_file)
+    return out_file
+
+
+# --------------------------------------------------------------
+# genomics helpers :: nanopore specific
+# --------------------------------------------------------------
 
 
 def _fast5_tree(h5node, prefix: str = '', space='    ', branch='│   ', tee='├── ', last='└── ', max_lines=10,
@@ -659,6 +667,10 @@ def get_bcgs(fast5_file):
         return [a for a in list(f[first_rn]['Analyses']) if a.startswith("Basecall_")]
 
 
+# --------------------------------------------------------------
+# Utility functions for ipython notebooks
+# --------------------------------------------------------------
+
 def display_textarea(txt):
     """ Display a (long) text in a scrollable HTML text area """
     display(HTML(f"<textarea rows='4' cols='120'>{txt}</textarea>"))
@@ -672,10 +684,21 @@ def display_list(lst):
     display(HTML("</ul>"))
 
 
+def display_help(obj):
+    """ Display the docstring of the passed object """
+    display(HTML(f'<strong>{obj.__name__} docstring:</strong>'))
+    display(HTML(f'<small>{obj.__doc__.replace('\n', '</br>')}</small>'))
+
+def display_popup(msg, clear=True):
+    if clear:
+        clear_output()
+    display(HTML(f'<p style="color:red">{msg}</p>'))
+    display(HTML(f"<script>alert('{msg}');</script>"))
+
 def head_counter(cnt, non_empty=True):
     """Displays n items from the passed counter. If non_empty is true then only items with len>0 are shown"""
     if non_empty:
-        cnt = Counter({k: cnt.get(k, 0) for k in cnt.keys() if len(cnt.get(k)) > 0})
+        cnt = Counter({k: cnt.get(k, 0) for k in cnt.keys() if cnt.get(k) is not None and len(cnt.get(k)) > 0})
     display(Counter({k: v for k, v in islice(cnt.items(), 1, 10)}), HTML("[...]"))
 
 
@@ -692,7 +715,7 @@ def plot_times(title, times, n=None,
         the reference method/
     """
     ax = ax or plt.gca()
-    labels, values = zip(*sorted(times.items(), key=lambda item: item[1])) # sort by value
+    labels, values = zip(*sorted(times.items(), key=lambda item: item[1]))  # sort by value
     if show_speed and n is not None:
         values = [n / v for v in values]
         if reference_method is not None and reference_method in times:
@@ -887,6 +910,10 @@ class GeneSymbol:
         return f"{self.symbol} ({self.name}, tax: {self.taxid})"
 
 
+# --------------------------------------------------------------
+# genomics helpers :: SAM/BAM specific
+# --------------------------------------------------------------
+
 def count_reads(in_file):
     """ Counts reads in different file types """
     ftype = guess_file_format(in_file)
@@ -952,6 +979,57 @@ def get_covered_contigs(bam_files):
         covered_contigs.update([c for c, _, _, t in s.get_index_statistics() if t > 0])
     return covered_contigs
 
+
+def merge_bam_files(out_file, bam_files, sort_output=False, del_in_files=False):
+    """ merge multiple BAM files and sort + index results
+        Parameters
+        ----------
+        out_file : str
+            The output file name.
+        bam_files : list
+            A list of input BAM files.
+        sort_output : bool
+            Whether to sort the output file. Default is False.
+        del_in_files : bool
+            Whether to delete the input files after merging. Default is False.
+    """
+    if bam_files is None or len(bam_files) == 0:
+        print("no input BAM file provided")
+        return None
+    samfile = pysam.AlignmentFile(bam_files[0], "rb")  # @UndefinedVariable
+    with pysam.AlignmentFile(out_file + '.unsorted.bam', "wb", template=samfile)  as out: # @UndefinedVariable
+        for f in bam_files:
+            samfile = None
+            try:
+                samfile = pysam.AlignmentFile(f, "rb")  # @UndefinedVariable
+                for read in samfile.fetch(until_eof=True):
+                    out.write(read)
+            except Exception as e:
+                print("error opening bam %s: %s" % (f, e))
+            finally:
+                if samfile:
+                    samfile.close()
+    if sort_output:
+        try:
+            pysam.sort("-o", out_file, out_file + '.unsorted.bam')  # @UndefinedVariable
+            os.remove(out_file + '.unsorted.bam')
+            if del_in_files:
+                for f in bam_files + [b + '.bai' for b in bam_files]:
+                    if os.path.exists(f):
+                        os.remove(f)
+        except Exception as e:
+            print("error sorting this bam: %s" % e)
+    else:
+        os.rename(out_file + '.unsorted.bam', out_file)
+        if del_in_files:
+            for f in bam_files + [b + '.bai' for b in bam_files]:
+                os.remove(f)
+    # index
+    try:
+        pysam.index(out_file)  # @UndefinedVariable
+    except Exception as e:
+        print("error indexing bam: %s" % e)
+    return out_file
 
 def move_id_to_info_field(vcf_in, info_field_name, vcf_out, desc=None):
     """
@@ -1096,6 +1174,10 @@ def calc_3end(tx, width=200):
     return ret if width == 0 else None
 
 
+# --------------------------------------------------------------
+# genomics helpers :: VCF specific
+# --------------------------------------------------------------
+
 def gt2zyg(gt) -> (int, int):
     """
     Extracts zygosity information from a genotype string.
@@ -1141,3 +1223,157 @@ class TagFilter:
             return value_exists != self.inverse
         else:
             return self.filter_if_no_tag
+
+
+# --------------------------------------------------------------
+# ARCHS4 helpers
+# download data from https://maayanlab.cloud/archs4/download.html
+# e.g., https://s3.dev.maayanlab.cloud/archs4/files/human_gene_v2.2.h5
+# data
+# │ expression            uint32 | (67186, 722425)
+# meta
+# │ genes
+# │   biotype               str    | (67186,)
+# │   ensembl_gene_id       str    | (67186,)
+# │   symbol                str    | (67186,)
+# │ info
+# │   author                str    | ()
+# │   contact               str    | ()
+# │   creation-date         str    | ()
+# │   laboratory            str    | ()
+# │   version               str    | ()
+# │ samples
+# │   channel_count         str    | (722425,)
+# │   characteristics_ch1   str    | (722425,)
+# │   contact_address       str    | (722425,)
+# │   contact_city          str    | (722425,)
+# │   contact_country       str    | (722425,)
+# │   contact_institute     str    | (722425,)
+# │   contact_name          str    | (722425,)
+# │   contact_zip           str    | (722425,)
+# │   data_processing       str    | (722425,)
+# │   extract_protocol_ch1  str    | (722425,)
+# │   geo_accession         str    | (722425,)
+# │   instrument_model      str    | (722425,)
+# │   last_update_date      str    | (722425,)
+# │   library_selection     str    | (722425,)
+# │   library_source        str    | (722425,)
+# │   library_strategy      str    | (722425,)
+# │   molecule_ch1          str    | (722425,)
+# │   organism_ch1          str    | (722425,)
+# │   platform_id           str    | (722425,)
+# │   readsaligned          uint32 | (722425,)
+# │   relation              str    | (722425,)
+# │   sample                str    | (722425,)
+# │   series_id             str    | (722425,)
+# │   singlecellprobability  float64 | (722425,)
+# │   source_name_ch1       str    | (722425,)
+# │   status                str    | (722425,)
+# │   submission_date       str    | (722425,)
+# │   taxid_ch1             str    | (722425,)
+# │   title                 str    | (722425,)
+# │   type                  str    | (722425,)
+# --------------------------------------------------------------
+def get_sample_meta_keys(file='data/human_gene_v2.2.h5'):
+    with h5py.File(file, 'r') as f:
+        return list(f['meta/samples'].keys())
+
+
+def get_archs4_sample_dict(file='data/human_gene_v2.2.h5', remove_sc=True):
+    """ Returns a dict of GSM ids and sample indices.
+        If remove_sc is True (default), then single cell samples are removed.
+        Example
+        -------
+        >>> nosc_samples = get_archs4_sample_dict()
+        >>> ten_random_ids = random.sample(list(nosc_samples), 10)
+    """
+    with h5py.File(file, "r") as f:
+        gsm_ids = [x.decode("UTF-8") for x in np.array(f["meta/samples/geo_accession"])]
+        if remove_sc:
+            singleprob = np.array(f["meta/samples/singlecellprobability"])
+            idx = sorted(list(np.where(singleprob < 0.5)[0]))
+        else:
+            idx = sorted(range(len(gsm_ids)))
+    return {gsm_ids[i]: i for i in idx}
+
+
+def get_sample_metadata(samples, sample_dict=None, keys=None, file='data/human_gene_v2.2.h5',
+                        disable_progressbar=False):
+    if sample_dict is None:
+        sample_dict = get_archs4_sample_dict(file)  # all samples (non sc)
+    if keys is None:
+        keys = get_sample_meta_keys(file)  # all keys
+    sample_idx = sorted([sample_dict[s] for s in samples])
+    with h5py.File(file, "r") as f:
+        res = []
+        for k in (pbar := tqdm(keys, disable=disable_progressbar)):
+            pbar.set_description(f"Accessing column {k}")
+            if k in ['submission_date', 'last_update_date']:  # date conversion. filter with df[df[
+                # 'last_update_date']>'2022']
+                from datetime import datetime
+                res.append(np.array([datetime.strptime(d.decode("utf-8"), "%b %d %Y") for d in f["meta/samples/%s" % k][
+                    sample_idx]]))
+            else:
+                res.append(np.array(f["meta/samples/%s" % k][sample_idx]))
+    res = pd.DataFrame(res, index=keys, columns=samples).T
+    return res
+
+
+# --------------------------------------------------------------
+# div
+# --------------------------------------------------------------
+
+def get_archs4_counts(sample_idx, gene_symbols=None, disable_progressbar=False, file='data/human_gene_v2.2.h5'):
+    """
+    Retrieve gene expression data from a specified file for the given sample and gene indices.
+
+    Args:
+        file (str): The file path or object containing the data.
+        sample_idx (list): A list of sample indices to retrieve expression data for.
+        gene_idx (list, optional): A list of gene indices to retrieve expression data for. Defaults to an empty list (return all).
+        silent (bool, optional): Whether to disable progress bar. Defaults to False.
+
+    Returns:
+        pd.DataFrame: A pandas DataFrame containing the gene expression data.
+
+    """
+    sample_idx = sorted(sample_idx)  # sample ids
+    row_encoding = "meta/genes/symbol"  # a4.data.get_encoding(file) # h5 path to expression data
+    res = []
+    with h5py.File(file, "r") as f:
+        # get gene indices
+        genes = np.array([x.decode("UTF-8") for x in np.array(f[row_encoding])])
+        if gene_symbols is None:  # all genes
+            gene_idx = list(range(len(genes)))
+        else:
+            gene_idx = [i for i, g in enumerate(genes) if g in gene_symbols]
+        # get sample ids
+        gsm_ids = np.array([x.decode("UTF-8") for x in np.array(f["meta/samples/geo_accession"])])[sample_idx]
+        for idx in (pbar := tqdm(sample_idx, disable=disable_progressbar)):
+            pbar.set_description(f"Accessing sample {idx}")
+            res.append(np.array(f["data/expression"][:, idx], dtype=np.uint32)[gene_idx])
+    res = np.array(res)
+    res = pd.DataFrame(res, index=gsm_ids, columns=genes[gene_idx], dtype=np.uint32)
+    return res
+
+
+def random_sample(conf_str, rng=np.random.default_rng(seed=None)):
+    """
+        Draws random samples from a distribution that is configured by the passed (configuration) string.
+        If the conf_str is numeric (i.e., a constant value), it is cast to a float and returned.
+        Supported distributions are all numpy.random functions (e.g., normal, uniform, etc.).
+        Examples
+        --------
+        >>> random_sample(12), random_sample(12.0), random_sample('12') # constant value
+        >>> random_sample('uniform(1,2,100)') # 100 random numbers, uniformly sampled from [1; 2]
+        >>> random_sample('normal(3, 0.8, size=(2, 4))') # 2 x 4 random numbers from a normal distribution around 3 with sd 0.8
+        >>> for x in random_sample('normal(3000,10,size=(5,1000))'):
+        >>>     plt.hist(x, 30, density=True, histtype=u'step') # plot 5 histograms
+    """
+    if isinstance(conf_str, numbers.Number) or conf_str.isnumeric():
+        return float(conf_str)
+    tok = conf_str.split("(", 1)
+    supported_dist = [x for x in dir(rng) if not x.startswith("_")]
+    if len(tok) != 2 or tok[0] not in supported_dist:
+        raise NotImplementedError(f"Unsupported distribution config: {conf_str}")
+    return eval(f'rng.{conf_str}')
