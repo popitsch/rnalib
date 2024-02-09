@@ -5,7 +5,9 @@ import gzip
 import json
 import os
 import tempfile
+from collections import defaultdict
 
+import dill
 import numpy as np
 import pysam
 import pytest
@@ -63,18 +65,18 @@ def test_parse_gff_attributes():
 
 def test_get_reference_dict():
     """Test reference dict implementation and aliasing"""
-    assert rna.ReferenceDict.load(rna.get_resource('ensembl_gff'), fun_alias=rna.toggle_chr).keys() == {'chr3', 'chr7'}
-    assert rna.ReferenceDict.load(rna.get_resource('ensembl_gff')).orig.keys() == \
-           rna.ReferenceDict.load(rna.get_resource('ensembl_gff'), fun_alias=rna.toggle_chr).orig.keys()
-    assert rna.ReferenceDict.load(rna.get_resource('ensembl_gff'), fun_alias=rna.toggle_chr).alias('1') == 'chr1'
-    # compare 2 refsets, one w/o chr prefix (ensembl) and one with (fasta file)
-    assert rna.ReferenceDict.merge_and_validate(
-        rna.ReferenceDict.load(rna.get_resource('ensembl_gff'), fun_alias=rna.toggle_chr),
-        rna.ReferenceDict.load(rna.get_resource('ACTB+SOX2_genome'))
+    assert rna.RefDict.load(rna.get_resource('ensembl_gff'), fun_alias=rna.toggle_chr).keys() == {'chr3', 'chr7'}
+    assert rna.RefDict.load(rna.get_resource('ensembl_gff')).orig.keys() == \
+           rna.RefDict.load(rna.get_resource('ensembl_gff'), fun_alias=rna.toggle_chr).orig.keys()
+    assert rna.RefDict.load(rna.get_resource('ensembl_gff'), fun_alias=rna.toggle_chr).alias('1') == 'chr1'
+    # compare 2 refdicts, one w/o chr prefix (ensembl) and one with (fasta file)
+    assert rna.RefDict.merge_and_validate(
+        rna.RefDict.load(rna.get_resource('ensembl_gff'), fun_alias=rna.toggle_chr),
+        rna.RefDict.load(rna.get_resource('ACTB+SOX2_genome'))
     ).keys() == {'chr3', 'chr7'}
-    assert rna.ReferenceDict.merge_and_validate(
-        rna.ReferenceDict.load(rna.get_resource('ensembl_gff')),
-        rna.ReferenceDict.load(rna.get_resource('ACTB+SOX2_genome'), fun_alias=rna.toggle_chr)
+    assert rna.RefDict.merge_and_validate(
+        rna.RefDict.load(rna.get_resource('ensembl_gff')),
+        rna.RefDict.load(rna.get_resource('ACTB+SOX2_genome'), fun_alias=rna.toggle_chr)
     ).keys() == {'3', '7'}
 
 
@@ -163,9 +165,9 @@ def test_bgzip_and_tabix():
         rna.print_dir_tree(tmp)
         # compare with original file using two blockLocationIterators
         orig_blocks = {loc for loc, _ in rna.GroupedLocationIterator(rna.GFF3Iterator(rna.get_resource('gencode_gff')),
-                                                                     strategy=rna.BlockStrategy.LEFT)}
+                                                                     strategy='start')}
         sort_blocks = {loc for loc, _ in rna.GroupedLocationIterator(rna.GFF3Iterator(tmp + '/test.gff3.gz'),
-                                                                     strategy=rna.BlockStrategy.LEFT)}
+                                                                     strategy='start')}
         assert orig_blocks == sort_blocks
 
 
@@ -182,26 +184,43 @@ def test_slugify():
     assert rna.slugify("this/is/an invalid filename!.txt"), "thisisan_invalid_filenametxt"
 
 
-def test_reference_dict():
-    r1 = rna.ReferenceDict({'chr1': 1, 'chr2': 2, 'chrM': 23, 'chrX': 24}, "A", None)
-    r2 = rna.ReferenceDict({'chr1': 1, 'chrX': 24}, "B", None)
-    r3 = rna.ReferenceDict({'chr1': 1, 'chrX': 24, 'chrM': 23}, "C", None)  # different order
-    r4 = rna.ReferenceDict({'chr1': 1, 'chrX': 25}, "D", None)  # different length
-    assert rna.ReferenceDict.merge_and_validate() is None
-    assert rna.ReferenceDict.merge_and_validate(r1) == r1
-    assert rna.ReferenceDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
+def test_refdict():
+    r1 = rna.RefDict({'chr1': 1, 'chr2': 2, 'chrM': 23, 'chrX': 24}, "A", None)
+    r2 = rna.RefDict({'chr1': 1, 'chrX': 24}, "B", None)
+    r3 = rna.RefDict({'chr1': 1, 'chrX': 24, 'chrM': 23}, "C", None)  # different order
+    r4 = rna.RefDict({'chr1': 1, 'chrX': 25}, "D", None)  # different length
+    assert rna.RefDict.merge_and_validate() is None
+    assert rna.RefDict.merge_and_validate(r1) == r1
+    assert rna.RefDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
     with pytest.raises(AssertionError) as e_info:
-        rna.ReferenceDict.merge_and_validate(r1, r3, check_order=True)
+        rna.RefDict.merge_and_validate(r1, r3, check_order=True)
     print(f'Expected assertion: {e_info}')
-    assert rna.ReferenceDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
+    assert rna.RefDict.merge_and_validate(r1, r2) == {'chr1': 1, 'chrX': 24}
     with pytest.raises(AssertionError) as e_info:
-        rna.ReferenceDict.merge_and_validate(r1, r4)
+        rna.RefDict.merge_and_validate(r1, r4)
     print(f'Expected assertion: {e_info}')
-    rna.ReferenceDict.merge_and_validate(r1, None, r2)
+    rna.RefDict.merge_and_validate(r1, None, r2)
     # test iter_blocks()
-    r5 = rna.ReferenceDict({'chr1': 10, 'chr2': 20, 'chrM': 23, 'chrX': 12}, "test_refdict", None)
+    r5 = rna.RefDict({'chr1': 10, 'chr2': 20, 'chrM': 23, 'chrX': 12}, "test_refdict", None)
     assert list(r5.iter_blocks(10)) == from_str(
         "chr1:1-10, chr2:1-10,  chr2:11-20, chrM:1-10,  chrM:11-20, chrM:21-23, chrX:1-10,  chrX:11-12")
+def test_annodict():
+    # test key type checking
+    d = rna.FixedKeyTypeDefaultdict(defaultdict, allowed_key_type=int)
+    d[1] = 1
+    with pytest.raises(TypeError) as e_info:
+        d['x'] = 2
+    print('expected exception:', e_info.value)
+    d.allowed_key_type = str
+    d['x'] = 2
+    # test pickling
+    d = rna.FixedKeyTypeDefaultdict(defaultdict, allowed_key_type=rna.Feature)
+    reg = rna.Feature(chromosome='1', start=10, end=20, strand=None, transcriptome=None, feature_type='reg')
+    d[reg]['x'] = 1
+    d2 = dill.loads(dill.dumps(d))
+    assert d == d2
+    assert d.allowed_key_type == d2.allowed_key_type
+    assert d[reg]['x'] == d2[reg]['x']
 
 
 def test_calc_3end():

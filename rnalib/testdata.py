@@ -31,8 +31,6 @@
     * htslib (bgzip, tabix)
 
 """
-import argparse
-import json
 import os
 import shutil
 import subprocess
@@ -45,8 +43,8 @@ import pandas as pd
 import pybedtools
 from tqdm.auto import tqdm
 
-import rnalib
-from rnalib import guess_file_format, print_dir_tree, download_file
+import rnalib as rna
+
 """
     Predefined test resources.
 """
@@ -286,7 +284,7 @@ def get_resource(k, data_dir: Path=None, conf=None, create_resource=False):
 
     """
     if data_dir is None:
-        data_dir = rnalib.__RNALIB_TESTDATA__
+        data_dir = rna.__RNALIB_TESTDATA__
     if conf is None:
         conf = test_resources
         conf.update(large_test_resources)
@@ -317,7 +315,7 @@ def download_bgzip_slice(config, resource_name, outdir, view_tempdir=False, show
     res = config[resource_name]
     outfile = f"{outdir}/{res['filename']}"
     outfiledir, outfilename = os.path.dirname(outfile), os.path.basename(outfile)
-    ff = res.get("format", guess_file_format(outfile))
+    ff = res.get("format", rna.guess_file_format(outfile))
     # check expected resources
     outfiles = [outfile]  # list of created files (e.g., bam + bai)
     if ff in ['gff', 'gtf', 'bed', 'vcf']:
@@ -344,7 +342,7 @@ def download_bgzip_slice(config, resource_name, outdir, view_tempdir=False, show
     with tempfile.TemporaryDirectory() as tempdirname:
         try:
             print(f"Downloading {res['uri']} to {tempdirname}/{outfilename}")
-            f = download_file(res['uri'], f"{tempdirname}/{outfilename}", show_progress=show_progress)
+            f = rna.download_file(res['uri'], f"{tempdirname}/{outfilename}", show_progress=show_progress)
             assert os.path.isfile(f), "Could not download file..."
             if ff in ['gff', 'gtf', 'bed', 'vcf']:  # use bgzip and index with tabix, sort, slice
                 tmpfile = f"{tempdirname}/sorted.{ff}.gz"
@@ -425,7 +423,7 @@ def create_testdata(outdir, resources=None, show_data_dir=False):
             nerr += 1
     if show_data_dir:
         print(f"============= resulting test data dir: =========")
-        print_dir_tree(outdir)
+        rna.print_dir_tree(outdir)
     print(f"========= All done with {nerr} errors  ==========")
 
 

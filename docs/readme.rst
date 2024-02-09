@@ -14,8 +14,8 @@ rnalib is designed with the following principles in mind:
 * Genomic data is represented by an (immutable) location object and arbitrary associated (mutable) annotation data.
 * Immutable representations of genomic intervals (gi) and features (e.g., genes, transcripts, exons, etc.) can be
   used in indexing and hashing.
-* Underlying reference genomes are represented by a `ReferenceDict` object that store chromosome names, their order and
-  (possibly) length. ReferenceDicts are used to validate and merge genomic datasets from different sources.
+* Underlying reference genomes are represented by a `RefDict` object that store chromosome names, their order and
+  (possibly) length. RefDicts are used to validate and merge genomic datasets from different sources.
 * Annotation data can be incrementally added by direct assignment or by using genomic iterators that yield genomic
   data (location/data tuples).
 * Genomic iterators are based on the `pysam <https://pysam.readthedocs.io/en/latest/api.html>`__ library and leverage

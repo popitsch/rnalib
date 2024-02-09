@@ -6,6 +6,7 @@ import tempfile
 from collections import Counter
 from itertools import pairwise
 
+import IPython.terminal.shortcuts.filters
 import pytest
 import os
 import copy
@@ -132,10 +133,9 @@ def test_itree(default_testdata):
 
 def test_clear_annotations(default_testdata):
     t = Transcriptome(**default_testdata)
-
     # there should be no annotation keys
     assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])} == {0}
-    # load seqeunces, now each gene should have 1 annotation key 'dna_seq'
+    # load sequwnces, now each gene should have 1 annotation key 'dna_seq'
     t.load_sequences()
     assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])} == {1}
 
@@ -144,7 +144,7 @@ def test_clear_annotations(default_testdata):
         loc, (anno, overlapping) = item
         anno['len'] = len(loc)
 
-    t.annotate(iterators=TranscriptomeIterator(t, feature_types=['gene']), fun_anno=anno_len, feature_types=['gene'])
+    t.annotate(anno_its=TranscriptomeIterator(t, feature_types=['gene']), fun_anno=anno_len, feature_types=['gene'])
     assert {len(info) for feature, info in TranscriptomeIterator(t, feature_types=['gene'])} == {2}
     # now we clear all annotations but keep the dna_seq anno (default behaviour)
     t.clear_annotations()
@@ -222,6 +222,24 @@ def test_to_gff3(default_testdata):
         t2 = Transcriptome(**config2)
         assert len(t1) == len(t2)
         assert Counter([f.feature_type for f in t1.anno]) == Counter([f.feature_type for f in t2.anno])
+    # test with custom annotations
+    with tempfile.TemporaryDirectory() as tmp:
+        gff3file = os.path.join(tmp, 'transcriptome.gff3')
+        config = default_testdata
+        t1 = Transcriptome(**config)
+        reg = t1.add(gi('chr3:5000-6000'), feature_id='my_reg_region',
+                    feature_type='regulatory_region')  # create a 'regulatory_region' feature and add to the transcriptome
+
+        t1.anno[reg]['test'] = (4, 5, 6)  # add a 'test' annotation
+        t1.to_gff3(gff3file, bgzip=True, feature_types=('regulatory_region'))
+        #rnalib.print_small_file(gff3file + '.gz')
+        config2 = config.copy()
+        config2['annotation_gff'] = gff3file + '.gz'
+        t2 = Transcriptome(**config2)
+        reg1,_ = zip(*t1.iterator(feature_types='regulatory_region'))
+        reg2, _ = zip(*t1.iterator(feature_types='regulatory_region'))
+        assert reg1 == reg2
+
 
 
 def test_to_bed(default_testdata):
@@ -462,7 +480,7 @@ def test_annotate():
     # annotate exons and introns with mappability scores
     # this is just an example, it would be more efficient to annotate genes with
     # mappability score arrays and calculate for each exon from there (as for sequences)
-    t.annotate(iterators=BedGraphIterator(get_resource('human_umap_k24')),
+    t.annotate(anno_its=BedGraphIterator(get_resource('human_umap_k24')),
                fun_anno=calc_mean_score('mappability'),
                feature_types=['exon', 'intron'])
     # for feature, anno in TranscriptomeIterator(t, feature_types=['exon', 'intron']):
@@ -494,7 +512,7 @@ def test_annotate_read_counts():
             [r for l1, r in reads if l1.strand == loc.strand and r.has_tag('xc') and r.get_tag('xc') > 0])
 
     # coungt the reads
-    t.annotate(iterators=ReadIterator(get_resource('small_ACTB+SOX2_bam')),
+    t.annotate(anno_its=ReadIterator(get_resource('small_ACTB+SOX2_bam')),
                fun_anno=count_reads)
     # no reads in SOX2
     assert t.gene['SOX2'].rc['reads'] == 0

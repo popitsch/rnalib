@@ -1,5 +1,5 @@
 """
-Tests for iterators
+Tests for anno_its
 """
 import io
 import itertools
@@ -195,27 +195,28 @@ def test_PandasIterator(testdata):
 def test_GroupedLocationIterator(testdata):
     with rna.GroupedLocationIterator(
             rna.TabixIterator(get_resource('test_bed'), coord_inc=[1, 0], fun_alias=toggle_chr),
-            strategy=rna.BlockStrategy.OVERLAP) as it:
+            strategy='overlap') as it:
         locs = [loc for loc, _ in it]
         assert locs == loc_list('chr1:6-15,chr2:10-150')
     d, df = testdata
     with rna.PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'],
                             coord_off=(0, 0)) as it:
-        assert [loc for loc, _ in rna.GroupedLocationIterator(it, strategy=rna.BlockStrategy.OVERLAP)] == loc_list(
+        assert [loc for loc, _ in rna.GroupedLocationIterator(it, strategy='overlap')] == loc_list(
             '1:1-20,1:30-40 ,2:1-50')
-        assert rna.GroupedLocationIterator(it, strategy=rna.BlockStrategy.LEFT).to_list()[-1][1][1] == ['e', 'g',
-                                                                                                     'h']  # same start coord
-        assert rna.GroupedLocationIterator(it, strategy=rna.BlockStrategy.RIGHT).to_list()[-2][1][1] == \
+        # same start coord
+        assert rna.GroupedLocationIterator(it, strategy='start').to_list()[-1][1][1] == ['e', 'g', 'h']
+        # same end coord
+        assert rna.GroupedLocationIterator(it, strategy='end').to_list()[-2][1][1] == \
                ['e', 'g']  # same end coord
     # with chr toggle
     with rna.PandasIterator(df, 'Name', coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0),
                             fun_alias=toggle_chr) as it:
-        assert rna.GroupedLocationIterator(it, strategy=rna.BlockStrategy.RIGHT).to_list()[-2][1][1] == \
+        assert rna.GroupedLocationIterator(it, strategy='end').to_list()[-2][1][1] == \
                ['e', 'g']  # with aliasing
     right_sorted = rna.GroupedLocationIterator(rna.PandasIterator(
         df.sort_values(['Chromosome', 'End']), 'Name', is_sorted=True,
         coord_columns=['Chromosome', 'Start', 'End', 'Strand'], coord_off=(0, 0)),
-        strategy=rna.BlockStrategy.RIGHT)
+        strategy='end')
     assert [x[1] for _, x in right_sorted.to_list()[-2:]] == [['e', 'g'], ['feature', 'h']]
 
 
@@ -247,7 +248,7 @@ def test_AnnotationIterator(testdata):
            [('A', ['D1', 'D2']),
             ('B', ['D1', 'D2'])]
 
-    # multiple iterators and labels
+    # multiple anno_its and labels
     with rna.AnnotationIterator(rna.MemoryIterator(a), [rna.MemoryIterator(b), rna.MemoryIterator(b)],
                                 ['A', 'B']) as it:
         assert ([[i.data.anno, [x.data for x in i.data.A], [x.data for x in i.data.B]] for i in it.to_list()]) == \
@@ -430,7 +431,7 @@ def test_SyncPerPositionIterator(testdata):
                 if SortedSet(a[1]) != SortedSet(b[1]):
                     found_differences.add(seed)
     assert len(found_differences) == 0
-    # use more intervals, iterators, chromosomes; heavy overlaps
+    # use more intervals, anno_its, chromosomes; heavy overlaps
     found_differences = set()
     for seed in range(0, 10):
         print(f"======================================={seed}============================")
@@ -454,7 +455,7 @@ def test_PyrangesIterator():
     # get exons with same start but different end coords
     res = []
     for mloc, (locs, ex) in rna.GroupedLocationIterator(rna.PandasIterator(exons.df, 'Name'),
-                                                        strategy=rna.BlockStrategy.LEFT):
+                                                        strategy='start'):
         endpos = {loc.end for loc in locs}
         if len(endpos) > 1:
             res += [(mloc, (locs, ex))]
@@ -489,7 +490,7 @@ def test_ReadIterator():
         assert it.stats['yielded_items', 'SIRVomeERCCome'] == 1
     stats = {x: Counter() for x in ['all', 'def', 'mq20', 'tag']}
     with rna.open_file_obj(get_resource('small_example_bam')) as bam:
-        for chrom in rna.ReferenceDict.load(bam):
+        for chrom in rna.RefDict.load(bam):
             with rna.ReadIterator(bam, chrom, flag_filter=0) as it:
                 it.to_list()
                 stats['all'].update(it.stats)
@@ -567,12 +568,27 @@ def test_FastPileupIterator():
         # assert that also uncovered positions are reported
         assert [(loc.start, c) for loc, c in rna.FastPileupIterator(bam, '1', range(22379012, 22379015))] == [
             (22379012, Counter()), (22379013, Counter()), (22379014, Counter({'C': 1}))]
-        # assert equal to slow pysam pileup. This region contains uncovered areas, insertions and deletions: chr1:22,408,208-22,408,300
+        # assert equal to slow pysam pileup. This region contains uncovered areas, insertions and
+        # deletions: chr1:22,408,208-22,408,300
         assert rna.FastPileupIterator(bam, '1', range(22408208, 22408300)).to_list() == slow_pileup(bam, '1', 22408208,
                                                                                                     22408300)
         # test aliasing
         assert [(loc.start, c) for loc, c in rna.FastPileupIterator(bam, 'chr1', {22418244}, fun_alias=toggle_chr)] == [
             (22418244, Counter({'T': 136, None: 1}))]
+
+
+def test_FastPileupIterator_repeated():
+    """ test whether the iterator can be used multiple times.
+        Also tests the API
+    """
+    with rna.open_file_obj(get_resource('small_example_bam')) as bam:
+        for x in range(2):
+            assert [(loc.start, c) for loc, c in rna.FastPileupIterator(bam, '1', {22418244})] == [
+                (22418244, Counter({'T': 136, None: 1}))]
+        for x in range(2):
+            print("with reg", x)
+            assert [(loc.start, c) for loc, c in rna.FastPileupIterator(bam, region=gi('1:22418244-22418244'))] == [
+                (22418244, Counter({'T': 136, None: 1}))]   # 136 Ts and 1 deletion
 
 
 def test_FastqIterator():
@@ -689,7 +705,7 @@ def test_pybedtools_it_anno(testdata):
 
 def test_BioframeIterator(testdata):
     bedgraph_file = get_resource('dmel_randomvalues')
-    refdict = rna.ReferenceDict.load(bedgraph_file)
+    refdict = rna.RefDict.load(bedgraph_file)
     for roi in [None, gi('2L', start=1), gi(), gi('2L', 10000, 20000)]:  # test with different filter regions
         mean_pgl = {}
         for chrom in refdict:

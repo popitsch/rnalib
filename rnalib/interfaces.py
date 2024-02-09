@@ -2,6 +2,7 @@
     Interfaces to other libraries:
     - Archs4Dataset: a class to access Archs4 datasets (https://maayanlab.cloud/archs4).
 """
+import logging
 import random
 
 import h5py
@@ -11,7 +12,7 @@ import s3fs
 from tqdm.auto import tqdm
 from datetime import datetime
 
-from rnalib import split_list
+import rnalib as rna
 
 
 # pd.set_option('display.width', 400)
@@ -40,6 +41,7 @@ class Archs4Dataset:
     >>>     df_sample = df.query("instrument_model.str.contains('HiSeq')").sample(10).index # 10 random HiSat samples
     >>>     df_cnt = a4.get_counts(samples = df_sample) # get counts for 10 random samples
     """
+
     def __init__(self, location):
         self.location = location
         if location.startswith('https://'):
@@ -55,11 +57,12 @@ class Archs4Dataset:
         self.all_samples = self.get_sample_dict(remove_sc=False)
         self.nosc_samples = self.get_sample_dict(remove_sc=True)
         self.genes = [x.decode("UTF-8") for x in np.array(self.file["meta/genes/symbol"])]
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        print(f"Closing Archs4Dataset at {self.location}.")
+        logging.info(f"Closing Archs4Dataset at {self.location}.")
         self.file.close()
 
     def __repr__(self):
@@ -68,9 +71,6 @@ class Archs4Dataset:
 
     def describe(self):
         """ Gets metadata for 1k random samples and prints the number of unique values for each metadata field.
-            Example
-            -------
-            >>> describe_archs4_metadata(f)
         """
         print(self)
         rand_samples = random.sample(list(self.nosc_samples), 1000)
@@ -83,19 +83,12 @@ class Archs4Dataset:
 
     def get_meta_keys(self):
         """ Returns a list of all archs4 sample metadata keys.
-            Example
-            -------
-            >>> get_archs4_sample_meta_keys(file = ...)
         """
         return list(self.file['meta/samples'].keys())
 
     def get_sample_dict(self, remove_sc=True):
         """ Returns a dict of GSM ids and sample indices.
             If remove_sc is True (default), then single cell samples are removed.
-            Example
-            -------
-            >>> nosc_samples = get_archs4_sample_dict(file = ...)
-            >>> ten_random_ids = random.sample(list(nosc_samples), 10)
         """
         gsm_ids = [x.decode("UTF-8") for x in np.array(self.file["meta/samples/geo_accession"])]
         if remove_sc and "singlecellprobability" in self.meta_keys:
@@ -125,19 +118,8 @@ class Archs4Dataset:
             A list of sample ids to retrieve metadata for (if None, all samples will be considered).
         cols: list
             A list of metadata fields to retrieve. If None, all fields will be retrieved.
-        file: str
-            The file path or object containing the data.
         disable_progressbar: bool
             Whether to disable the progress bar.
-
-        Examples
-        --------
-        >>> df_rand = get_archs4_sample_metadata(samples = random.sample(list(get_archs4_sample_dict()), 10), file=...) # 10 random samples
-        >>> df_exp = get_archs4_sample_metadata(filter_string = "readsaligned>5000000", file=...) # pandas filtering
-        >>> df_exp_new = get_archs4_sample_metadata(filter_string = "submission_date>='2023' & readsaligned>5000000", file=...) # date filtering
-        >>> df_exp_new.groupby('series_id').size().reset_index(name='counts') # group samples per series
-        >>> df_exp_new.query("series_id==b'GSE124076,GSE222593'") # query from one series (byte strings!)
-
         """
         assert not (filter is None and samples is None), "Either filter or sample_dict must be specified."
         sample_dict = self.nosc_samples  # all samples (non sc)
@@ -145,16 +127,16 @@ class Archs4Dataset:
             sample_dict = {k: v for k, v in sample_dict.items() if k in samples}
         if cols is None:
             cols = self.meta_keys  # all cols
-        cols = cols and self.meta_keys # get rid of invalid column names
+        cols = cols and self.meta_keys  # get rid of invalid column names
         dts = []
-        batches = split_list(sample_dict.keys(), n=1000, is_chunksize=True)
+        batches = rna.split_list(sample_dict.keys(), n=1000, is_chunksize=True)
         iterated, found = 0, 0
         for batch in (pbar := tqdm(batches, disable=disable_progressbar)):
             sample_idx = sorted([sample_dict[s] for s in batch])
             res = {}
             for k in cols:
                 if k in ['last_update_date', 'submission_date']:  # date conversion
-                    res[k] = np.array([datetime.strptime(d.decode("utf-8"), "%b %d %Y") \
+                    res[k] = np.array([datetime.strptime(d.decode("utf-8"), "%b %d %Y")
                                        for d in self.file[f"meta/samples/{k}"][sample_idx]])
                 else:  # autodetect dtype
                     res[k] = np.array(self.file[f"meta/samples/{k}"][sample_idx])
@@ -178,8 +160,6 @@ class Archs4Dataset:
 
         Parameters
         ----------
-        file: str
-            The file path or object containing the data.
         samples: list
             A list of sample ids to retrieve gene expression data for.
         gene_symbols: list
@@ -187,15 +167,13 @@ class Archs4Dataset:
         disable_progressbar: bool
             Whether to disable the progress bar.
 
-        Examples
-        --------
-        >>> df = get_archs4_counts(samples = random.sample(list(get_archs4_sample_dict()), 10))
-
-        Returns:
-            pd.DataFrame: A pandas DataFrame containing the gene expression data.
+        Returns
+        -------
+        pd.DataFrame:
+            A pandas DataFrame containing the gene expression data.
 
         """
-        sample_dict = self.nosc_samples # all samples (non sc)
+        sample_dict = self.nosc_samples  # all samples (non sc)
         if samples is not None:
             sample_dict = {k: v for k, v in sample_dict.items() if k in samples}
         row_encoding = "meta/genes/symbol"  # a4.data.get_encoding(file) # h5 path to expression data

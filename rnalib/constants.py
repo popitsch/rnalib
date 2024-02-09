@@ -94,12 +94,4 @@ DEFAULT_FLAG_FILTER = BamFlag.BAM_FUNMAP | BamFlag.BAM_FSECONDARY | BamFlag.BAM_
 SEP = Markdown('---')
 
 
-class BlockStrategy(Enum):
-    """Block strategy for merging overlapping blocks"""
-    LEFT = 1  # same start coord
-    RIGHT = 2  # same end coord
-    BOTH = 3  # same start and end
-    OVERLAP = 4  # overlapping
-
-
 

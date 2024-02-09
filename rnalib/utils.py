@@ -3,6 +3,7 @@ This module implements various general (low-level) utility methods
 
 """
 import gzip
+import logging
 import numbers
 import os
 import random
@@ -13,6 +14,7 @@ import sys
 import timeit
 import unicodedata
 import urllib.request
+import warnings
 from collections import Counter, namedtuple, defaultdict
 from dataclasses import dataclass, field
 from functools import reduce
@@ -31,7 +33,7 @@ import h5py
 from matplotlib import pyplot as plt
 from tqdm.auto import tqdm
 
-import rnalib
+import rnalib as rna
 
 
 # --------------------------------------------------------------
@@ -65,7 +67,7 @@ def ensure_outdir(outdir=None) -> os.PathLike:
     if not outdir.endswith("/"):
         outdir += "/"
     if not os.path.exists(outdir):
-        print("Creating dir " + outdir)
+        logging.debug("Creating dir " + outdir)
         os.makedirs(outdir)
     return outdir
 
@@ -73,6 +75,7 @@ def ensure_outdir(outdir=None) -> os.PathLike:
 # --------------------------------------------------------------
 # Collection helpers
 # --------------------------------------------------------------
+
 
 def check_list(lst, mode='inc1') -> bool:
     """
@@ -161,7 +164,7 @@ def intersect_lists(*lists, check_order=False) -> list:
         if check_order:
             assert [x for x in lst if x in isec] == isec, f"Input list have differing order of shared elements {isec}"
         elif [x for x in lst if x in isec] != isec:
-            print(f"WARN: Input list have differing order of shared elements {isec}")
+            warnings.warn(f"Input list have differing order of shared elements {isec}")
     return isec
 
 
@@ -658,6 +661,18 @@ def print_fast5_tree(fast5_file, max_lines=10, n_reads=1, show_attrs=True):
                 return
 
 
+def print_small_file(filename, show_linenumber=False, max_lines=10):
+    """Prints the first 10 lines of a file"""
+    infile = gzip.open(filename, 'rt') if filename.endswith(".gz") else open(filename, mode='rt')
+    for i, line in enumerate(infile):
+        if show_linenumber:
+            print(f"line {i + 1}: {line}", end='')
+        else:
+            print(line, end='')
+        if i > max_lines:
+            break
+
+
 def get_bcgs(fast5_file):
     """
         Returns a list of basecall groups from the 1st read
@@ -671,9 +686,9 @@ def get_bcgs(fast5_file):
 # Utility functions for ipython notebooks
 # --------------------------------------------------------------
 
-def display_textarea(txt):
+def display_textarea(txt, rows=4, cols=120):
     """ Display a (long) text in a scrollable HTML text area """
-    display(HTML(f"<textarea rows='4' cols='120'>{txt}</textarea>"))
+    display(HTML(f"<textarea rows='{rows}' cols='{cols}'>{txt}</textarea>"))
 
 
 def display_list(lst):
@@ -689,11 +704,13 @@ def display_help(obj):
     display(HTML(f'<strong>{obj.__name__} docstring:</strong>'))
     display(HTML(f'<small>{obj.__doc__.replace('\n', '</br>')}</small>'))
 
+
 def display_popup(msg, clear=True):
     if clear:
         clear_output()
     display(HTML(f'<p style="color:red">{msg}</p>'))
     display(HTML(f"<script>alert('{msg}');</script>"))
+
 
 def head_counter(cnt, non_empty=True):
     """Displays n items from the passed counter. If non_empty is true then only items with len>0 are shown"""
@@ -784,7 +801,8 @@ default_file_extensions = {
     'sam': ('.sam',),
     'bam': ('.bam',),
     'tsv': ('.tsv', '.tsv.gz'),
-    'bed': ('.bed', '.bed.gz', '.bedgraph', '.bedgraph.gz'),
+    'bed': ('.bed', '.bed.gz'),
+    'bedgraph': ('.bedgraph', '.bedgraph.gz'),
     'vcf': ('.vcf', '.vcf.gz'),
     'bcf': ('.bcf',),
     'gff': ('.gff3', '.gff3.gz'),
@@ -865,6 +883,8 @@ def open_file_obj(fh, file_format=None, file_extensions=None) -> object:
     elif file_format == 'bam':
         fh = pysam.AlignmentFile(fh, "rb")  # @UndefinedVariable
     elif file_format == 'bed':
+        fh = pysam.TabixFile(fh, mode="r")  # @UndefinedVariable
+    elif file_format == 'bedgraph':
         fh = pysam.TabixFile(fh, mode="r")  # @UndefinedVariable
     elif file_format == 'gtf':
         fh = pysam.TabixFile(fh, mode="r")  # @UndefinedVariable
@@ -980,7 +1000,7 @@ def get_covered_contigs(bam_files):
     return covered_contigs
 
 
-def merge_bam_files(out_file, bam_files, sort_output=False, del_in_files=False):
+def merge_bam_files(out_file: str, bam_files: list, sort_output: bool = False, del_in_files: bool = False):
     """ merge multiple BAM files and sort + index results
         Parameters
         ----------
@@ -994,10 +1014,10 @@ def merge_bam_files(out_file, bam_files, sort_output=False, del_in_files=False):
             Whether to delete the input files after merging. Default is False.
     """
     if bam_files is None or len(bam_files) == 0:
-        print("no input BAM file provided")
+        logging.error("no input BAM file provided")
         return None
     samfile = pysam.AlignmentFile(bam_files[0], "rb")  # @UndefinedVariable
-    with pysam.AlignmentFile(out_file + '.unsorted.bam', "wb", template=samfile)  as out: # @UndefinedVariable
+    with pysam.AlignmentFile(out_file + '.unsorted.bam', "wb", template=samfile) as out:  # @UndefinedVariable
         for f in bam_files:
             samfile = None
             try:
@@ -1005,7 +1025,8 @@ def merge_bam_files(out_file, bam_files, sort_output=False, del_in_files=False):
                 for read in samfile.fetch(until_eof=True):
                     out.write(read)
             except Exception as e:
-                print("error opening bam %s: %s" % (f, e))
+                logging.error(f"error opening bam {f}: {e}")
+                raise e
             finally:
                 if samfile:
                     samfile.close()
@@ -1018,7 +1039,8 @@ def merge_bam_files(out_file, bam_files, sort_output=False, del_in_files=False):
                     if os.path.exists(f):
                         os.remove(f)
         except Exception as e:
-            print("error sorting this bam: %s" % e)
+            logging.error(f"error sorting bam {out_file}: {e}")
+            raise e
     else:
         os.rename(out_file + '.unsorted.bam', out_file)
         if del_in_files:
@@ -1028,8 +1050,9 @@ def merge_bam_files(out_file, bam_files, sort_output=False, del_in_files=False):
     try:
         pysam.index(out_file)  # @UndefinedVariable
     except Exception as e:
-        print("error indexing bam: %s" % e)
+        logging.error(f"error indexing bam {out_file}: {e}")
     return out_file
+
 
 def move_id_to_info_field(vcf_in, info_field_name, vcf_out, desc=None):
     """
@@ -1158,8 +1181,15 @@ def geneid2symbol(gene_ids):
 
 def calc_3end(tx, width=200):
     """
-        Utility function that returns a list of genomic intervals containing the last <width> bases
-        of the passed transcript or None if not possible
+        Utility function that returns a (sorted) list of genomic intervals containing the last <width> bases
+        of the passed transcript or None if not possible (e.g., if transcript is too short).
+
+        Parameters
+        ----------
+        tx : rna.Feature
+            The transcript to calculate the 3' end for.
+        width : int
+            The number of bases to return. Default is 200.
     """
     ret = []
     for ex in tx.exon[::-1]:
@@ -1168,10 +1198,10 @@ def calc_3end(tx, width=200):
             width -= len(ex)
         else:
             s, e = (ex.start, ex.start + width - 1) if (ex.strand == '-') else (ex.end - width + 1, ex.end)
-            ret.append(rnalib.gi(ex.chromosome, s, e, ex.strand))
+            ret.append(rna.gi(ex.chromosome, s, e, ex.strand))
             width = 0
             break
-    return ret if width == 0 else None
+    return sorted(ret) if width == 0 else None
 
 
 # --------------------------------------------------------------

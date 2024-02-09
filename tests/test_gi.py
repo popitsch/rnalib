@@ -4,6 +4,7 @@ Tests for GenomicInterval class
 
 from itertools import product, pairwise
 
+import HTSeq
 import pytest
 
 import rnalib as rna
@@ -216,7 +217,7 @@ def test_sort():
     locs = from_str("1:1-10(+),3:5-100,1:1-10 (-), chr2:1-10,1:30-40(+)") + [gi(None, 200, 300), gi('1', end=10),
                                                                              gi('chr2', 2, 1)]  # empty
     # sorted(locs) # no chrom order!
-    refdict = rna.ReferenceDict({'1': None, 'chr2': None, '3': None}, name='test')
+    refdict = rna.RefDict({'1': None, 'chr2': None, '3': None}, name='test')
     assert sorted(locs, key=lambda x: (refdict.index(x.chromosome), x)), [locs[x] for x in [4, 5, 0, 2, 6, 3, 1]]
 
 
@@ -247,3 +248,10 @@ def test_updownstream():
     assert [gi('chr1', 10, 20, '+').get_downstream(3)] == from_str("chr1:21-23(+)")
     assert [gi('chr1', 10, 20, '-').get_downstream(3)] == from_str("chr1:7-9(-)")
     assert [gi('chr1', 10, 20, '-').get_upstream(3)] == from_str("chr1:21-23(-)")
+
+def test_toXXX():
+    #HTSeq
+    iv = gi("chr1", 1, 10)
+    iv2 = HTSeq.GenomicInterval(iv.chromosome, iv.start - 1, iv.end, '.' if iv.strand is None else iv.strand)
+    assert iv.to_htseq() == iv2
+    assert len(iv) == iv2.length

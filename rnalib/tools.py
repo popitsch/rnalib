@@ -89,12 +89,12 @@ def tag_tc(bam_file, included_chrom=None, snp_vcf_file=None, out_prefix=None, fr
     profile = Counter()
     # reference dict containing canonical chrom in correct order
     if snp_vcf_file is None:
-        refdict = rna.ReferenceDict.merge_and_validate(
-            rna.ReferenceDict.load(bam_file),
+        refdict = rna.RefDict.merge_and_validate(
+            rna.RefDict.load(bam_file),
             included_chrom=included_chrom)
     else:
-        refdict = rna.ReferenceDict.merge_and_validate(
-            rna.ReferenceDict.load(bam_file), rna.ReferenceDict.load(snp_vcf_file),
+        refdict = rna.RefDict.merge_and_validate(
+            rna.RefDict.load(bam_file), rna.RefDict.load(snp_vcf_file),
             included_chrom=included_chrom)
     # print(f'Considered chromosomes: {refdict.keys()}')
     with rna.ReadIterator(bam_file,
@@ -226,7 +226,7 @@ def build_amplicon_resources(transcriptome_name, bed_file, fasta_file, out_dir, 
             a dictionary containing information about the created resources
     """
     print(f'extracting sequences for {transcriptome_name}')
-    refdict = rna.ReferenceDict.load(fasta_file)
+    refdict = rna.RefDict.load(fasta_file)
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     log = Counter()
