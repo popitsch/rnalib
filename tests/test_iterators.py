@@ -70,9 +70,9 @@ def loc_list(s):
 def test_MemoryIterator(testdata):
     d, df = testdata
     assert len(rna.MemoryIterator(d).to_list()) == len(d)
-    assert rna.MemoryIterator(d, '2', 10, 20).to_list() == [(gi('2:1-50'), 'feature')]
+    assert rna.MemoryIterator(d, '2:10-20').to_list() == [(gi('2:1-50'), 'feature')]
     # with aliasing
-    assert rna.MemoryIterator(d, 'chr2', 10, 20, fun_alias=toggle_chr).to_list() == [
+    assert rna.MemoryIterator(d, 'chr2:10-20', fun_alias=toggle_chr).to_list() == [
         (gi('chr2:1-50'), 'feature')]
 
 
@@ -93,38 +93,38 @@ def test_to_dataframe(testdata):
 
 
 def test_FastaIterator():
-    fasta_file = get_resource('ACTB+SOX2_genome')
+    fasta_file = get_resource('ACTB+SOX2_genome') # chr3, chr7
     # read seq via pysam
     with pysam.Fastafile(fasta_file) as fh:
         ref = {c: fh.fetch(c) for c in fh.references}
     # consume all
-    all_chrom = ''.join([s for _, s in rna.FastaIterator(fasta_file, 'chr3', width=1, step=1).to_list()])
+    all_chrom = ''.join([s for _, s in rna.FastaIterator(fasta_file, region='chr3', width=1, step=1).to_list()])
     assert (all_chrom == ref['chr3'])
     # with aliasing
-    all_chrom = ''.join(
-        [s for _, s in rna.FastaIterator(fasta_file, '3', width=1, step=1, fun_alias=toggle_chr).to_list()])
+    all_chrom = ''.join([s for _, s in rna.FastaIterator(fasta_file, region='3', width=1, step=1,
+                                                         fun_alias=toggle_chr).to_list()])
     assert (all_chrom == ref['chr3'])
     # some edge cases where the provided sequence is shorter than the requested window size
-    assert rna.FastaIterator(fasta_file, 'chr7', 3, 6, width=5, step=3, padding=False).to_list() == [
+    assert rna.FastaIterator(fasta_file, region='chr7:3-6', width=5, step=3, padding=False).to_list() == [
         (gi('chr7', 3, 7), 'GTGCN')]  # 5-mer from region of size 4, wo padding
-    assert rna.FastaIterator(fasta_file, 'chr7', 3, 6, width=5, step=3, padding=True).to_list() == [
+    assert rna.FastaIterator(fasta_file, region='chr7:3-6', width=5, step=3, padding=True).to_list() == [
         (gi('chr7:1-5'), 'NNGTG'),
         (gi('chr7:4-8'), 'TGCNN')]  # 5-mer from region of size 4, wiwth padding
     # consume in tiling windows
-    tiled = ''.join([s for _, s in rna.FastaIterator(fasta_file, 'chr7', None, None, width=3, step=3).to_list()])
+    tiled = ''.join([s for _, s in rna.FastaIterator(fasta_file, region='chr7', width=3, step=3).to_list()])
     assert (tiled[:-1] == ref[
         'chr7'])  # NOTE cut last char in tiled as it is padded by a single N (as len(ref['chr7']) % 3 = 2)
     # get the first 10 5-mers with and w/o padding
     fivemers = [s for _, s in
-                rna.FastaIterator(fasta_file, 'chr7', None, None, width=5, step=2, padding=False).to_list()][
+                rna.FastaIterator(fasta_file, region='chr7', width=5, step=2, padding=False).to_list()][
                :10]
     assert fivemers == ['TTGTG', 'GTGCC', 'GCCAT', 'CATTA', 'TTACA', 'ACACT', 'ACTCC', 'TCCAG', 'CAGCC', 'GCCTG']
     fivemers = [s for _, s in
-                rna.FastaIterator(fasta_file, 'chr7', None, None, width=5, step=2, padding=True).to_list()][
+                rna.FastaIterator(fasta_file, region='chr7', width=5, step=2, padding=True).to_list()][
                :10]
     assert fivemers == ['NNTTG', 'TTGTG', 'GTGCC', 'GCCAT', 'CATTA', 'TTACA', 'ACACT', 'ACTCC', 'TCCAG', 'CAGCC']
     # get 11-mers with padding
-    ctx = [s for _, s in rna.FastaIterator(fasta_file, 'chr7', 1, 10, width=11, step=1, padding=True)]
+    ctx = [s for _, s in rna.FastaIterator(fasta_file, region='chr7:1-10', width=11, step=1, padding=True)]
     assert ctx[:5] == ['NNNNNTTGTGC', 'NNNNTTGTGCC', 'NNNTTGTGCCA', 'NNTTGTGCCAT', 'NTTGTGCCATT']
     assert ''.join([x[5] for x in ctx]) == ref['chr7'][:10]
 
@@ -136,15 +136,15 @@ def test_TabixIterator():
     # read VCF file as TSV
     ti = rna.TabixIterator(vcf_file, region='1:1-10', coord_inc=[0, 0], pos_indices=[0, 1, 1])
     assert (merge_yields(ti.to_list())[0] == gi('1', 1, 10))
-    ti = rna.TabixIterator(vcf_file, chromosome='1', coord_inc=[0, 0], pos_indices=[0, 1, 1])
+    ti = rna.TabixIterator(vcf_file, region='1', coord_inc=[0, 0], pos_indices=[0, 1, 1])
     assert (merge_yields(ti.to_list())[0] == gi('1', 1, 20))
-    ti = rna.TabixIterator(vcf_file, chromosome='2', coord_inc=[0, 0], pos_indices=[0, 1, 1])
+    ti = rna.TabixIterator(vcf_file, region='2', coord_inc=[0, 0], pos_indices=[0, 1, 1])
     assert len([(loc, t) for loc, t in ti.to_list()]) == 1
     with pytest.raises(AssertionError) as e_info:
-        rna.TabixIterator(vcf_file, 'unknown_contig', 5, 10)
+        rna.TabixIterator(vcf_file, region=gi('unknown_contig', 5, 10))
     print(f'Expected assertion: {e_info}')
     # BED file with added 'chr' prefix
-    ti = rna.TabixIterator(bed_file, 'chr1', 1, 10, coord_inc=[1, 0], fun_alias=toggle_chr)
+    ti = rna.TabixIterator(bed_file, region='chr1:1-10',coord_inc=[1, 0], fun_alias=toggle_chr)
     assert (merge_yields(ti.to_list())[0] == gi('chr1', 6, 15))  # start is 0-based, end is 1-based
     # bedgraph file but parsed as Tabixfile
     # 0.042+0.083+0.125+0.167+0.208+4*0.3+0.7*2+0.8*2+0.1*20 == 6.824999999999999
@@ -153,12 +153,12 @@ def test_TabixIterator():
          rna.TabixIterator(bedg_file, coord_inc=[1, 0]).to_list()]) == pytest.approx(
         6.825)
     # test open intervals
-    assert len(rna.TabixIterator(bed_file, region=gi('1'), coord_inc=[0, 0], pos_indices=[0, 1, 1]).to_list()) == 2
+    assert len(rna.TabixIterator(bed_file, region='1', coord_inc=[0, 0], pos_indices=[0, 1, 1]).to_list()) == 2
 
 
 def test_GFF3Iterator():
     stats = Counter()
-    for loc, info in rna.GFF3Iterator(get_resource('gencode_gff'), 'chr7'):
+    for loc, info in rna.GFF3Iterator(get_resource('gencode_gff'), region='chr7'):
         stats[info['feature_type']] += 1
     assert stats == {'exon': 107,
                      'CDS': 59,
@@ -170,7 +170,7 @@ def test_GFF3Iterator():
                      'gene': 3}
     # GTF with aliasing
     stats = Counter()
-    for loc, info in rna.GFF3Iterator(get_resource('gencode_gtf'), '7', fun_alias=toggle_chr):
+    for loc, info in rna.GFF3Iterator(get_resource('gencode_gtf'), region='7', fun_alias=toggle_chr):
         stats[info['feature_type']] += 1
     assert stats == Counter({'exon': 107,
                              'CDS': 59,
@@ -220,6 +220,15 @@ def test_GroupedLocationIterator(testdata):
     assert [x[1] for _, x in right_sorted.to_list()[-2:]] == [['e', 'g'], ['feature', 'h']]
 
 
+def test_TiledIterator(testdata):
+    with rna.it(rna.get_resource('small_example_bam'),  # Create a read iterator
+                flag_filter=0,  # report all reads
+                fun_alias=rna.toggle_chr
+                # add a 'chr' prefix to the chromosome names (via fun_alias) so they match the CANONICAL_CHROMOSOMES dict below
+                ).tile(tile_size=1e6) as it:
+        stats={loc: len(dat) for loc, dat in it if loc.chromosome in rna.CANONICAL_CHROMOSOMES['GRCh38'] if len(dat)>0}
+    assert stats == {gi('chr1:22000001-23000000'): 31678}
+
 def test_AnnotationIterator(testdata):
     # simple test
     a = {
@@ -244,7 +253,7 @@ def test_AnnotationIterator(testdata):
             ('C', ['F'])]
     # iterate only chr1
     assert format_results(
-        rna.AnnotationIterator(rna.MemoryIterator(a, chromosome='chr1'), rna.MemoryIterator(b)).to_list()) == \
+        rna.AnnotationIterator(rna.MemoryIterator(a, region='chr1'), rna.MemoryIterator(b)).to_list()) == \
            [('A', ['D1', 'D2']),
             ('B', ['D1', 'D2'])]
 
@@ -292,9 +301,9 @@ def test_AnnotationIterator(testdata):
     # real world example for such a situation:
     # roi = gi('chr20', 653200, 654306)
     # bedit=BedGraphIterator('/Volumes/groups/ameres/Niko/ref/genomes/GRCh38/mappability/GRCh38.k24.umap.bedgraph.gz',
-    #                  chromosome=roi.chromosome, start=roi.start, end=roi.end)
+    #                  region=roi)
     # gffit=GFF3Iterator('/Volumes/groups/ameres/Niko/ref/genomes/GRCh38/annotation/gencode.v39.annotation.sorted.gff3.gz',
-    #                    chromosome=roi.chromosome, start=roi.start, end=roi.end)
+    #                    region=roi.end)
     # with AnnotationIterator(gffit, [bedit]) as it:
     #     for tx,dat in it:
     #         print(tx, dat.anno['ID'], dat.it0)
@@ -647,7 +656,7 @@ def test_vcf_and_gff_it():
     """TODO: expand"""
     gff_file = get_resource('flybase_gtf')
     vcf_file = get_resource('dmel_multisample_vcf')
-    for _ in rna.AnnotationIterator(rna.GFF3Iterator(gff_file, '2L', 574299, 575733),
+    for _ in rna.AnnotationIterator(rna.GFF3Iterator(gff_file, '2L:574299-575733'),
                                     rna.VcfIterator(vcf_file, samples=['DGRP-208', 'DGRP-325', 'DGRP-721'])):
         pass
 
@@ -673,14 +682,20 @@ def test_pybedtools_it(testdata):
     # test whether they return the same locations
     for x, y in zip(rna.BedIterator(get_resource('test_bed')), rna.PybedtoolsIterator(get_resource('test_bed'))):
         assert (x.location == y.location)
-    # test filtering, NOTE that the used BED file is not bgzipped and indexed, so its unsafe to use and a
-    # warning is issued
+    # test filtering, NOTE that the used BED file is not bgzipped and indexed, so we need to pass a refdict manually
     assert [x.location for x in
-            rna.PybedtoolsIterator(get_resource("pybedtools::a.bed"), region=gi("chr1:1-300"))] == \
+            rna.PybedtoolsIterator(get_resource("pybedtools::a.bed"),
+                                   region=gi("chr1:1-300"),
+                                   refdict=rna.RefDict(d={'chr1': 1000}))] == \
            from_str("chr1:2-100 (+), chr1:101-200 (+), chr1:151-500 (-)")
     # now we filter before and then just iterate with our iterator
     bt = pybedtools.BedTool(get_resource("pybedtools::a.bed")).intersect([pybedtools.Interval('chr1', 1, 300)], u=True)
-    with rna.PybedtoolsIterator(bt) as it:
+    # access to files w/o index requires manual setting of refdict
+    with pytest.raises(Exception) as e_info:
+        rna.PybedtoolsIterator(bt)
+    print('expected exception:', e_info.value)
+    # manual refdict
+    with rna.PybedtoolsIterator(bt, refdict=rna.RefDict({'chr1': 1000})) as it:
         assert [x.location for x in it] == from_str(
             "chr1:2-100 (+), chr1:101-200 (+), chr1:151-500 (-)")
         print(it.stats)
@@ -709,7 +724,7 @@ def test_BioframeIterator(testdata):
     for roi in [None, gi('2L', start=1), gi(), gi('2L', 10000, 20000)]:  # test with different filter regions
         mean_pgl = {}
         for chrom in refdict:
-            with rna.BedGraphIterator(bedgraph_file, chromosome=chrom, region=roi) as it:
+            with rna.BedGraphIterator(bedgraph_file, region=roi) as it:
                 mean_pgl[chrom] = np.nanmean([v for loc, v in it])
                 if np.isnan(
                         mean_pgl[chrom]):  # if the roi contains no data we get an empty list and np.nanmean returns nan
