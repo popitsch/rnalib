@@ -22,3 +22,4 @@ pyarrow==15.0.0
 rnalib~=0.0.2
 s3fs~=2023.12.2
 HTSeq~=2.0.5
+pyBigWig~=0.3.22

@@ -225,6 +225,15 @@ test_resources = {
     "hgnc_gene_aliases": {
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/hgnc_complete_set.head.txt.gz",
         "filename": "div/hgnc_complete_set.head.txt.gz"
+    },
+    # -------------- BigWig/BigBed -------------------------------
+    "test_bigwig": {
+        "uri": f"https://github.com/deeptools/pyBigWig/raw/master/pyBigWigTest/test.bw",
+        "filename": "bigwig/test.bw"
+    },
+    "test_bigbed": {
+        "uri": f"https://github.com/deeptools/pyBigWig/raw/master/pyBigWigTest/test.bigBed",
+        "filename": "bigwig/test.bigBed"
     }
 }
 

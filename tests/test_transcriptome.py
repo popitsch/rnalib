@@ -452,7 +452,9 @@ def test_iterator():
         'annotation_flavour': 'gencode'
     }
     t = Transcriptome(**config)
-    assert len(TranscriptomeIterator(t, 'chr3', feature_types=['gene']).to_list()) == 2  # 2 annotated genes on chr3
+    print(t.merged_refdict)
+    print(t.iterator('chr3', feature_types=['gene']).to_list())
+    assert len(t.iterator('chr3', feature_types=['gene']).to_list()) == 2  # 2 annotated genes on chr3
 
 
 def test_annotate():

@@ -18,6 +18,7 @@
 
 
 """
+import math
 import warnings, logging
 from abc import abstractmethod, ABC
 from collections import Counter, abc
@@ -29,6 +30,7 @@ from typing import List, Callable, NamedTuple, Any, Tuple
 import bioframe
 import HTSeq
 import dill
+import pyBigWig
 import pyranges
 from intervaltree import IntervalTree
 from more_itertools import pairwise, triplewise, windowed, peekable
@@ -845,17 +847,20 @@ class FixedKeyTypeDefaultdict(defaultdict):
         >>> d['x'] = 2 # now it works
         >>> assert dill.loads(dill.dumps(d)).allowed_key_type == str # pickling/dill works
     """
-    def __init__(self, /, *args, ** kwargs):
-        self.allowed_key_type = kwargs.pop('allowed_key_type', None) # remove it from kwargs
-        super().__init__( *args, ** kwargs)
-        if self.allowed_key_type is not None and not all([isinstance(key, self.allowed_key_type) for key in self.keys(\
 
-        )]):
-                raise TypeError(f"Only {self.allowed_key_type} objects can be added to this dict.")
+    def __init__(self, /, *args, **kwargs):
+        self.allowed_key_type = kwargs.pop('allowed_key_type', None)  # remove it from kwargs
+        super().__init__(*args, **kwargs)
+        if self.allowed_key_type is not None and not all([isinstance(key, self.allowed_key_type) for key in self.keys( \
+ \
+                )]):
+            raise TypeError(f"Only {self.allowed_key_type} objects can be added to this dict.")
+
     def __setitem__(self, key, value):
         if self.allowed_key_type is not None:
             if not isinstance(key, self.allowed_key_type):
-                raise TypeError(f"Only {self.allowed_key_type} objects can be added to this dict, you passed a {type(key)} object")
+                raise TypeError(
+                    f"Only {self.allowed_key_type} objects can be added to this dict, you passed a {type(key)} object")
         super().__setitem__(key, value)
 
     def __getstate__(self):
@@ -867,7 +872,8 @@ class FixedKeyTypeDefaultdict(defaultdict):
     def __missing__(self, key):
         if self.allowed_key_type is not None:
             if not isinstance(key, self.allowed_key_type):
-                raise TypeError(f"Only {self.allowed_key_type} objects can be added to this dict, you passed a {type(key)} object")
+                raise TypeError(
+                    f"Only {self.allowed_key_type} objects can be added to this dict, you passed a {type(key)} object")
         return super().__missing__(key)
 
     def __reduce__(self):
@@ -945,7 +951,7 @@ class Transcriptome:
     genome_offsets : dict
         A dict mapping chromosome names to offsets. If provided, the offset will be added to all coordinates.
     name : str
-        Abn (optional) human-readable name of the transcriptome object. default: 'Transcriptome'
+        An (optional) human-readable name of the transcriptome object. default: 'Transcriptome'
     feature_filter : TranscriptFilter
         A TranscriptFilter object that will be used to filter transcripts.
 
@@ -1207,7 +1213,7 @@ class Transcriptome:
                 all_features.append(f)
         all_features.sort(key=lambda x: (self.merged_refdict.index(x.chromosome), x))
         self.anno = FixedKeyTypeDefaultdict(defaultdict, {f: {} for f in all_features})
-        #self.anno = FixedKeyTypeDefaultdict({f: {} for f in all_features})
+        # self.anno = FixedKeyTypeDefaultdict({f: {} for f in all_features})
         # assert that parents intervals always envelop their children
         for f in all_features:
             if f.parent is not None:
@@ -1263,7 +1269,7 @@ class Transcriptome:
         else:
             raise TypeError('Index must be a GI or a feature id string, not {type(key).__name__}')
 
-    def add(self, location:GI, feature_id:str, feature_type:str, parent=None, children:tuple=()): # -> Feature:
+    def add(self, location: GI, feature_id: str, feature_type: str, parent=None, children: tuple = ()):  # -> Feature:
         """ Adds a feature to the transcriptome """
         assert location.chromosome in self.merged_refdict, (f"Chromosome {location.chromosome} not in RefDict of this "
                                                             f"transcriptome")
@@ -2093,6 +2099,10 @@ class RefDict(abc.Mapping[str, int]):
                 f"{f' (aliased from {self.orig.keys()})' if self.fun_alias else ''}, {self.d.values()} name:"
                 f" {self.name} ")
 
+    def chromosomes(self):
+        """Returns a list of chromosome names"""
+        return list(self.d.keys())
+
     def alias(self, chrom):
         if self.fun_alias:
             return self.fun_alias(chrom)
@@ -2194,6 +2204,9 @@ class RefDict(abc.Mapping[str, int]):
             elif isinstance(fh, pysam.VariantFile):  # @UndefinedVariable
                 return RefDict({c: fh.header.contigs.get(c).length for c in fh.header.contigs},
                                name=f'References from VCF file {fh.filename}', fun_alias=fun_alias)
+            elif isinstance(fh, pyBigWig.pyBigWig):  # @UndefinedVariable
+                return RefDict({c: l for c, l in fh.chroms().items()},
+                               name=f'References from bigWig/bigBed file {fh}', fun_alias=fun_alias)
             else:
                 raise NotImplementedError(f"Unknown input object type {type(fh)}")
         finally:
@@ -2356,9 +2369,9 @@ class LocationIterator:
             >>> it('myfile.bed').to_list()
             >>> locs, data = zip(*it('myfile.bed'))
         """
-        if style=="location":
+        if style == "location":
             return [x.location for x in self]
-        elif style=="data":
+        elif style == "data":
             return [x.data for x in self]
         return list(self)
 
@@ -2892,6 +2905,39 @@ class BedRecord:
         return self.location.__len__()
 
 
+@dataclass
+class BigBedRecord:
+    """
+        Parsed BigBed record
+        See https://github.com/deeptools/pyBigWig/tree/master for format details
+    """
+
+    name: str
+    score: float
+    location: gi
+    thick_start: int
+    level: float
+    signif: float
+    score2: int
+
+    def __init__(self, tup):
+        super().__init__()
+        self.name = tup[3] if len(tup) >= 4 else None
+        self.score = float(tup[4]) if len(tup) >= 5 and tup[4] != '.' else None
+        strand = tup[5] if len(tup) >= 6 else None
+        self.location = gi(tup[0], int(tup[1]) + 1, int(tup[2]), strand)  # convert -based to 1-based start
+        self.level = float(tup[6]) + 1 if len(tup) >= 7 else None
+        self.signif = float(tup[7]) if len(tup) >= 8 else None
+        self.score2 = int(tup[8]) if len(tup) >= 9 else None
+
+    def __repr__(self):
+        return f"{self.location.chromosome}:{self.location.start}-{self.location.end} ({self.name})"
+
+    def __len__(self):
+        """ Reports the length of the wrapped location, not the current tuple"""
+        return self.location.__len__()
+
+
 class BedIterator(TabixIterator):
     """
         Iterates a BED file and yields 1-based coordinates and pysam BedProxy objects
@@ -2923,8 +2969,116 @@ class BedIterator(TabixIterator):
                                    end=self.end if (self.end < MAX_INT) else None,
                                    parser=pysam.asTuple()):  # @UndefinedVariable
             rec = BedRecord(tuple(bed))  # parse bed record
+            self.location = rec.location
             self._stats['yielded_items', self.chromosome] += 1
             yield Item(rec.location, rec)
+
+
+class BigBedIterator(LocationIterator):
+    """ Iterates over a BigBed file via pyBigWig.
+
+    Parameters
+    ----------
+    file : str, PathLike or pyBigWig
+        The pyBigWig file to iterate over
+    chromosome, start, end, region : coordinates
+    fun_alias : function
+
+
+    """
+
+    def __init__(self, file, chromosome=None, start=None, end=None, region=None, fun_alias=None):
+        if isinstance(file, (str, PathLike)):
+            assert guess_file_format(
+                file) == 'bigbed', f"expected BigBed file but guessed file format is {guess_file_format(file)}"
+        super().__init__(file=file, chromosome=chromosome, start=start, end=end, region=region, fun_alias=fun_alias,
+                         per_position=per_position, )
+        assert self.file.isBigBed() == 1, f"Wrong file format. Is this actually a BigWig file?"
+
+    def __iter__(self) -> Item[gi, float]:
+        iterchrom = (self.chromosome,) if self.chromosome is not None else self.refdict.keys()  # chroms to iterate
+        for chrom in iterchrom:
+            # set start to 1 if it is zero (i.e. unbounded))
+            start = self.start if self.start > 0 else 1
+            # if end is not set, the locationIterator will use MAXINT as end but this does not work with BigWig files.
+            # So here, use max chromosome length if end is not set
+            end = self.end if self.end < MAX_INT else self.refdict[chrom]
+            # use pyBigWig's entries fetcher
+            for s, e, bed_str in self.file.entries(chrom, start - 1, end):
+                bed_tup = (self.refdict.alias(chrom), s + 1, e) + tuple(bed_str.split('\t'))
+                rec = BigBedRecord(bed_tup)
+                self.location = rec.location
+                self._stats['iterated_items', self.location.chromosome] += 1
+                yield Item(self.location, rec)
+
+    def header(self):
+        """ Returns the header of the underlying BigBed file."""
+        return self.file.header()
+
+
+class BigWigIterator(LocationIterator):
+    """ Iterates over a pyBigWig object.
+    If per_position is True, the iterator will yield per-position values, otherwise it will yield interval values.
+
+    Parameters
+    ----------
+    file : str, PathLike or pyBigWig
+        The pyBigWig file to iterate over
+    chromosome, start, end, region : coordinates
+    strand : str
+        optional, if set, all yielded intervals will have this strand assigned
+    per_position : bool
+        optional, if True, the iterator will yield per-position values, otherwise it will yield interval values
+
+
+    Notes
+    -----
+    Note that you can also access remote files, but this is slow and not recommended unless files are small.
+    Example:
+    >>> # iterate a remote bigwig file and report intervals. This file is ~100M
+    >>> import itertools
+    >>> uri = 'https://hgdownload.soe.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeMapability/wgEncodeCrgMapabilityAlign100mer.bigWig'
+    >>> for loc, val in itertools.islice(rna.it(uri),0,10):
+    >>>     display(f"{loc}: {val}")
+    """
+
+    def __init__(self, file, chromosome=None, start=None, end=None, region=None, fun_alias=None,
+                 per_position=False):
+        if isinstance(file, (str, PathLike)):
+            assert guess_file_format(
+                file) == 'bigwig', f"expected BigWig file but guessed file format is {guess_file_format(file)}"
+        super().__init__(file=file, chromosome=chromosome, start=start, end=end, region=region, fun_alias=fun_alias,
+                         per_position=per_position, )
+        assert self.file.isBigWig() == 1, f"Wrong file format. Is this actually a BigBed file?"
+
+    def __iter__(self) -> Item[gi, float]:
+        iterchrom = (self.chromosome,) if self.chromosome is not None else self.refdict.keys()  # chroms to iterate
+        for chrom in iterchrom:
+            # set start to 1 if it is zero (i.e. unbounded))
+            start = self.start if self.start > 0 else 1
+            # if end is not set, the locationIterator will use MAXINT as end but this does not work with BigWig files.
+            # So here, use max chromosome length if end is not set
+            end = self.end if self.end < MAX_INT else self.refdict[chrom]
+            if self.per_position:
+                # use pyBigWig's values fetcher
+                for off, value in enumerate(self.file.values(chrom, start - 1, end, numpy=True)):
+                    self.location = gi(self.refdict.alias(chrom), start + off, start + off)
+                    self._stats['iterated_items', chrom] += 1
+                    if math.isnan(value):
+                        value = None
+                    yield Item(self.location, value)
+            else:
+                # use pyBigWig's interval fetcher
+                for s, e, value in self.file.intervals(chrom, start - 1, end):
+                    self.location = gi(self.refdict.alias(chrom), s + 1, e)
+                    self._stats['iterated_items', self.location.chromosome] += 1
+                    if math.isnan(value):
+                        value = None
+                    yield Item(self.location, value)
+
+    def header(self):
+        """ Returns the header of the underlying BigWig file."""
+        return self.file.header()
 
 
 @dataclass
@@ -3605,14 +3759,14 @@ class FastPileupIterator(LocationIterator):
 
     def __init__(self, bam_file, chromosome: str = None, reported_positions: set = None, region: GI = None,
                  file_format: str = None, min_mapping_quality: int = 0, flag_filter: int = DEFAULT_FLAG_FILTER,
-                 tag_filters: list[TagFilter] = None, max_span:int=None,
-                 min_base_quality:int=0, max_depth:int=100000, fun_alias=None):
+                 tag_filters: list[TagFilter] = None, max_span: int = None,
+                 min_base_quality: int = 0, max_depth: int = 100000, fun_alias=None):
         if chromosome is None:  # get from region parameter
             # assert that region is set
             assert (region is not None) and (reported_positions is None), \
                 "Either chromosome and reported_positions or region must be set"
             if not isinstance(region, GI):
-                region =gi(region)
+                region = gi(region)
             reported_positions = {p.start for p in region}  # a set of positions
             chromosome = region.chromosome
         self.chromosome = chromosome
@@ -4192,6 +4346,10 @@ def it(obj, **kwargs):
             return GFF3Iterator(obj, **kwargs)
         elif ff == 'fastq':
             return FastqIterator(obj, **kwargs)
+        elif ff == 'bigwig':
+            return BigWigIterator(obj, **kwargs)
+        elif ff == 'bigbed':
+            return BigBedIterator(obj, **kwargs)
     elif isinstance(obj, pysam.Fastafile):  # @UndefinedVariable
         return FastaIterator(obj, **kwargs)
     elif isinstance(obj, pysam.AlignmentFile):  # @UndefinedVariable
@@ -4208,6 +4366,10 @@ def it(obj, **kwargs):
         return PandasIterator(obj, **kwargs)
     elif isinstance(obj, pybedtools.BedTool):
         return PybedtoolsIterator(obj, **kwargs)
+    elif isinstance(obj, pyBigWig.pyBigWig):
+        if style == 'bigbed':
+            return BigBedIterator(obj, **kwargs)
+        return BigWigIterator(obj, **kwargs)
     elif isinstance(obj, LocationIterator):
         return AnnotationIterator(obj, **kwargs)
     elif isinstance(obj, Transcriptome):

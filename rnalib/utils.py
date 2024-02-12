@@ -25,6 +25,7 @@ from typing import Optional, List
 import mygene
 import numpy as np
 import pandas as pd
+import pyBigWig
 import pybedtools
 import pysam
 from IPython.core.display import HTML, clear_output
@@ -596,6 +597,8 @@ def bgzip_and_tabix(in_file, out_file=None, sort=False, create_index=True, del_u
             preset = guess_file_format(in_file)
             if preset == 'gtf':
                 preset = 'gff'  # pysam default
+        if preset == 'bedgraph':
+            preset = 'bed'  # pysam default
         if preset not in ['gff', 'bed', 'psltbl', 'sam', 'vcf']:  # currently supported by tabix
             preset = None
         if preset is not None and line_skip > 0:
@@ -808,6 +811,8 @@ default_file_extensions = {
     'gff': ('.gff3', '.gff3.gz'),
     'gtf': ('.gtf', '.gtf.gz'),
     'fastq': ('.fq', '.fastq', '.fq.gz', '.fastq.gz'),
+    'bigwig': ('.bw', '.bigWig'),
+    'bigbed': ('.bigBed')
 }
 
 
@@ -868,7 +873,7 @@ def open_file_obj(fh, file_format=None, file_extensions=None) -> object:
 
     Returns
     -------
-        file_handle : instance (file/pysam object)
+        file_handle : instance (file/pysam/pyBigWig object)
     """
     if file_extensions is None:
         file_extensions = default_file_extensions
@@ -898,6 +903,8 @@ def open_file_obj(fh, file_format=None, file_extensions=None) -> object:
         fh = pysam.VariantFile(fh, mode="rb")  # @UndefinedVariable
     elif file_format == 'fastq':
         fh = gzip.open(fh, 'rb') if fh.endswith('.gz') else open(fh, mode="r")
+    elif file_format == 'bigwig' or file_format == 'bigbed':
+        fh = pyBigWig.open(fh, 'r')
     else:
         raise NotImplementedError(f"Unsupported input format for file {fh}")
     return fh
