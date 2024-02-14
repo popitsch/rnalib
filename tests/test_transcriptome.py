@@ -305,7 +305,7 @@ def test_filter(default_testdata):
     config['feature_filter'] = TranscriptFilter().include_gene_types(['protein_coding'])
     t = Transcriptome(**config)
     assert t.log == {'parsed_gff_lines': 345,
-                     'filtered_transcript_missing_gene_type_value': 65,
+                     'filtered_transcript_parent_gene_filtered': 65,
                      'filtered_gene_missing_gene_type_value': 3}
     assert len(t.transcripts) == 24 and len(t.genes) == 2
     # assert copied fields
