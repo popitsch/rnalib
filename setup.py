@@ -7,7 +7,7 @@ long_description = (Path(__file__).parent / "README.md").read_text()
 setup(
     name='rnalib',
     version='0.0.2',
-    download_url = 'https://github.com/popitsch/rnalib/archive/refs/tags/1.0.0.tar.gz',
+    download_url = 'https://github.com/popitsch/rnalib/archive/refs/tags/v0.0.2.tar.gz',
     packages=['rnalib', 'rnalib.static_test_files'],
     package_data={'rnalib.static_test_files': ["*"]},
     include_package_data=True,

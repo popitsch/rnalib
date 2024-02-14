@@ -1,6 +1,8 @@
 sphinx_mdinclude==0.5.3
 nbsphinx==0.9.3
 sphinx-rtd-theme==2.0.0
+sphinx-autobuild==2024.2.4
+sphinx-copybutton==0.5.2
 setuptools==69.0.3
 wheel==0.42.0
 bioframe==0.6.1
