@@ -2,8 +2,8 @@
 All notable changes to this project will be documented in this file.
 Use this template to document a release.
 
-## [Unreleased] - yyyy-mm-dd 
-Description of this release
-### Added
-### Changed
-### Fixed
+## [0.0.2] - 2024-02-14 
+API redesign; several bugfixes
+
+## [0.0.1] alpha release - 2024-01
+Initial release

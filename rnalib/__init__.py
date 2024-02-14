@@ -391,8 +391,10 @@ class GI(NamedTuple):
 
 def gi(chromosome: str = None, start: int = 0, end: int = MAX_INT, strand: str = None):
     """ Factory function for genomic intervals (GI).
+
         Examples
-        >>> gi('chr1', 1, 10, strand='-')
+        --------
+        >>> gi('chr1', 1, 10, strand='-') # explicit coordinates
         >>> gi('chr1:1-10 (-)') # parsed from string
         >>> gi('chr1') # whole chromosome
         >>> gi() # unbounded interval
@@ -505,8 +507,9 @@ def _transcript_to_bed(idx, tx, item):
 class FixedKeyTypeDefaultdict(defaultdict):
     """
         A defaultdict that allows only keys of a certain type.
-        Example
-        -------
+
+        Examples
+        --------
         >>> d = rna.FixedKeyTypeDefaultdict(defaultdict, allowed_key_type=int)
         >>> d[1] = 1 # this works, key is an int
         >>> import pytest
@@ -1274,7 +1277,7 @@ class Transcriptome:
 class Feature(GI_dataclass):
     """
         A (frozen) genomic feature, e.g., a gene, a transcript, an exon, an intron,
-        a CDS or a three_prime_UTR/_prime_UTR. Features are themselves containers of sub-features
+        a CDS or a three_prime_UTR/five_prime_UTR. Features are themselves containers of sub-features
         (e.g., a gene contains transcripts, a transcript contains exons, etc.). Sub-features are stored in
         the respective child tuples (e.g., gene.transcript, transcript.exon, etc.).
 
@@ -1489,49 +1492,9 @@ class AbstractFeatureFilter(ABC):
 
 class TranscriptFilter(AbstractFeatureFilter):
     """A transcript filter that can be used to filter genes/transcripts by location and/or feature type
+    specific info fields. It can be configured by chaining include_* methods or by passing a dict to the
+    constructor. Features will first be filtered by location, then by included and then by excluded feature type
     specific info fields.
-
-    The filter is configured via a config dict that can be passed to the constructor.
-    Alternatively, the config can be built via the include_* methods.
-
-    The config dict has the following structure:
-    >>>    {
-    >>>     'location': {
-    >>>            'included': {
-    >>>                'chromosomes': ['chr1', 'chr2', ...],
-    >>>                'regions': ['chr1:100-200', ...]
-    >>>            },
-    >>>            'excluded': {
-    >>>                    'chromosomes': ['chr3', ...],
-    >>>                    'regions': ['chr5:100-200', ...]
-    >>>                }
-    >>>        },
-    >>>        'gene': {
-    >>>            'included': {
-    >>>                'gene_id': ['ENSG000001', ...],
-    >>>                'gene_type': ['protein_coding', ...]
-    >>>                'myannotation': ['value1', 'value2', ...]
-    >>>            },
-    >>>            'excluded': {
-    >>>                'gene_id': ['ENSG000002', ...],
-    >>>                'gene_type': ['lincRNA', ...]
-    >>>                'myannotation': ['value3', 'value4', ...]
-    >>>            }
-    >>>        },
-    >>>        'transcript': {
-    >>>            'included': {
-    >>>                'transcript_id': ['ENST000001', ...],
-    >>>                'myannotation': ['value1', 'value2', ...]
-    >>>            },
-    >>>            'excluded': {
-    >>>                'transcript_id': ['ENST000002', ...],
-    >>>                'myannotation': ['value3', 'value4', ...]
-    >>>            }
-    >>>        }
-    >>>    }
-
-    Features will first be filtered by location, then by included and then by excluded feature type specific
-    info fields.
 
     For location filtering, the following rules apply:
 
@@ -1885,27 +1848,26 @@ class Item(NamedTuple):
 
 class LocationIterator:
     """
-        Superclass for genomic anno_its (mostly based on pysam) for efficient, indexed iteration over genomic
-        datasets. Most rnalib iterables inherit from this suoperclass and yield named tuples containing data and its
-        respective genomic location.
+        Superclass for genomic iterators (mostly based on pysam) for efficient, indexed iteration over genomic
+        datasets. Most rnalib iterables inherit from this superclass.
 
-        A LocationIterator iterates over a genomic dataset and yields tuples of genomic intervals and
-        associated data. The data can be any object (e.g., a string, a dict, a list, etc.). The iterator can be
+        A LocationIterator iterates over a genomic dataset and yields `Item`s, that are tuples of genomic intervals and
+        associated data. The data can be any object (e.g., a string, a dict, a list, etc.). Location iterators can be
         restricted to a genomic region.
 
         LocationIterators keep track of their current genomic location (self.location) as well as statistics about
-        the iterated and yielded items. They can be consumed and converted to lists (self.to_list()), pandas dataframes
-        (self.to_dataframe()), interval trees (self.to_intervaltrees()) or bed files (self.to_bed()).
+        the iterated and yielded items (stats()). They can be consumed and converted to lists (self.to_list()),
+        pandas dataframes (self.to_dataframe()), interval trees (self.to_intervaltrees()) or bed files (self.to_bed()).
 
         LocationIterators can be grouped or tiled, see the group() and tile() methods.
 
-        LocationIterators are iterable and implement the context manager protocol (with statement) and provide a
+        LocationIterators are iterable, implement the context manager protocol ('with' statement) and provide a
         standard interface for region-type filtering (by passing chromosome sets or genomic regions of
         interest). Where feasible and not supported by the underlying (pysam) implementation, they implement chunked
         I/O where for efficient iteration (e.g., FastaIterator).
 
-        The maximum number of itereated items can be queried via the max_items() method which tries to guesstimate this
-        number from the underlying index data structures (if available).
+        The maximum number of iterated items can be queried via the max_items() method which tries to guesstimate this
+        number (or an upper bound) from the underlying index data structures.
 
         Examples
         --------
@@ -3506,11 +3468,11 @@ class FastPileupIterator(LocationIterator):
         Examples
         --------
         >>> pileup_data = rna.it("test.bam", style="pileup", region=gi('chr1:1-100')).to_list()
-        >>> rna.it("test.bam", style='pileup', \
-            region='1:22418244-22418244', # pileup single position \
-            min_mapping_quality=30, flag_filter=0, min_base_quality=40, # read filtering \
-            tag_filters=[rna.TagFilter('NM', [0], True, inverse=True)], # include only reads w/o mismatches \
-            ).to_list()
+        >>> rna.it("test.bam", style='pileup',
+        >>>        region='1:22418244-22418244', # pileup single position
+        >>>        min_mapping_quality=30, flag_filter=0, min_base_quality=40, # read filtering
+        >>>        tag_filters=[rna.TagFilter('NM', [0], True, inverse=True)], # include only reads w/o mismatches
+        >>>        ).to_list()
 
     """
 

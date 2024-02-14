@@ -1,7 +1,7 @@
 rnalib: a python-based genomics library
 =========================================
 
-rnalib is a python utilities library for handling genomics data with a focus on transcriptomics.
+*Rnalib* is a python utilities library for handling genomics data with a focus on transcriptomics.
 It implements a transcriptome model and provides efficient iterators for the annotation of its features
 (genes, transcripts, exons, etc.). It also provides a number of utility functions for working with
 genomics data.
@@ -12,7 +12,7 @@ Design Principles
 rnalib is designed with the following principles in mind:
 
 * Genomic data is represented by an (immutable) location object and arbitrary associated (mutable) annotation data.
-* Immutable representations of genomic intervals (gi) and features (e.g., genes, transcripts, exons, etc.) can be
+* Immutable representations of genomic intervals (`GI`) and features (e.g., genes, transcripts, exons, etc.) can be
   used in indexing and hashing.
 * Underlying reference genomes are represented by a `RefDict` object that store chromosome names, their order and
   (possibly) length. RefDicts are used to validate and merge genomic datasets from different sources.
@@ -22,14 +22,15 @@ rnalib is designed with the following principles in mind:
   respective indexing data structures (e.g., tabix or bai files) for efficient random access. This enables users
   to quickly switch between genomic sub regions (e.g., for focussing on difficult/complex regions) and whole
   transcriptome analyses during development.
-* rnalib implements a transcriptome model that models parent/child relationships between genomic features
+* *rnalib* implements a transcriptome model that models parent/child relationships between genomic features
   (e.g., genes, transcripts, exons, etc.) as python objects and references that are dynamically created when loading
   a GFF/GTF file. rnalib understands respective GFF/GTF 'flavours' (e.g., ID attribute names) from different major
   providers such as gencode, ensembl, refseq, etc.
 
-Most importantly, rnalib was not designed to replace the great work of others but to integrate with it and fill
-gaps. For example, rnalib provides interfaces for integrating with `pybedtools <https://daler.github
-.io/pybedtools/index.html>`__ and `bioframe <https://bioframe.readthedocs.io/>`__.
+Most importantly, *rnalib* was not designed to replace the great work of others but to integrate with it and fill
+gaps. For example, *rnalib* provides interfaces for integrating with `pybedtools <https://daler.github
+.io/pybedtools/index.html>`__, `bioframe <https://bioframe.readthedocs.io/>`__ and `HTSeq <https://htseq.readthedocs
+.io/>`__.
 
 Installation
 ------------
@@ -50,12 +51,14 @@ Test data
 The rnalib test suite and the tutorial notebooks shown below use various genomic test data files.
 These files are not included in the rnalib package but can be produced in one of the following ways:
 
-* A zipped version (~260M) of the files can be downloaded from the GitHub release page of the rnalib repository.
-* The files can be created by running the `rnalib_create_testdata` python script that is included in the rnalib
+* A zipped version (~260M) of the files can be downloaded from the GitHub release page of the rnalib repository
+    * if no ZIP file is attached to the version you down, please download from the most recent older version with an
+attached ZIP.
+* The files can also be created by running the `rnalib_create_testdata` python script that is included in the rnalib
   package. This script downloads the source files from public URLs and creates the test files by slicing,
-  sorting, compressing and indexing the files.
+  sorting, compressing and indexing the files. For this, you need some external tools (bedtools, bgzip, tabix) to be installed.
 
-Once you have created the testdata folder, you need to tell rnalib about its location.
+Once you have created the testdata folder, you need to tell *rnalib* about its location.
 To do so, you can either
 
 * set the `RNALIB_TESTDATA` environment variable
@@ -75,6 +78,9 @@ notebook. To successfully run the notebook on Google Colab, you need to install 
 (see fist, commented code cell). You also need to upload the test data files to your Google Drive and mount the drive
 or upload the files to the Colab runtime.
 
+We compare rnalib with other genomics libraries in the following notebook:
+
+* `RelatedWork notebook <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/RelatedWork_performance.ipynb>`_
 
 We provide a set of tutorials for demonstrating rnalib in realistic usage scenarios:
 
@@ -91,7 +97,7 @@ Finally, we showcase how the combination of (the strengths of) multiple genomics
 Related work
 ------------
 There exists a broad range of python libraries for working with genomics data that have more or less overlap with
-rnalib. Here is a selection:
+*rnalib*. Here is a selection:
 
 * `pysam <https://pysam.readthedocs.io/en/latest/api.html>`__ Python wrapper for the samtools suite. Most rnalib
   iterators are based on pysam.
@@ -110,7 +116,7 @@ rnalib. Here is a selection:
 * `Pygenomics <https://gitlab.com/gtamazian/pygenomics>`__ A general python genomics library
 * `BioNumPy <https://bionumpy.github.io/bionumpy/>`__ A python library for efficient representation and analysis of biological data built on top of NumPy
 * `RNAlysis <https://guyteichman.github.io/RNAlysis/build/index.html>`__ Python based RNA-seq analysis software
-* `biocantor` <https://biocantor.readthedocs.io/en/latest/> is another API targeted at transcriptomics analyses but it
+* `biocantor <https://biocantor.readthedocs.io/en/latest/>`__ is another API targeted at transcriptomics analyses but it
   is unclear whether it is still supported.
 
 We are happy to include other libraries in this list. Please open an issue or a pull request.
