@@ -202,7 +202,7 @@ def test_refdict():
     rna.RefDict.merge_and_validate(r1, None, r2)
     # test iter_blocks()
     r5 = rna.RefDict({'chr1': 10, 'chr2': 20, 'chrM': 23, 'chrX': 12}, "test_refdict", None)
-    assert list(r5.iter_blocks(10)) == from_str(
+    assert list(r5.tile(10)) == from_str(
         "chr1:1-10, chr2:1-10,  chr2:11-20, chrM:1-10,  chrM:11-20, chrM:21-23, chrX:1-10,  chrX:11-12")
 def test_annodict():
     # test key type checking

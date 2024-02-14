@@ -265,7 +265,7 @@ large_test_resources = {
     # -------------- GRCh38 mappability scores -------------------------------
     "grch38_umap": {
         "uri": "https://bismap.hoffmanlab.org/raw/hg38/k24.umap.bed.gz",
-        "filename": "bigfiles/GRCh38.k24.umap.bedgraph.gz",
+        "filename": "bigfiles/GRCh38.k24.umap.bed.gz",
         "tabix_options": "-p bed -S 1",
         "recreate": False
     }

@@ -18,6 +18,7 @@
 
 
 """
+import logging
 import math
 from abc import abstractmethod, ABC
 from collections import Counter, abc
@@ -41,7 +42,7 @@ from .testdata import get_resource, list_resources
 from .tools import *
 from .utils import *
 
-logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 # location of the test data directory. Use the 'RNALIB_TESTDATA' environment variable or monkey patching to set to your
 # favourite location, e.g., rnalib.__RNALIB_TESTDATA__ = "your_path'
@@ -1635,11 +1636,7 @@ class TranscriptFilter(AbstractFeatureFilter):
 
     def include_chromosomes(self, chromosomes: set):
         """Convenience method to add chromosomes to the included_chrom set"""
-        if not isinstance(chromosomes, set):
-            if isinstance(chromosomes, str):
-                chromosomes = {chromosomes}
-            else:
-                chromosomes = set(chromosomes)
+        chromosomes = to_set(chromosomes)
         if self.included_chrom is None:
             self.included_chrom = chromosomes
         else:
@@ -1649,6 +1646,8 @@ class TranscriptFilter(AbstractFeatureFilter):
 
     def include_regions(self, regions: set):
         """Convenience method to add regions to the included_regions set"""
+        if isinstance(regions, str):
+            regions = {gi(r) for r in regions.split(',')}
         if self.included_regions is None:
             self.included_regions = regions
         else:
@@ -1658,39 +1657,38 @@ class TranscriptFilter(AbstractFeatureFilter):
 
     def include_gene_ids(self, ids: set):
         """Convenience method to add included gene ids"""
-        self.config['gene']['included']['gene_id'] = list(ids)
+        self.config['gene']['included']['gene_id'] = to_set(ids)
         return self
 
     def include_transcript_ids(self, ids: set):
         """Convenience method to add included transcript ids"""
-        self.config['transcript']['included']['transcript_id'] = list(ids)
+        self.config['transcript']['included']['transcript_id'] = to_set(ids)
         return self
 
-    def include_gene_types(self, gene_types: set, include_missing=True):
+    def include_gene_types(self, gene_types: set, include_missing=True, feature_type='gene'):
         """Convenience method to add included gene_types to gene+transcript inclusion rules. Use, e.g.,
         {'protein_coding'} to load only protein coding genes. If include_missing is True then genes/transcripts
         without gene_type will also be included. """
-        self.config['gene']['included']['gene_type'] = list(gene_types) + [
-            None] if include_missing else list(gene_types)
-        self.config['transcript']['included']['gene_type'] = list(gene_types) + [
+        gene_types = to_set(gene_types)
+        self.config[feature_type]['included']['gene_type'] = list(gene_types) + [
             None] if include_missing else list(gene_types)
         return self
 
-    def include_transcript_types(self, transcript_types: set, include_missing=True):
+    def include_transcript_types(self, transcript_types: set, include_missing=True, feature_type='transcript'):
         """Convenience method to add included transcript_types. Use, e.g., {'miRNA'} to load only
         miRNA transcripts. If include_missing is True (default) then transcripts without transcript_type will
         also be included. """
-        self.config['transcript']['included']['transcript_type'] = list(transcript_types) + [
+        transcript_types = to_set(transcript_types)
+        self.config[feature_type]['included']['transcript_type'] = list(transcript_types) + [
             None] if include_missing else list(transcript_types)
         return self
 
-    def include_tags(self, gene_tags: set, include_missing=True):
+    def include_tags(self, gene_tags: set, include_missing=True, feature_type='transcript'):
         """Convenience method to add included gene tags. Use, e.g., {'Ensembl_canonical'} to load only
             canonical genes. If include_missing is True then genes/transcripts without tags
             will also be included. """
-        self.config['gene']['included']['tag'] = list(gene_tags) + [
-            None] if include_missing else list(gene_tags)
-        self.config['transcript']['included']['tag'] = list(gene_tags) + [
+        gene_tags = to_set(gene_tags)
+        self.config[feature_type]['included']['tag'] = list(gene_tags) + [
             None] if include_missing else list(gene_tags)
         return self
 
@@ -1733,15 +1731,15 @@ class RefDict(abc.Mapping[str, int]):
             return not all(v is None for v in self.values())
         return self.d[chrom] is not None
 
-    def iter_blocks(self, block_size=int(1e6)):
+    def tile(self, tile_size=int(1e6)):
         """
-            Iterates in an ordered fashion over the reference dict, yielding genomic intervals of the given block_size
-            (or smaller at chromosome ends).
+            Iterates in an ordered fashion over the reference dict, yielding non-overlapping genomic intervals of the
+            given tile_size (or smaller at chromosome ends).
         """
         for chrom, chrlen in self.d.items():
             chrom_gi = gi(chrom, 1, chrlen)  # will use maxint if chrlen is None!
-            for block in chrom_gi.split_by_maxwidth(block_size):
-                yield block
+            for tile in chrom_gi.split_by_maxwidth(tile_size):
+                yield tile
 
     def __repr__(self):
         return (f"RefDict (size: {len(self.d.keys())}): {self.d.keys()}"
@@ -3139,7 +3137,7 @@ class PandasIterator(LocationIterator):
                          refdict=self.refdict)  # reference dict exists
         # filter dataframe for region. TODO: check whether coordinate filtering is exact
         if (self.region is not None) and (not self.region.is_unbounded()):
-            logging.info(f"filtering dataframe for region {self.region}")
+            logging.debug(f"filtering dataframe for region {self.region}")
             filter_query = [] if self.region.chromosome is None else [f"{coord_columns[0]}==@self.region.chromosome"]
             # overlap check: self.region.start <= other.end and other.start <= self.region.end
             filter_query += [] if self.region.end is None else [f"{coord_columns[1]}<=(@self.region.end-@coord_off[0])"]
@@ -3620,7 +3618,7 @@ class GroupedLocationIterator(LocationIterator):
         it : LocationIterator
             The wrapped location iterator
         strategy : str
-            The block strategy to use: left (start coordinate match), right (end coordinate match), both (complete
+            The grouping strategy to use: left (start coordinate match), right (end coordinate match), both (complete
             location match; default), overlap (coordinate overlap).
     """
 
@@ -3921,7 +3919,7 @@ class AnnotationIterator(LocationIterator):
 class TiledIterator(LocationIterator):
     """ Wraps a location iterator and reports tuples of items yielded for each genomic tile.
         Tiles are either iterated from the passed regions_iterable or calculated from the reference dict via the
-        refdict.iter_blocks(block_size=tile_size) method.
+        RefDict.tile(tile_size=...) method.
 
         The iterator yields the tile location and a tuple of overlapping items from the location iterator.
         During iteration, the locations and data of the last yielded item can be access via it.tile_locations and
@@ -3950,7 +3948,7 @@ class TiledIterator(LocationIterator):
             assert self.refdict is not None, "Cannot calculate tiles without a reference dict"
             assert self.refdict.has_len(), ("Cannot calculate tiles from refdict without lengths. "
                                                          "Consider creating a refdict with calc_chromlen=True.")
-            self.regions_iterable = self.location_iterator.refdict.iter_blocks(block_size=int(self.tile_size))
+            self.regions_iterable = self.location_iterator.refdict.tile(tile_size=int(self.tile_size))
         else:
             self.regions_iterable = regions_iterable
 

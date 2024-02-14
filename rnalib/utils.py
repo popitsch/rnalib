@@ -199,6 +199,16 @@ def grouper(iterable, n, fill_value=None):
 # I/O handling
 # --------------------------------------------------------------
 
+def to_set(x) -> set:
+    """ Converts an object to a set. If x is None, an empty set is returned.
+        if x is a string, it will be split by ',' and the resulting list will be converted to a set.
+    """
+    if x is None:
+        return set()
+    if isinstance(x, str):
+        return set(x.split(','))
+    return set(x)
+
 def to_str(*args, sep=',', na='NA') -> str:
     """
         Converts an object to a string representation. Iterables will be joined by the configured separator.
