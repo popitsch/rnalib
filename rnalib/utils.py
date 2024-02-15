@@ -28,7 +28,7 @@ import pandas as pd
 import pyBigWig
 import pybedtools
 import pysam
-from IPython.core.display import HTML, clear_output
+from IPython.display import HTML, clear_output
 from IPython.core.display_functions import display
 import h5py
 from matplotlib import pyplot as plt
@@ -208,6 +208,7 @@ def to_set(x) -> set:
     if isinstance(x, str):
         return set(x.split(','))
     return set(x)
+
 
 def to_str(*args, sep=',', na='NA') -> str:
     """
@@ -714,8 +715,8 @@ def display_list(lst):
 
 def display_help(obj):
     """ Display the docstring of the passed object """
-    display(HTML(f'<strong>{obj.__name__} docstring:</strong>'))
-    display(HTML(f'<small>{obj.__doc__.replace('\n', '</br>')}</small>'))
+    display(HTML(f"<strong>{obj.__name__} docstring:</strong>"))
+    display(HTML("<small>{0}</small>".format(obj.__doc__.replace('\n', '</br>'))))
 
 
 def display_popup(msg, clear=True):
@@ -1018,7 +1019,8 @@ def get_covered_contigs(bam_files):
 
 
 def merge_bam_files(out_file: str, bam_files: list, sort_output: bool = False, del_in_files: bool = False):
-    """ merge multiple BAM files and sort + index results
+    """ Merge multiple BAM files, sort and index results.
+
         Parameters
         ----------
         out_file : str
@@ -1029,6 +1031,10 @@ def merge_bam_files(out_file: str, bam_files: list, sort_output: bool = False, d
             Whether to sort the output file. Default is False.
         del_in_files : bool
             Whether to delete the input files after merging. Default is False.
+
+        Returns
+        -------
+        The filename of the merged BAM file.
     """
     if bam_files is None or len(bam_files) == 0:
         logging.error("no input BAM file provided")

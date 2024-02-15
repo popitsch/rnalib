@@ -18,7 +18,8 @@
 
 
 """
-import logging
+__version__ = "0.0.3"
+
 import math
 from abc import abstractmethod, ABC
 from collections import Counter, abc
@@ -35,13 +36,13 @@ from intervaltree import IntervalTree
 from more_itertools import pairwise, triplewise, windowed, peekable
 from sortedcontainers import SortedList, SortedSet
 
-from ._version import __version__
 from .constants import *
 from .interfaces import Archs4Dataset
 from .testdata import get_resource, list_resources
 from .tools import *
 from .utils import *
 
+import logging
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 # location of the test data directory. Use the 'RNALIB_TESTDATA' environment variable or monkey patching to set to your
@@ -1851,7 +1852,7 @@ class LocationIterator:
         Superclass for genomic iterators (mostly based on pysam) for efficient, indexed iteration over genomic
         datasets. Most rnalib iterables inherit from this superclass.
 
-        A LocationIterator iterates over a genomic dataset and yields `Item`s, that are tuples of genomic intervals and
+        A LocationIterator iterates over a genomic dataset and yields `Item`'s, that are tuples of genomic intervals and
         associated data. The data can be any object (e.g., a string, a dict, a list, etc.). Location iterators can be
         restricted to a genomic region.
 
@@ -1871,9 +1872,8 @@ class LocationIterator:
 
         Examples
         --------
-        >>> locs, data = zip(*it('myfile.bed')) # creates a LocationIterator via factory and consumes items,
-        splitting into locs and data lists.
-
+        >>> # Creates a LocationIterator via factory method and consume its items, splitting into locs and data lists.
+        >>> locs, data = zip(*it('myfile.bed'))
 
         Attributes
         ----------
@@ -1956,18 +1956,18 @@ class LocationIterator:
 
     def to_list(self, style='item'):
         """ Convenience method that consumes iterator and returns a list of items, locations or data.
+
             Parameters
             ----------
             style : str
                 'item' (default): all items with be returned
                 'location': only the locations of the items will be returned
-                 'data': only the data of the items will be returned
+                'data': only the data of the items will be returned
 
 
-            Example
-            -------
+            Examples
+            --------
             >>> it('myfile.bed').to_list()
-            >>> locs, data = zip(*it('myfile.bed'))
         """
         if style == "location":
             return [x.location for x in self]
@@ -1980,6 +1980,9 @@ class LocationIterator:
                bed_header=None, disable_progressbar=True, no_header=False, n_col=12
                ):
         """ Consumes iterator and returns results in BED format to the passed output stream.
+
+            Parameters
+            ----------
             out : file-like object
                 The output file-like object.
             fun_anno : function
@@ -1992,8 +1995,8 @@ class LocationIterator:
             no_header : bool
                 If true, no header will be written to the output file.
 
-            Example
-            -------
+            Examples
+            --------
             >>> out_file = ...
             >>> with open_file_obj(out_file, 'wt') as out:
             >>>     with LocationIterator(...) as it: # use respective subclass here
@@ -2003,7 +2006,7 @@ class LocationIterator:
         if not no_header:
             if bed_header is None:
                 bed_header = {'visibility': 1, 'itemRgb': 'On', 'useScore': 1}
-            print(f'track {' '.join([f'{x}={bed_header[x]}' for x in bed_header])}', file=out)
+            print(f"track {' '.join([f'{x}={bed_header[x]}' for x in bed_header])}", file=out)
         for idx, (loc, item) in tqdm(enumerate(self), desc=f"Writing bed file", disable=disable_progressbar):
             name, score, thickStart, thickEnd, rgb, blockCount, blockSizes, blockStarts = fun_anno(idx, loc, item)
             print(to_str([loc.chromosome, loc.start - 1, loc.end, name, score, loc.strand,
@@ -2141,6 +2144,7 @@ class LocationIterator:
 
     def tile(self, regions_iterable:Iterable[GI]=None, tile_size=1e8):
         """ Wraps this iterator in a TiledIterator.
+
             Parameters
             ----------
             regions_iterable : iterable

@@ -43,38 +43,69 @@ Rnalib is hosted on PyPI and can be installed via pip:
 
 The source code is `available on GitHub <https://github.com/popitsch/rnalib>`_.
 
+You can then import the library in your python code:
+.. code:: python
 
+   $ python
+   >>> import rnalib as rna
+
+To use *rnalib* in jupyter lab (recommended), you should
+* Install jupyter lab
+* Install and create a new virtual environment (venv)
+* Activate the venv and install the required packages from the requirements.txt file
+* Add the venv to jupyter lab
+* Start jupyter lab and create/load a notebook
+
+Here is an example of how to use *rnalib &in jupyter lab (adapt paths to your system):
+
+.. code:: bash
+
+    $ cd /Users/niko/.virtualenvs
+    $ python3 -m venv rnalib # create venv with name 'rnalib'
+    $ source rnalib/bin/activate # activate venv
+    (rnalib) $ python3 -m pip install ipykernel ipywidgets # install required ipython packages
+    (rnalib) $ python3 -m pip install -r https://raw.githubusercontent.com/popitsch/rnalib/main/requirements.txt # install required packages
+    (rnalib) $ python3 -m ipykernel install --user --name=rnalib # add currently activated venv to jupyter
+    (rnalib) $ deactivate # deactivate venv
+    $ jupyter lab # start jupyter lab
 
 Test data
 ---------
 
-The rnalib test suite and the tutorial notebooks shown below use various genomic test data files.
-These files are not included in the rnalib package but can be produced in one of the following ways:
+The *rnalib* test suite and the various tutorial notebooks use various genomic test data files that are not included in
+the GitHub repository. These test resources are 'configured' in the `rnalib.testdata <https://github.com/popitsch/rnalib/blob/main/rnalib/testdata.py>`__
+module (i.e., their source file/URL, the contained genomic region(s) and a short description of the data).
 
-* A zipped version (~260M) of the files can be downloaded from the GitHub release page of the rnalib repository
-    * if no ZIP file is attached to the version you down, please download from the most recent older version with an
-attached ZIP.
+You can get final test data files in one of the following ways:
+* A zipped version (~260M) of the files can be downloaded from the GitHub release page of the rnalib repository (or
+  from the respective most recent release with an attached ZIP file).
 * The files can also be created by running the `rnalib_create_testdata` python script that is included in the rnalib
   package. This script downloads the source files from public URLs and creates the test files by slicing,
-  sorting, compressing and indexing the files. For this, you need some external tools (bedtools, bgzip, tabix) to be installed.
+  sorting, compressing and indexing the files. For this, however, you need some external tools (bedtools, bgzip,
+  tabix) to be installed.
+* The tutorial notebooks provide code snippets for creating the test files via `rna.testdata.create_testdata()`.
+  Again, this is only possible if you have the required external tools installed.
 
-Once you have created the testdata folder, you need to tell *rnalib* about its location.
+Once you have successfully created the testdata folder, you need to tell *rnalib* about its location.
 To do so, you can either
 
 * set the `RNALIB_TESTDATA` environment variable
 * monkey-patch the global __RNALIB_TESTDATA__ variable to point to your testdata directory as done in the ipython
   notebooks
 
-You can then acccess test resources via the `get_resource(<resource_id>)` method. If `<resource_id>` starts with
-'pybedtools::<id>' then this method will return the filename of the respective test file from the `pybedtools` package.
-The list of valid ids is accessible via the `rnalib.testdata.list_resources()` method.
+You can then access test resources via the `rnalib.get_resource(<resource_id>) <https://github.com/search?q=repo%3Apopitsch/rnalib%20get_resource&type=code>`__ method.
+The list of valid resource_ids is accessible via the `rnalib.list_resources() <https://github.com/search?q=repo%3Apopitsch/rnalib%20list_resources&type=code>`__ method.
 
 Usage
 -----
 
-A detailed description of the API, its design and several usage examples can be found in the
+A detailed description of the API, its design and several usage examples is provided in the
 `README.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ jupyter
-notebook. To successfully run the notebook on Google Colab, you need to install rnalib and its dependencies first
+notebook. If you don't have jupyter installed, you can also view the notebook on GitHub or run it on Google Colab.
+
+To run rnalib in jupyter lab, it is recommended to create a new  conda or penvironment and install the required packages
+
+you need to install rnalib and its dependencies first
 (see fist, commented code cell). You also need to upload the test data files to your Google Drive and mount the drive
 or upload the files to the Colab runtime.
 
