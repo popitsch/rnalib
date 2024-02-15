@@ -9,7 +9,7 @@ genomics data.
 Design Principles
 -----------------
 
-rnalib is designed with the following principles in mind:
+*Rnalib* was designed with the following principles in mind:
 
 * Genomic data is represented by an (immutable) location object and arbitrary associated (mutable) annotation data.
 * Immutable representations of genomic intervals (`GI`) and features (e.g., genes, transcripts, exons, etc.) can be
@@ -44,25 +44,27 @@ Rnalib is hosted on PyPI and can be installed via pip:
 The source code is `available on GitHub <https://github.com/popitsch/rnalib>`_.
 
 You can then import the library in your python code:
+
 .. code:: python
 
-   $ python
    >>> import rnalib as rna
+   >>> print(f"imported rnalib {rna.__version__}")
 
-To use *rnalib* in jupyter lab (recommended), you should
+To use *rnalib* in jupyter lab (recommended), you should:
+
 * Install jupyter lab
 * Install and create a new virtual environment (venv)
 * Activate the venv and install the required packages from the requirements.txt file
 * Add the venv to jupyter lab
 * Start jupyter lab and create/load a notebook
 
-Here is an example of how to use *rnalib &in jupyter lab (adapt paths to your system):
+Here is an example of how to use *rnalib* in jupyter lab (adapt paths to your system):
 
 .. code:: bash
 
-    $ cd /Users/niko/.virtualenvs
-    $ python3 -m venv rnalib # create venv with name 'rnalib'
-    $ source rnalib/bin/activate # activate venv
+    $ cd /Users/niko/.virtualenvs # change to your venv directory
+    $ python3 -m venv rnalib      # create venv with name 'rnalib'
+    $ source rnalib/bin/activate  # activate venv
     (rnalib) $ python3 -m pip install ipykernel ipywidgets # install required ipython packages
     (rnalib) $ python3 -m pip install -r https://raw.githubusercontent.com/popitsch/rnalib/main/requirements.txt # install required packages
     (rnalib) $ python3 -m ipykernel install --user --name=rnalib # add currently activated venv to jupyter
@@ -72,12 +74,13 @@ Here is an example of how to use *rnalib &in jupyter lab (adapt paths to your sy
 Test data
 ---------
 
-The *rnalib* test suite and the various tutorial notebooks use various genomic test data files that are not included in
+The *rnalib* test suite and the tutorial ipython notebooks use various genomic test data files that are not included in
 the GitHub repository. These test resources are 'configured' in the `rnalib.testdata <https://github.com/popitsch/rnalib/blob/main/rnalib/testdata.py>`__
 module (i.e., their source file/URL, the contained genomic region(s) and a short description of the data).
 
 You can get final test data files in one of the following ways:
-* A zipped version (~260M) of the files can be downloaded from the GitHub release page of the rnalib repository (or
+
+* A zipped version (~260M) of the files can be downloaded from the `GitHub release page <https://github.com/popitsch/rnalib/releases>`__ of the rnalib repository (or
   from the respective most recent release with an attached ZIP file).
 * The files can also be created by running the `rnalib_create_testdata` python script that is included in the rnalib
   package. This script downloads the source files from public URLs and creates the test files by slicing,
@@ -86,15 +89,21 @@ You can get final test data files in one of the following ways:
 * The tutorial notebooks provide code snippets for creating the test files via `rna.testdata.create_testdata()`.
   Again, this is only possible if you have the required external tools installed.
 
-Once you have successfully created the testdata folder, you need to tell *rnalib* about its location.
-To do so, you can either
+Once you have created the testdata folder, you need to tell *rnalib* about its location.
+To do so, you can either:
 
-* set the `RNALIB_TESTDATA` environment variable
-* monkey-patch the global __RNALIB_TESTDATA__ variable to point to your testdata directory as done in the ipython
-  notebooks
+* set the `RNALIB_TESTDATA` environment variable (e.g., in your IDE or in the terminal before starting the python
+  interpreter)
+* or monkey-patch the global __RNALIB_TESTDATA__ variable to point to your testdata directory as done in the ipython
+  notebooks (see example below).
 
 You can then access test resources via the `rnalib.get_resource(<resource_id>) <https://github.com/search?q=repo%3Apopitsch/rnalib%20get_resource&type=code>`__ method.
 The list of valid resource_ids is accessible via the `rnalib.list_resources() <https://github.com/search?q=repo%3Apopitsch/rnalib%20list_resources&type=code>`__ method.
+
+.. code:: python
+
+   >>> rna.__RNALIB_TESTDATA__ = "rnalib_testdata/" # point __RNALIB_TESTDATA__ to the testdata directory
+   >>> print(rna.get_resource('test_bed')) # get file path of test_bed resource
 
 Usage
 -----
@@ -102,18 +111,19 @@ Usage
 A detailed description of the API, its design and several usage examples is provided in the
 `README.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ jupyter
 notebook. If you don't have jupyter installed, you can also view the notebook on GitHub or run it on Google Colab.
+On Google Colab, you need to install rnalib and its dependencies first (see fist, commented code cell).
+You also need to upload the required test data files to your Google Drive and mount the drive or upload the files to the Colab runtime.
 
-To run rnalib in jupyter lab, it is recommended to create a new  conda or penvironment and install the required packages
+Totorials
+---------
 
-you need to install rnalib and its dependencies first
-(see fist, commented code cell). You also need to upload the test data files to your Google Drive and mount the drive
-or upload the files to the Colab runtime.
+We also provide a set of tutorials for further demonstrating *rnalib*'s API:
 
-We compare rnalib with other genomics libraries in the following notebook:
+We compare *rnalib* to other genomics libraries with a focus on performance and memory usage in the following notebook:
 
 * `RelatedWork notebook <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/RelatedWork_performance.ipynb>`_
 
-We provide a set of tutorials for demonstrating rnalib in realistic usage scenarios:
+We provide a set of tutorials for demonstrating *rnalib* in realistic usage scenarios:
 
 * `Tutorial: Read mismatch analysis <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_mismatch_analysis.ipynb>`_
 * `Tutorial: Comparison of gene annotation sets <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_compare_annotation_sets.ipynb>`_
