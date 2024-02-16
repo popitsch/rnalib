@@ -72,6 +72,7 @@ setup(
         "pyarrow",
         "s3fs",
         "HTSeq",
-        "pyBigWig"
+        "pyBigWig",
+        "termcolor"
     ]
 )

@@ -43,6 +43,7 @@ from .tools import *
 from .utils import *
 
 import logging
+
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 # location of the test data directory. Use the 'RNALIB_TESTDATA' environment variable or monkey patching to set to your
@@ -1984,7 +1985,7 @@ class LocationIterator:
             Parameters
             ----------
             out : file-like object
-                The output file-like object.
+                The output file-like object. If None, then the results will be returned as a list.
             fun_anno : function
                 A function that takes a feature index, a location and a feature as input and returns a tuple of
                 strings that will be added to the BED output file.
@@ -2007,11 +2008,16 @@ class LocationIterator:
             if bed_header is None:
                 bed_header = {'visibility': 1, 'itemRgb': 'On', 'useScore': 1}
             print(f"track {' '.join([f'{x}={bed_header[x]}' for x in bed_header])}", file=out)
+        ret = list()
         for idx, (loc, item) in tqdm(enumerate(self), desc=f"Writing bed file", disable=disable_progressbar):
             name, score, thickStart, thickEnd, rgb, blockCount, blockSizes, blockStarts = fun_anno(idx, loc, item)
-            print(to_str([loc.chromosome, loc.start - 1, loc.end, name, score, loc.strand,
-                          thickStart, thickEnd, rgb, blockCount, blockSizes, blockStarts][:n_col], sep='\t', na='.'),
-                  file=out)
+            s = (loc.chromosome, loc.start - 1, loc.end, name, score, loc.strand, thickStart, thickEnd, rgb, blockCount,
+                 blockSizes, blockStarts)[:n_col]
+            if out is None:
+                ret.append(s)
+            else:
+                print(to_str(s, sep='\t', na='.'), file=out)
+        return ret if out is None else None
 
     def to_dataframe(self,
                      fun=lambda loc, item, fun_col, default_value: [str(item)],  # default: convert item to string repr
@@ -2142,7 +2148,7 @@ class LocationIterator:
         """ Wraps this iterator in a GroupedLocationIterator """
         return GroupedLocationIterator(self, strategy=strategy)
 
-    def tile(self, regions_iterable:Iterable[GI]=None, tile_size=1e8):
+    def tile(self, regions_iterable: Iterable[GI] = None, tile_size=1e8):
         """ Wraps this iterator in a TiledIterator.
 
             Parameters
@@ -3907,13 +3913,13 @@ class TiledIterator(LocationIterator):
             f"Only implemented for LocationIterators but not for {type(location_iterator)}"
         self.refdict = location_iterator.refdict
         super().__init__(file=None, region=None, file_format=None, per_position=False, fun_alias=None,
-                         refdict= self.refdict)
+                         refdict=self.refdict)
         self.location_iterator = location_iterator
         self.tile_size = tile_size
         if regions_iterable is None:
             assert self.refdict is not None, "Cannot calculate tiles without a reference dict"
             assert self.refdict.has_len(), ("Cannot calculate tiles from refdict without lengths. "
-                                                         "Consider creating a refdict with calc_chromlen=True.")
+                                            "Consider creating a refdict with calc_chromlen=True.")
             self.regions_iterable = self.location_iterator.refdict.tile(tile_size=int(self.tile_size))
         else:
             self.regions_iterable = regions_iterable

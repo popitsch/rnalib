@@ -11,27 +11,31 @@ import re
 import shutil
 import ssl
 import sys
+import time
 import timeit
 import unicodedata
 import urllib.request
 import warnings
 from collections import Counter, namedtuple, defaultdict
+from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from functools import reduce
+from io import StringIO
 from itertools import groupby, zip_longest, islice
 from pathlib import Path
 from typing import Optional, List
 
+import h5py
 import mygene
 import numpy as np
 import pandas as pd
 import pyBigWig
 import pybedtools
 import pysam
-from IPython.display import HTML, clear_output
 from IPython.core.display_functions import display
-import h5py
+from IPython.display import HTML, clear_output
 from matplotlib import pyplot as plt
+from termcolor import colored
 from tqdm.auto import tqdm
 
 import rnalib as rna
@@ -685,6 +689,7 @@ def print_small_file(filename, show_linenumber=False, max_lines=10):
             print(line, end='')
         if i > max_lines:
             break
+    infile.close()
 
 
 def get_bcgs(fast5_file):
@@ -699,6 +704,28 @@ def get_bcgs(fast5_file):
 # --------------------------------------------------------------
 # Utility functions for ipython notebooks
 # --------------------------------------------------------------
+
+def display_animated_gif(gif_url):
+    display(HTML("""
+    <!-- gh-pages -->
+    <link rel='stylesheet' href='https://unpkg.com/freezeframe@3.0.10/build/css/freezeframe_styles.min.css'>
+    <script type='text/javascript' src='https://unpkg.com/freezeframe@3.0.10/build/js/freezeframe.pkgd.min.js'></script>
+
+    <script type='text/javascript'> 
+      third = new freezeframe('.my_class_3').capture().setup();
+      $(function() {
+        $('.start').click(function(e) {
+          e.preventDefault();
+          third.trigger();
+        });
+      })
+    </script>
+    """ + f"""
+    <img class="my_class_3 freezeframe-responsive" src="{gif_url}" />
+    <button class="start">restart</button>
+    """ + """
+    <script>setTimeout( function() { third.trigger(); }, 1000);</script>
+    """))
 
 def display_textarea(txt, rows=4, cols=120):
     """ Display a (long) text in a scrollable HTML text area """
@@ -915,7 +942,7 @@ def open_file_obj(fh, file_format=None, file_extensions=None) -> object:
     elif file_format == 'fastq':
         fh = gzip.open(fh, 'rb') if fh.endswith('.gz') else open(fh, mode="r")
     elif file_format == 'bigwig' or file_format == 'bigbed':
-        fh = pyBigWig.open(fh, 'r')
+        fh = pyBigWig.open(fh)
     else:
         raise NotImplementedError(f"Unsupported input format for file {fh}")
     return fh
@@ -1430,3 +1457,83 @@ def random_sample(conf_str, rng=np.random.default_rng(seed=None)):
     if len(tok) != 2 or tok[0] not in supported_dist:
         raise NotImplementedError(f"Unsupported distribution config: {conf_str}")
     return eval(f'rng.{conf_str}')
+
+
+def load_cmd(command_file, col=True, delay=1):
+    """
+
+    Parameters
+    ----------
+    command_file
+    col
+    delay
+
+    Returns
+    -------
+
+    Notes
+    -----
+    TODO
+    * currently, only one # per line works.
+    * add typing simulation (add 1 char a time)
+    """
+    with (open(command_file, mode='rt') as cin):
+        current_delay = delay
+        cmds, prompts, delays = [''], [''], [current_delay]
+        for i, line in enumerate(cin):
+            if line.endswith('\n'):
+                line = line[:-1]  # remove newline
+            if line == '':
+                continue  # skip empty lines
+            is_multiline = False
+            if line.endswith("\\"):
+                line = line[:-1]  # remove trailing backslash
+                is_multiline = True
+            line, comment = line.split("#") if "#" in line else (line, "")
+            cmd = line.strip()
+            if cmd.startswith("display("):
+                cmd = cmd.replace("display(", "print(")  # redirect to stdout
+            prompt = line.rstrip()
+            if prompt.startswith("display("):
+                prompt = prompt.replace("display(", "")[:-1]
+            if col:
+                prompt = colored(prompt, 'green')
+            if len(comment) > 0:
+                # parse time from comment, e.g., "sometext (t=0.5)" -> [0.5]
+                tok = re.findall(r"[-+]?t=(\d*\.*\d+)\)", comment)
+                if len(tok) == 1:
+                    comment = comment.replace(f"(t={tok[0]})", "")
+                    current_delay = float(tok[0])
+                    delays[-1] = current_delay
+                if col:
+                    prompt += colored(f" # {comment}", color='red')
+                else:
+                    prompt += ' # ' + comment
+            cmds[-1] += cmd
+            prompts[-1] += prompt + '\n' if is_multiline else prompt
+            if is_multiline:
+                continue
+            # new comment
+            cmds.append('')
+            prompts.append('')
+            delays.append(current_delay)
+    return cmds[:-1], prompts[:-1], delays[:-1]
+
+
+def execute_screencast(command_file, delay=1, col=True, console_prompt='>>> '):
+    """
+        Executes the passed command file in a python shell.
+        Example
+        -------
+        >>> execute_screencast('screencast.txt')
+    """
+    cmds, prompts, delays = load_cmd(command_file, col=col, delay=delay)
+    print(console_prompt, end='')
+    for cmd, prompt, delay in zip(cmds, prompts, delays):
+        print(prompt)
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            exec(cmd)
+        print(stdout.getvalue())
+        print(console_prompt, end='', flush=True)
+        time.sleep(delay)
