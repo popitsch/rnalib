@@ -1,12 +1,10 @@
 """
 Tests for the genemodel module
 """
-import io
 import tempfile
 from collections import Counter
 from itertools import pairwise
 
-import IPython.terminal.shortcuts.filters
 import pytest
 import os
 import copy
@@ -51,7 +49,7 @@ def test_eq(default_testdata):
     assert f1 != f2
     # compare with GI
     assert f1.overlap(gi('chr1', 1, 10)) and not f1.overlap(gi('chr1', 11, 20))
-    assert f1 < gi('chr1', 11, 20) and f1 > gi('chr1', 0, 5)
+    assert gi('chr1', 11, 20) > f1 > gi('chr1', 0, 5)
 
 
 def test_transcriptome(default_testdata):
@@ -181,21 +179,25 @@ def test_genmodel_anno_persistence(default_testdata):
             f['test'] = 'testvalue'
         for f in t.anno:
             assert t.anno[f]['test'] == 'testvalue'
-        # load and update
-        t.load_annotations(pkfile, update=True)
-        for f in t.anno:
-            if f in t.genes[0].features():
-                assert t.anno[f]['test'] == 1
-            else:
-                assert t.anno[f]['test'] == 'testvalue'
         # load and replace
         t.load_annotations(pkfile)
         for f in t.anno:
             if f in t.genes[0].features():
                 assert t.anno[f]['test'] == 1
             else:
-                assert t.anno[f] == {}
-
+                assert t.anno[f]['test'] == 'testvalue'
+        # load and update
+        for f in t.genes[0].features():
+            del t.anno[f]['test']  # delete old anno
+            t.anno[f]['test1'] = 2  # add new anno with different key
+        # load with update=True
+        t.load_annotations(pkfile, update=True)
+        for f in t.anno:
+            if f in t.genes[0].features():
+                assert t.anno[f]['test'] == 1
+                assert t.anno[f]['test1'] == 2
+            else:
+                assert t.anno[f]['test'] == 'testvalue'
         oldid = id(t.genes[0].__class__)
         # can we load for new model? (here the ids of all feature classes differ!)
         t = Transcriptome(**default_testdata)
@@ -228,25 +230,27 @@ def test_to_gff3(default_testdata):
         config = default_testdata
         t1 = Transcriptome(**config)
         reg = t1.add(gi('chr3:5000-6000'), feature_id='my_reg_region',
-                    feature_type='regulatory_region')  # create a 'regulatory_region' feature and add to the transcriptome
-
+                     feature_type='regulatory_region')  # create a 'regulatory_region' feature and add to the transcriptome
         t1.anno[reg]['test'] = (4, 5, 6)  # add a 'test' annotation
-        t1.to_gff3(gff3file, bgzip=True, feature_types=('regulatory_region'))
-        #rnalib.print_small_file(gff3file + '.gz')
+        t1.to_gff3(gff3file, bgzip=True, feature_types=('transcript', 'regulatory_region',))
+        #rnalib.print_small_file(gff3file + '.gz', max_lines=100)
         config2 = config.copy()
         config2['annotation_gff'] = gff3file + '.gz'
-        t2 = Transcriptome(**config2)
-        reg1,_ = zip(*t1.iterator(feature_types='regulatory_region'))
-        reg2, _ = zip(*t1.iterator(feature_types='regulatory_region'))
-        assert reg1 == reg2
-
+        config2['custom_feature_types']=['regulatory_region']
+        t2 = Transcriptome(**config2)  # regulatory regions is loaded from GFF
+        # compare locations of transcripts only as children are not in GFF so direct feature comparison fails
+        assert {f.location.location for f in t1.iterator(feature_types='transcript')} == \
+               {f.location.location for f in t2.iterator(feature_types='transcript')}
+        # assert that reg region is loaded properly from GFF. Compare only locations as annotation data is not in GFF
+        assert t1.iterator(feature_types='regulatory_region').to_list(style='location') == \
+               t2.iterator(feature_types='regulatory_region').to_list(style='location')
 
 
 def test_to_bed(default_testdata):
+    # teste whether to_bed works and checks for first item
     t = Transcriptome(**default_testdata)
-    with io.StringIO() as out:
-        t.to_bed(out)
-        print(out.getvalue())
+    assert t.to_bed(None, feature_types='transcripts')[0] == \
+    ('chr3', 181711924, 181714436, 'ENST00000325404.3', '.', '+', 181712360, 181713314, '153,255,153', 1, '2512', '0')
 
 
 def test_filter(default_testdata):
@@ -351,11 +355,14 @@ def test_gff_flavours():
         'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
         'annotation_gff': get_resource('ensembl_gff'),
         'annotation_flavour': 'ensembl',
-        'annotation_fun_alias': 'toggle_chr'
+        'annotation_fun_alias': 'toggle_chr',
+        'load_sequence_data': True
     }
     t = Transcriptome(**config)
     assert len(t.genes) == 5
     assert 'gene:ENSG00000181449' in t.gene
+    # for tx in t.transcripts:
+    #    assert len(tx.translated_sequence) % 3 == 0
 
     # UCSC with tx filtering
     config = {
@@ -369,6 +376,8 @@ def test_gff_flavours():
     assert Counter([f.feature_type for f in t.anno]) == {'exon': 6, 'CDS': 5, 'intron': 5, 'five_prime_UTR': 2,
                                                          'three_prime_UTR': 1, 'gene': 1, 'transcript': 1}
     assert len(t.genes) == 1
+    # for tx in t.transcripts:
+    #    assert len(tx.translated_sequence) % 3 == 0
 
     # Mirgenedb
     config = {
@@ -378,6 +387,7 @@ def test_gff_flavours():
     }
     t = Transcriptome(**config)  # 322 miRNA entries, 161 pre_miRNA entries
     assert Counter([f.feature_type for f in t.anno]) == {'gene': 483, 'transcript': 483}
+    # No CDS annotations!
 
     # flybase
     config = {
@@ -386,7 +396,8 @@ def test_gff_flavours():
         'annotation_flavour': 'flybase',
         'feature_filter': TranscriptFilter({
             'location': {'included': {'regions': ['2L:1-10000']}}
-        })
+        }),
+        'load_sequence_data': True
     }
     t = Transcriptome(**config)
     print(t.log)
@@ -401,6 +412,9 @@ def test_gff_flavours():
              'gene': 2})
     assert Counter([tx.gff_feature_type for tx in t.transcripts]) == {'mRNA': 11, 'pseudogene': 1}
     assert {loc.chromosome for loc in t.transcripts} == {'2L'}
+    for tx in t.transcripts:
+        assert len(tx.translated_sequence) % 3 == 0
+
     # Generic
     config = {
         'genome_fa': get_resource('dmel_genome'),
@@ -563,3 +577,18 @@ def test_read_alias_file():
     aliases, current_symbols = read_alias_file(get_resource('hgnc_gene_aliases'))
     assert [norm_gn(g, current_symbols, aliases) for g in ['A2MP', 'FLJ23569', 'p170']] == \
            ['A2MP1', 'A1BG-AS1', 'A2ML1']
+
+
+def test_annotate_with_mygene():
+    config = {
+        'genome_fa': get_resource('ACTB+SOX2_genome'),
+        'genome_offsets': {'chr3': 181711825, 'chr7': 5526309},
+        'annotation_gff': get_resource('gencode_gff'),
+        'annotation_flavour': 'gencode',
+    }
+    t = Transcriptome(**config)
+    t.annotate_with_mygene('pathway.kegg')
+    assert t['SOX2-OT'].pathway_kegg == None
+    print([g.gene_name for g in t.genes])
+    assert 'hsa04390' in [a['id'] for a in t['SOX2'].pathway_kegg]
+    assert 'hsa04015' in [a['id'] for a in t['ACTB'].pathway_kegg]

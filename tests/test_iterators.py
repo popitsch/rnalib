@@ -1,7 +1,6 @@
 """
 Tests for anno_its
 """
-import io
 import itertools
 import random
 from collections import Counter
@@ -93,7 +92,7 @@ def test_to_dataframe(testdata):
 
 
 def test_FastaIterator():
-    fasta_file = get_resource('ACTB+SOX2_genome') # chr3, chr7
+    fasta_file = get_resource('ACTB+SOX2_genome')  # chr3, chr7
     # read seq via pysam
     with pysam.Fastafile(fasta_file) as fh:
         ref = {c: fh.fetch(c) for c in fh.references}
@@ -144,7 +143,7 @@ def test_TabixIterator():
         rna.TabixIterator(vcf_file, region=gi('unknown_contig', 5, 10))
     print(f'Expected assertion: {e_info}')
     # BED file with added 'chr' prefix
-    ti = rna.TabixIterator(bed_file, region='chr1:1-10',coord_inc=[1, 0], fun_alias=toggle_chr)
+    ti = rna.TabixIterator(bed_file, region='chr1:1-10', coord_inc=[1, 0], fun_alias=toggle_chr)
     assert (merge_yields(ti.to_list())[0] == gi('chr1', 6, 15))  # start is 0-based, end is 1-based
     # bedgraph file but parsed as Tabixfile
     # 0.042+0.083+0.125+0.167+0.208+4*0.3+0.7*2+0.8*2+0.1*20 == 6.824999999999999
@@ -223,11 +222,12 @@ def test_GroupedLocationIterator(testdata):
 def test_TiledIterator(testdata):
     with rna.it(rna.get_resource('small_example_bam'),  # Create a read iterator
                 flag_filter=0,  # report all reads
-                fun_alias=rna.toggle_chr
-                # add a 'chr' prefix to the chromosome names (via fun_alias) so they match the CANONICAL_CHROMOSOMES dict below
+                fun_alias=rna.toggle_chr  # add a 'chr' prefix
                 ).tile(tile_size=1e6) as it:
-        stats={loc: len(dat) for loc, dat in it if loc.chromosome in rna.CANONICAL_CHROMOSOMES['GRCh38'] if len(dat)>0}
+        stats = {loc: len(dat) for loc, dat in it if loc.chromosome in rna.CANONICAL_CHROMOSOMES['GRCh38'] if
+                 len(dat) > 0}
     assert stats == {gi('chr1:22000001-23000000'): 31678}
+
 
 def test_AnnotationIterator(testdata):
     # simple test
@@ -253,9 +253,8 @@ def test_AnnotationIterator(testdata):
             ('C', ['F'])]
     # iterate only chr1
     assert format_results(
-        rna.AnnotationIterator(rna.MemoryIterator(a, region='chr1'), rna.MemoryIterator(b)).to_list()) == \
-           [('A', ['D1', 'D2']),
-            ('B', ['D1', 'D2'])]
+        rna.AnnotationIterator(rna.MemoryIterator(a, region='chr1'), rna.MemoryIterator(b)).
+        to_list()) == [('A', ['D1', 'D2']), ('B', ['D1', 'D2'])]
 
     # multiple anno_its and labels
     with rna.AnnotationIterator(rna.MemoryIterator(a), [rna.MemoryIterator(b), rna.MemoryIterator(b)],
@@ -353,9 +352,9 @@ def test_SyncPerPositionIterator(testdata):
 
     # complex test with random dataset
     @dataclass(frozen=True)
-    class test_feature(GI):
+    class TestFeature(rna.Feature):
         feature_id: str = None  # a unique id
-        feature_type: str = None  # a fetaur etype (e.g., exon, intron, etc.)
+        feature_type: str = None  # a feature type (e.g., exon, intron, etc.)
         name: str = None  # an optional name
         parent: object = None  # an optional parent
 
@@ -371,10 +370,10 @@ def test_SyncPerPositionIterator(testdata):
     class SyncPerPositionIteratorTestDataset:
         """ 2nd, slow implementation of the sync algorithm for testing"""
 
-        def __init__(self, seed=None, n_it=3, n_pos=10, n_chr=2, n_int=5):
+        def __init__(self, rnd_seed=None, n_it=3, n_pos=10, n_chr=2, n_int=5):
             self.seed = seed
             if seed:
-                random.seed(seed)
+                random.seed(rnd_seed)
             self.dat = {}
             self.minmax = {}
             for it in range(n_it):
@@ -391,8 +390,8 @@ def test_SyncPerPositionIterator(testdata):
             for i in range(random.randrange(n_int)):
                 start = random.randrange(n_pos)
                 end = random.randrange(start, n_pos)
-                g = test_feature.from_gi(gi(chrom, start, end), feature_id=it,
-                                         name=f'it{it}_{chrom}:{start}-{end}_{len(ret)}')
+                g = TestFeature.from_gi(gi(chrom, start, end), feature_id=it,
+                                        name=f'it{it}_{chrom}:{start}-{end}_{len(ret)}')
                 if g.chromosome not in self.minmax:
                     self.minmax[g.chromosome] = range(g.start, g.end)
                 self.minmax[g.chromosome] = range(min(self.minmax[g.chromosome].start, g.start),
@@ -404,14 +403,14 @@ def test_SyncPerPositionIterator(testdata):
             ret = {}
             for chrom in sorted(self.minmax):
                 for p in range(self.minmax[chrom].start, self.minmax[chrom].stop + 1):
-                    pos = gi(chrom, p, p)
+                    lpos = gi(chrom, p, p)
 
                     found = SortedList()
                     for i, d in enumerate(self.dat.values()):
                         for g in d[chrom]:
-                            if g.overlaps(pos):
+                            if g.overlaps(lpos):
                                 found.add(g.name)
-                    ret[pos] = found
+                    ret[lpos] = found
             return ret
 
         def found(self):
@@ -516,8 +515,8 @@ def test_ReadIterator():
     assert stats['all']['yielded_items', '1'] == 31678  # samtools view -c small_example.bam -> 31678
     assert stats['def']['yielded_items', '1'] == 21932  # samtools view -c small_example.bam -F 3844 -> 21932
     assert stats['mq20']['yielded_items', '1'] == 21626  # samtools view -c small_example.bam -F 3844 -q 20 -> 21626
-    assert stats['tag'][
-               'yielded_items', '1'] == 7388  # samtools view small_example.bam -F 3844 | grep -v "MD:Z:100" | wc -l -> 7388
+    # cf. samtools view small_example.bam -F 3844 | grep -v "MD:Z:100" | wc -l -> 7388
+    assert stats['tag']['yielded_items', '1'] == 7388
     # count t/c mismatches
     tc_conv = {}
     for _, (r, mm) in rna.ReadIterator(get_resource('small_example_bam'), report_mismatches=True, min_base_quality=10):
@@ -554,9 +553,9 @@ def slow_pileup(bam, chrom, start, stop):
                 continue
             # print(r.alignment.query_name, r.query_position)
             if r.is_del:
-                ac[pos][None] += 1
+                ac[pos][None] += 1  # noqa
             else:
-                ac[pos][r.alignment.query_sequence[r.query_position]] += 1
+                ac[pos][r.alignment.query_sequence[r.query_position]] += 1  # noqa
     return [(gi(chrom, gpos, gpos), ac[gpos] if gpos in ac else Counter()) for gpos in range(start, stop)]
 
 
@@ -597,7 +596,7 @@ def test_FastPileupIterator_repeated():
         for x in range(2):
             print("with reg", x)
             assert [(loc.start, c) for loc, c in rna.FastPileupIterator(bam, region=gi('1:22418244-22418244'))] == [
-                (22418244, Counter({'T': 136, None: 1}))]   # 136 Ts and 1 deletion
+                (22418244, Counter({'T': 136, None: 1}))]  # 136 Ts and 1 deletion
 
 
 def test_FastqIterator():
@@ -689,7 +688,8 @@ def test_pybedtools_it(testdata):
                                    refdict=rna.RefDict(d={'chr1': 1000}))] == \
            from_str("chr1:2-100 (+), chr1:101-200 (+), chr1:151-500 (-)")
     # now we filter before and then just iterate with our iterator
-    bt = pybedtools.BedTool(get_resource("pybedtools::a.bed")).intersect([pybedtools.Interval('chr1', 1, 300)], u=True)
+    bt = pybedtools.BedTool(get_resource("pybedtools::a.bed")).intersect([pybedtools.Interval('chr1', 1, 300)], # noqa
+                                                                         u=True)
     # access to files w/o index requires manual setting of refdict
     with pytest.raises(Exception) as e_info:
         rna.PybedtoolsIterator(bt)
@@ -734,6 +734,11 @@ def test_BioframeIterator(testdata):
 
 
 def test_to_bed(testdata):
-    with io.StringIO() as out:
-        rna.BedIterator(get_resource('test_bed')).to_bed(out)
-        print(out.getvalue())
+    assert rna.BedIterator(get_resource('test_bed')).to_bed(None) == \
+           [('1', 5, 10, 'item0', '.', None, 5, 10, '0,0,0', 1, 5, 0),
+            ('1', 9, 15, 'item1', '.', None, 9, 15, '0,0,0', 1, 6, 0),
+            ('2', 9, 150, 'item2', '.', None, 9, 150, '0,0,0', 1, 141, 0)]
+    assert rna.it(gi("1:1-3")).to_bed(None) == \
+           [('1', 0, 1, '0'), ('1', 1, 2, '1'), ('1', 2, 3, '2')]  # single interval, iterate individual positions
+    assert rna.it([gi("1:1-3"), gi("1:4-6")]).to_bed(None, ) == \
+           [('1', 0, 3, '0'), ('1', 3, 6, '1')]

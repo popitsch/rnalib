@@ -8,3 +8,5 @@
 /dist/
 /rnalib/rnalib.egg-info/
 /rnalib.egg-info/
+/build/
+/TODOs.txt

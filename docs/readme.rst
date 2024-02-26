@@ -71,6 +71,10 @@ Here is an example of how to use *rnalib* in jupyter lab (adapt paths to your sy
     (rnalib) $ deactivate # deactivate venv
     $ jupyter lab # start jupyter lab
 
+Now, you can load an *rnalib* notebook and select 'rnalib' as kernel. All basic requirements of rnalib should be
+installed, some notebook-specific requirements (e.g., seaborn) might need to be installed separately (see the respective
+notebook).
+
 Test data
 ---------
 
@@ -114,7 +118,9 @@ notebook. If you don't have jupyter installed, you can also view the notebook on
 On Google Colab, you need to install rnalib and its dependencies first (see fist, commented code cell).
 You also need to upload the required test data files to your Google Drive and mount the drive or upload the files to the Colab runtime.
 
-Totorials
+
+
+Tutorials
 ---------
 
 We also provide a set of tutorials for further demonstrating *rnalib*'s API:

@@ -64,8 +64,6 @@ def test_loc_simple():
         a.chromosome = 'chr' + a.chromosome
 
 
-
-
 def test_loc_overlaps():
     # Some overlap tests
     # .........1........  ....2......
@@ -249,8 +247,9 @@ def test_updownstream():
     assert [gi('chr1', 10, 20, '-').get_downstream(3)] == from_str("chr1:7-9(-)")
     assert [gi('chr1', 10, 20, '-').get_upstream(3)] == from_str("chr1:21-23(-)")
 
+
 def test_toXXX():
-    #HTSeq
+    # HTSeq
     iv = gi("chr1", 1, 10)
     iv2 = HTSeq.GenomicInterval(iv.chromosome, iv.start - 1, iv.end, '.' if iv.strand is None else iv.strand)
     assert iv.to_htseq() == iv2

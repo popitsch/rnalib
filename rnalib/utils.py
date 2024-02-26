@@ -4,6 +4,7 @@ This module implements various general (low-level) utility methods
 """
 import gzip
 import logging
+import math
 import numbers
 import os
 import random
@@ -214,6 +215,17 @@ def to_set(x) -> set:
     return set(x)
 
 
+def to_list(x) -> list:
+    """ Converts an object to a set. If x is None, an empty set is returned.
+        if x is a string, it will be split by ',' and the resulting list will be converted to a set.
+    """
+    if x is None:
+        return list()
+    if isinstance(x, str):
+        return list(x.split(','))
+    return list(x)
+
+
 def to_str(*args, sep=',', na='NA') -> str:
     """
         Converts an object to a string representation. Iterables will be joined by the configured separator.
@@ -260,8 +272,20 @@ def format_fasta(string, ncol=80) -> str:
     return '\n'.join(string[i:i + ncol] for i in range(0, len(string), ncol))
 
 
+def convert_size(size_bytes):
+    """ Convert bytes to human-readable format,
+        see https://stackoverflow.com/questions/5194057/better-way-to-convert-file-sizes-in-python """
+    if size_bytes == 0:
+        return "0B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return "%s %s" % (s, size_name[i])
+
+
 def dir_tree(root: Path, prefix: str = '', space='    ', branch='│   ', tee='├── ', last='└── ', max_lines=10,
-             glob=None):
+             glob=None, show_size=True):
     """ A recursive generator yielding a visual tree structure line by line.
 
         Parameters
@@ -282,16 +306,20 @@ def dir_tree(root: Path, prefix: str = '', space='    ', branch='│   ', tee='�
             maximum yielded lines per directory.
         glob:
             optional glob param to filter. Use, e.g., `'**/*.py'` to list all .py files. default: None (all files)
-
+        show_size:
+            optional; if True, the size of the file will be printed in brackets after the filename
         @see https://stackoverflow.com/questions/9727673/list-directory-tree-structure-in-python
     """
+    if isinstance(root, str):
+        root = Path(root)
     contents = list(root.iterdir()) if (glob is None) else list(root.glob(glob))
     if len(contents) > max_lines:
         contents = contents[:max_lines] + [Path('...')]
     # contents each get pointers that are ├── with a final └── :
     pointers = [tee] * (len(contents) - 1) + [last]
     for pointer, path in zip(pointers, contents):
-        yield prefix + pointer + path.name
+        size = f" ({convert_size(path.stat().st_size)})" if show_size and path.is_file() else ''
+        yield prefix + pointer + path.name + size  # print the item
         if path.is_dir():  # extend the prefix and recurse:
             extension = branch if pointer == tee else space
             # i.e. space because last, └── , above so no more |
@@ -688,6 +716,7 @@ def print_small_file(filename, show_linenumber=False, max_lines=10):
         else:
             print(line, end='')
         if i > max_lines:
+            print("...")
             break
     infile.close()
 
@@ -726,6 +755,7 @@ def display_animated_gif(gif_url):
     """ + """
     <script>setTimeout( function() { third.trigger(); }, 1000);</script>
     """))
+
 
 def display_textarea(txt, rows=4, cols=120):
     """ Display a (long) text in a scrollable HTML text area """
@@ -850,7 +880,7 @@ default_file_extensions = {
     'gtf': ('.gtf', '.gtf.gz'),
     'fastq': ('.fq', '.fastq', '.fq.gz', '.fastq.gz'),
     'bigwig': ('.bw', '.bigWig'),
-    'bigbed': ('.bigBed')
+    'bigbed': ('.bigBed',)
 }
 
 
@@ -1403,40 +1433,6 @@ def get_sample_metadata(samples, sample_dict=None, keys=None, file='data/human_g
 # div
 # --------------------------------------------------------------
 
-def get_archs4_counts(sample_idx, gene_symbols=None, disable_progressbar=False, file='data/human_gene_v2.2.h5'):
-    """
-    Retrieve gene expression data from a specified file for the given sample and gene indices.
-
-    Args:
-        file (str): The file path or object containing the data.
-        sample_idx (list): A list of sample indices to retrieve expression data for.
-        gene_idx (list, optional): A list of gene indices to retrieve expression data for. Defaults to an empty list (return all).
-        silent (bool, optional): Whether to disable progress bar. Defaults to False.
-
-    Returns:
-        pd.DataFrame: A pandas DataFrame containing the gene expression data.
-
-    """
-    sample_idx = sorted(sample_idx)  # sample ids
-    row_encoding = "meta/genes/symbol"  # a4.data.get_encoding(file) # h5 path to expression data
-    res = []
-    with h5py.File(file, "r") as f:
-        # get gene indices
-        genes = np.array([x.decode("UTF-8") for x in np.array(f[row_encoding])])
-        if gene_symbols is None:  # all genes
-            gene_idx = list(range(len(genes)))
-        else:
-            gene_idx = [i for i, g in enumerate(genes) if g in gene_symbols]
-        # get sample ids
-        gsm_ids = np.array([x.decode("UTF-8") for x in np.array(f["meta/samples/geo_accession"])])[sample_idx]
-        for idx in (pbar := tqdm(sample_idx, disable=disable_progressbar)):
-            pbar.set_description(f"Accessing sample {idx}")
-            res.append(np.array(f["data/expression"][:, idx], dtype=np.uint32)[gene_idx])
-    res = np.array(res)
-    res = pd.DataFrame(res, index=gsm_ids, columns=genes[gene_idx], dtype=np.uint32)
-    return res
-
-
 def random_sample(conf_str, rng=np.random.default_rng(seed=None)):
     """
         Draws random samples from a distribution that is configured by the passed (configuration) string.
@@ -1447,8 +1443,8 @@ def random_sample(conf_str, rng=np.random.default_rng(seed=None)):
         >>> random_sample(12), random_sample(12.0), random_sample('12') # constant value
         >>> random_sample('uniform(1,2,100)') # 100 random numbers, uniformly sampled from [1; 2]
         >>> random_sample('normal(3, 0.8, size=(2, 4))') # 2 x 4 random numbers from a normal distribution around 3 with sd 0.8
-        >>> for x in random_sample('normal(3000,10,size=(5,1000))'):
-        >>>     plt.hist(x, 30, density=True, histtype=u'step') # plot 5 histograms
+        >>> for x in random_sample("normal(3000,10,size=(5,1000))"):
+        >>>     plt.hist(x, 30, density=True, histtype=u'step') # plot 5 histograms # noqa
     """
     if isinstance(conf_str, numbers.Number) or conf_str.isnumeric():
         return float(conf_str)

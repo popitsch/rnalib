@@ -96,6 +96,7 @@ test_resources = {
         "filename": "gff/mirgenedb.dme.sorted.gff3.gz"
     },
     "generic_gff3": {
+        # small GFF file for testing the generic GFF parser
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/generic.gff3.gz",
         "filename": "gff/generic.gff3.gz"
     },
@@ -110,17 +111,20 @@ test_resources = {
         "filename": "fastq/test.fq.gz"
     },
     "small_PE_fastq1": {
+        # example FASTQ files (paired-end), mate1
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/Test01_L001_R1_001.top20.fastq",
         "regions": 20,
         "filename": "fastq/Test01_L001_R1_001.top20.fastq"
     },
     "small_PE_fastq2": {
+        # example FASTQ files (paired-end), mate2
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/Test01_L001_R2_001.top20.fastq",
         "regions": 20,
         "filename": "fastq/Test01_L001_R2_001.top20.fastq"
     },
     # -------------- BAM -------------------------------
     "rogue_read_bam": {
+        # example BAM file with a rogue read
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/rogue_read.bam",
         "filename": "bam/rogue_read.bam",
     },
@@ -135,14 +139,17 @@ test_resources = {
         "filename": "bam/NA12878_S1.chr20.10_10p1mb.bam"
     },
     "small_example_bam": {
+        # small GRCh37(!) mapped example BAM file
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small_example.bam",
         "filename": "bam/small_example.bam"
     },
     "small_ACTB+SOX2_bam": {
+        # Small example BAM file containing SLAM-seq data (i.e., T/C conversions) for ACTB+SOX2. Included tags: xc, YC
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small.ACTB+SOX2.bam",
         "filename": "bam/small.ACTB+SOX2.bam"
     },
     "small_ACTB+SOX2_clean_MD_bam": {
+        # as above, but including MD tags and no xc/YC tags
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small.ACTB+SOX2.clean.MD.bam",
         "filename": "bam/small.ACTB+SOX2.clean.MD.bam"
     },
@@ -154,10 +161,12 @@ test_resources = {
         "filename": "vcf/dmelanogaster_6_exported_20230523.vcf.gz"
     },
     "test_vcf": {
+        # small VCFv4.2 example file with a single sample
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/test.vcf.gz",
         "filename": "vcf/test.vcf.gz"
     },
     "test_snps_vcf": {
+        # small VCF file containing some SNP calls
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/test_snps.vcf.gz",
         "filename": "vcf/test_snps.vcf.gz"
     },
@@ -172,10 +181,12 @@ test_resources = {
     },
     # -------------- BED -------------------------------
     "test_bed": {
+        # small example bed file
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/test.bed.gz",
         "filename": "bed/test.bed.gz"
     },
     "test_bed12": {
+        # small example bed12 file
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/test_bed12.bed.gz",
         "filename": "bed/test_bed12.bed.gz"
     },
@@ -190,11 +201,13 @@ test_resources = {
     },
     # -------------- BEDGRAPH --------------------------
     "test_bedgraph": {
+        # small example bedgraph file with track header
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/test.bedgraph.gz",
         "filename": "bed/test.bedgraph.gz",
         "tabix_options": "-p bed -S 1"
     },
     "human_umap_k24": {
+        #  actb ex1+2 (on chr7) umap data from https://bismap.hoffmanlab.org/raw/hg38/k24.umap.bedgraph.gz
         "uri": "https://bismap.hoffmanlab.org/raw/hg38/k24.umap.bedgraph.gz",
         "#uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/GRCh38.chr7.k24.umap.bedgraph.gz",
         "format": "bed",
@@ -214,6 +227,9 @@ test_resources = {
     },
     # -------------- FASTA -------------------------------
     "ACTB+SOX2_genome": {
+        # GRCh38 derived mFASTA with genomic sequences +/- 100bp of ACTB and SOX2
+        # samtools faidx <GRCh38.fa> chr3:181711825-181714536 > ACTB+SOX2.fa
+        # samtools faidx <GRCh38.fa> chr7:5526309-5564002    >> ACTB+SOX2.fa
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/ACTB+SOX2.fa.gz",
         "filename": "fasta/ACTB+SOX2.fa.gz"
     },
@@ -280,7 +296,7 @@ def list_resources():
     return lst
 
 
-def get_resource(k, data_dir: Path=None, conf=None, create_resource=False):
+def get_resource(k, data_dir: Path = None, conf=None, create_resource=False):
     """
         Return a file link to the test resource with the passed key.
         If the passed key starts with 'pybedtools::<filename>', then the respective pybedtools test file will be
@@ -458,5 +474,3 @@ def make_random_intervals(n=1000,
         'value': values
     }).sort_values(['chrom', 'start', 'end']).reset_index(drop=True)
     return df
-
-
