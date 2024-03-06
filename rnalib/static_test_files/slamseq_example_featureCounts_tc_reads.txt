@@ -1,0 +1,19 @@
+# Program:featureCounts v2.0.6; Command:"featureCounts" "-s" "1" "-O" "-t" "exon" "-g" "ID" "-a" "../gff/slamseq_example_mm10.gff3.gz" "-o" "slamseq_example_featureCounts_tc_reads.txt" "slamseq_example_tp0+tc_tc-only.bam" "slamseq_example_tp10+tc_tc-only.bam" "slamseq_example_tp15+tc_tc-only.bam" "slamseq_example_tp20+tc_tc-only.bam" "slamseq_example_tp25+tc_tc-only.bam" "slamseq_example_tp5+tc_tc-only.bam" 
+Geneid	Chr	Start	End	Strand	Length	slamseq_example_tp0+tc_tc-only.bam	slamseq_example_tp10+tc_tc-only.bam	slamseq_example_tp15+tc_tc-only.bam	slamseq_example_tp20+tc_tc-only.bam	slamseq_example_tp25+tc_tc-only.bam	slamseq_example_tp5+tc_tc-only.bam
+ENSMUST00000182580.7_exon_0	1	9941959	9942155	-	197	146	107	81	66	54	126
+ENSMUST00000182580.7_exon_1	1	9942323	9942391	-	69	118	102	66	54	50	105
+ENSMUST00000182580.7_exon_2	1	9942610	9942717	-	108	149	117	79	65	52	122
+ENSMUST00000182580.7_exon_3	1	9944020	9944118	-	99	67	52	34	26	20	50
+ENSMUST00000188641.6_exon_0	1	16641725	16643478	-	1754	1443	615	443	300	160	1038
+ENSMUST00000188641.6_exon_1	1	16645686	16645829	-	144	194	75	58	33	20	123
+ENSMUST00000188641.6_exon_2	1	16647955	16648007	-	53	75	31	23	19	10	57
+ENSMUST00000188641.6_exon_3	1	16656822	16656884	-	63	39	10	7	9	4	29
+ENSMUST00000027303.13_exon_0	1	34439851	34439927	+	77	36	10	9	5	4	20
+ENSMUST00000027303.13_exon_1	1	34440041	34440149	+	109	93	30	30	17	14	45
+ENSMUST00000027303.13_exon_2	1	34442910	34442993	+	84	100	39	30	19	17	48
+ENSMUST00000027303.13_exon_3	1	34443378	34443487	+	110	129	43	28	24	21	61
+ENSMUST00000027303.13_exon_4	1	34443563	34443695	+	133	150	36	29	16	18	68
+ENSMUST00000027303.13_exon_5	1	34443769	34443923	+	155	168	47	34	20	21	74
+ENSMUST00000027303.13_exon_6	1	34443997	34444091	+	95	113	35	22	16	12	55
+ENSMUST00000027303.13_exon_7	1	34444196	34444269	+	74	104	33	24	17	10	55
+ENSMUST00000027303.13_exon_8	1	34444358	34449356	+	4999	3719	1179	762	448	443	1928

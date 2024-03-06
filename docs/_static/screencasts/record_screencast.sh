@@ -1,5 +1,5 @@
 #!/bin/bash
-#. /Users/niko/.virtualenvs/rnalib/bin/activate
+. /Users/niko/.virtualenvs/rnalib/bin/activate
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <python_script>"
     exit 1
@@ -12,5 +12,3 @@ else
     echo "File ${name}.py does not exist."
     exit 1
 fi
-
-

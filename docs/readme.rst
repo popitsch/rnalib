@@ -97,9 +97,10 @@ Once you have created the testdata folder, you need to tell *rnalib* about its l
 To do so, you can either:
 
 * set the `RNALIB_TESTDATA` environment variable (e.g., in your IDE or in the terminal before starting the python
-  interpreter)
+  interpreter). Example:  "``RNALIB_TESTDATA=notebooks/rnalib_testdata python3``"
+
 * or monkey-patch the global __RNALIB_TESTDATA__ variable to point to your testdata directory as done in the ipython
-  notebooks (see example below).
+  notebooks as shown below.
 
 You can then access test resources via the `rnalib.get_resource(<resource_id>) <https://github.com/search?q=repo%3Apopitsch/rnalib%20get_resource&type=code>`__ method.
 The list of valid resource_ids is accessible via the `rnalib.list_resources() <https://github.com/search?q=repo%3Apopitsch/rnalib%20list_resources&type=code>`__ method.
@@ -109,15 +110,26 @@ The list of valid resource_ids is accessible via the `rnalib.list_resources() <h
    >>> rna.__RNALIB_TESTDATA__ = "rnalib_testdata/" # point __RNALIB_TESTDATA__ to the testdata directory
    >>> print(rna.get_resource('test_bed')) # get file path of test_bed resource
 
+.. note::
+
+   Larger test data files are not included in the rnalib package to keep the package size small and to avoid
+   potential licensing issues. The test data files are not required for using the rnalib package itself.
+   To test the rnalib package from commandline, you can run
+   "``RNALIB_TESTDATA=<path_to_testdata> pytest``" in the rnalib source directory.
+
+
+
 Usage
 -----
 
-A detailed description of the API, its design and several usage examples is provided in the
+An introduction to the API, its design and several usage examples is provided in the
 `README.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ jupyter
-notebook. If you don't have jupyter installed, you can also view the notebook on GitHub or run it on Google Colab.
+notebook. A second notebook, `AdvancedUsage.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/AdvancedUsage.ipynb>`_
+provides more advanced usage examples and demonstrates some utility functions for working with genomics data.
+
+If you don't have jupyter installed, you can also view the notebooks on `GitHub <https://github.com/popitsch/rnalib/tree/main/notebooks>`_ or run them on Google Colab.
 On Google Colab, you need to install rnalib and its dependencies first (see fist, commented code cell).
 You also need to upload the required test data files to your Google Drive and mount the drive or upload the files to the Colab runtime.
-
 
 
 Tutorials
@@ -167,3 +179,50 @@ There exists a broad range of python libraries for working with genomics data th
   is unclear whether it is still supported.
 
 We are happy to include other libraries in this list. Please open an issue or a pull request.
+
+
+
+Contributing
+------------
+
+Contributions to *rnalib* are highly welcome. Please contact the main author directly or open an issue or a pull request
+on the GitHub repository.
+
+Testing
+"""""""
+
+We use `pytest <https://docs.pytest.org/en/stable/>`__ and `tox <https://tox.wiki/>`__ for testing *rnalib* against
+different python versions as configured in the tox.ini file. We also use `black <https://black.readthedocs.io/>`__
+for code formatting.
+You can run the tests by running the following command in the rnalib source directory:
+
+.. code:: bash
+
+   $ RNALIB_TESTDATA=<testdata_dir> tox
+
+To run a specific tests with a specific python version, you can use the following command:
+
+.. code:: bash
+
+    $ RNALIB_TESTDATA=<testdata_dir> tox -epy312 -- tests/test_gi.py::test_loc_simple
+
+To skip missing interpreters, you can use the ``--skip-missing-interpreters`` switch.
+
+
+Screencasts
+"""""""""""
+
+We use `terminalizer <https://www.terminalizer.com/>`__ to create animated GIF screencasts that demonstrate *rnalib*'s
+API. All required resources can be found in the ``docs/_static/screencasts`` directory. The screencasts are created by
+running record_screencasts.sh. The script uses the ``execute_screencast()`` (implemented in `utils.py`) that simulated
+a user interaction with the *rnalib* API. Note that the current version requires multi-line commands to start with an
+indentation beyond the first line. Note that all python files in the screencasts directory are excluded from
+reformatting with black (see tox.ini)
+
+
+Documentation
+"""""""""""""
+
+We use sphinx to generate the documentation. The documentation can be built by running the `build_docs.sh` script in
+the `docs/` directory. The documentation of official realases is hosted on
+`ReadTheDocs <https://rnalib.readthedocs.io/en/latest/>`_. and currently needs to be built manually.

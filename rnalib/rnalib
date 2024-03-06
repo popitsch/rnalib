@@ -1,95 +1,94 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os
-import sys
 import time
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from argparse import ArgumentParser
 
 import rnalib
-from rnalib import parse_args
 
 """Script to call rnalib tools."""
 
-usage = f'''
-
-  rnalib {rnalib.__version__} Copyright (C) 2024.  All rights reserved.
-
+description = f'''
+  rnalib {rnalib.__version__} Copyright (C) 2024.  All rights reserved.\n
   Distributed on an "AS IS" basis without warranties
   or conditions of any kind, either express or implied.
-
-USAGE
 '''
 
 
-def main(args, usage=usage):
-    parser = {}
+def main():
+    parser = ArgumentParser(description=description)
+    sp = parser.add_subparsers(title='tools', description='valid tools', dest="mode")
+    p = sp.add_parser('tag_tc', help='Annotate T-to-C reads',
+                      epilog="Example: rnalib tag_tc -b <bam> -o ./test -c 'chr20' -q 20 -F 0 -Q 20")
+    p.add_argument("-b", "--bam", type=str, required=True, dest="bam_file",
+                   metavar="bam", help="BAM file")
+    p.add_argument("-o", "--out_prefix", type=str, required=False, dest="out_prefix",
+                   metavar="out_prefix",
+                   help="output out_prefix (default is bam_filepath w/o extension)")
+    p.add_argument("-w", "--write_density_histogram", action="store_true", required=False,
+                   default=True,
+                   dest="write_density_histogram", help="write density histogram")
+    p.add_argument("-t", "--tags", type=str, required=False, dest="tags",
+                   metavar="tags", help="BAM tags to be used for the output BAM file. "
+                                        "Default is {'ntc': 'xc', 'ntt': 'xt', 'col': 'YC'}")
+    p.add_argument("-c", "--included_chrom", type=str, required=False,
+                   dest="included_chrom", metavar="included_chrom",
+                   help="chromosome(s) to be included. Default: all")
+    p.add_argument("-s", "--snp_vcf", type=str, required=False, dest="snp_vcf_file",
+                   metavar="snp_vcf_file", help="VCF file containing variant calls. "
+                                                "T/C and A/G SNPs will be masked")
+    p.add_argument("-f", "--fractional_counts", action="store_true", required=False,
+                   dest="fractional_counts", help="fractional counts")
+    p.add_argument("-q", "--min_mapping_quality", type=int, required=False,
+                   dest="min_mapping_quality", default=0,
+                   metavar="min_mapping_quality", help="minimum mapping quality")
+    p.add_argument("-F", "--flag_filter", type=int, required=False, dest="flag_filter",
+                   default=rnalib.DEFAULT_FLAG_FILTER,
+                   metavar="flag_filter", help="flag filter for filtering reads. Default is "
+                                               "rnalib.DEFAULT_FLAG_FILTER")
+    p.add_argument("-Q", "--min_base_quality", type=int, required=False,
+                   default=10, dest="min_base_quality", metavar="min_base_quality",
+                   help="minimum base quality")
     # ============================================================================
-    parser["tag_tc"] = ArgumentParser(description=usage, formatter_class=RawDescriptionHelpFormatter,
-                                      epilog="Example: rnalib tag_tc -b <bam> -o ./test -c 'chr20' -q 20 "
-                                             "-F 0 -Q 20")
-    parser["tag_tc"].add_argument("-b", "--bam", type=str, required=True, dest="bam_file",
-                                  metavar="bam", help="BAM file")
-    parser["tag_tc"].add_argument("-o", "--out_prefix", type=str, required=False, dest="out_prefix",
-                                  metavar="out_prefix",
-                                  help="output out_prefix (default is bam_filepath w/o extension)")
-    parser["tag_tc"].add_argument("-w", "--write_density_histogram", action="store_true", required=False,
-                                  default=True,
-                                  dest="write_density_histogram", help="write density histogram")
-    parser["tag_tc"].add_argument("-t", "--tags", type=str, required=False, dest="tags",
-                                  metavar="tags", help="BAM tags to be used for the output BAM file. "
-                                                       "Default is {'ntc': 'xc', 'ntt': 'xt', 'col': 'YC'}")
-    parser["tag_tc"].add_argument("-c", "--included_chrom", type=str, required=False,
-                                  dest="included_chrom", metavar="included_chrom",
-                                  help="chromosome(s) to be included. Default: all")
-    parser["tag_tc"].add_argument("-s", "--snp_vcf", type=str, required=False, dest="snp_vcf_file",
-                                  metavar="snp_vcf_file", help="VCF file containing variant calls. "
-                                                               "T/C and A/G SNPs will be masked")
-    parser["tag_tc"].add_argument("-f", "--fractional_counts", action="store_true", required=False,
-                                  dest="fractional_counts", help="fractional counts")
-    parser["tag_tc"].add_argument("-q", "--min_mapping_quality", type=int, required=False,
-                                  dest="min_mapping_quality", default=0,
-                                  metavar="min_mapping_quality", help="minimum mapping quality")
-    parser["tag_tc"].add_argument("-F", "--flag_filter", type=int, required=False, dest="flag_filter",
-                                  default=rnalib.DEFAULT_FLAG_FILTER,
-                                  metavar="flag_filter", help="flag filter for filtering reads. Default is "
-                                                              "rnalib.DEFAULT_FLAG_FILTER")
-    parser["tag_tc"].add_argument("-Q", "--min_base_quality", type=int, required=False,
-                                  default=10, dest="min_base_quality", metavar="min_base_quality",
-                                  help="minimum base quality")
+    p = sp.add_parser('filter_tc', help='Filter T-to-C reads',
+                      epilog="Example: rnalib filter_tc -b <bam> -o test_tc2.bam -m 2 (write only reads with at least 2 T/C conversions)")
+    p.add_argument("-b", "--bam", type=str, required=True, dest="bam_file",
+                   metavar="bam", help="BAM file")
+    p.add_argument("-o", "--outfile", type=str, required=False, dest="outfile",
+                   metavar="outfile", help="output file (default is {bam_file_name}_tc-only.bam)")
+    p.add_argument("-m", "--min_tc", type=int, required=False, dest="min_tc",
+                   metavar="min_tc", help="minimum number of T/C conversions (default is 1)")
+    p.add_argument("--tags", type=str, required=False, dest="tags", metavar="tags",
+                   help="BAM tags to be used for the output BAM file. Default is {'ntc': 'xc', 'ntt': 'xt', 'col': 'YC'}")
     # ============================================================================
-    parser["filter_tc"] = ArgumentParser(description=usage, formatter_class=RawDescriptionHelpFormatter,
-                                         epilog="Example: rnalib filter_tc -b <bam> -o test_tc2.bam -m 2 (write only "
-                                                "reads with at least 2 T/C conversions)")
-    parser["filter_tc"].add_argument("-b", "--bam", type=str, required=True, dest="bam_file",
-                                     metavar="bam", help="BAM file")
-    parser["filter_tc"].add_argument("-o", "--outfile", type=str, required=False, dest="outfile",
-                                     metavar="outfile", help="output file (default is {bam_file_name}_tc-only.bam)")
-    parser["filter_tc"].add_argument("-m", "--min_tc", type=int, required=False, dest="min_tc",
-                                     metavar="min_tc", help="minimum number of T/C conversions (default is 1)")
-    parser["filter_tc"].add_argument("--tags", type=str, required=False, dest="tags",
-                                     metavar="tags", help="BAM tags to be used for the output BAM file. "
-                                                          "Default is {'ntc': 'xc', 'ntt': 'xt', 'col': 'YC'}")
+    p = sp.add_parser('build_amplicon_resources', help='Build amplicon resource files')
+    p.add_argument("-n", "--transcriptome_name", required=False,
+                   default='transcriptome', dest="transcriptome_name",
+                   help="Name of the transcriptome (used for naming files)")
+    p.add_argument("-b", "--bed_file", required=True, dest="bed_file",
+                   help="BED file with transcript coordinates")
+    p.add_argument("-f", "--fasta_file", required=True, dest="fasta_file",
+                   help="FASTA file (reference genome)")
+    p.add_argument("-o", "--out_dir", required=True, dest="out_dir",
+                   help="Output directory")
+    p.add_argument("-p", "--padding", required=False, default=100,
+                   dest="padding", help="Pad transcripts by this amount (default is 100)")
+    p.add_argument("-e", "--amp_extension", required=False, default=100,
+                   dest="amp_extension",
+                   help="Extend transcripts by this amount (default is 100)")
     # ============================================================================
-    parser["build_amplicon_resources"] = ArgumentParser(description=usage, formatter_class=RawDescriptionHelpFormatter)
-    parser["build_amplicon_resources"].add_argument("n", "--transcriptome_name", required=False,
-                                               default='transcriptome', dest="transcriptome_name",
-                                               help="Name of the transcriptome (used for naming files)")
-    parser["build_amplicon_resources"].add_argument("-b", "--bed_file", required=True, dest="bed_file",
-                                               help="BED file with transcript coordinates")
-    parser["build_amplicon_resources"].add_argument("-f", "--fasta_file", required=True, dest="fasta_file",
-                                               help="FASTA file (reference genome)")
-    parser["build_amplicon_resources"].add_argument("-o", "--out_dir", required=True, dest="out_dir",
-                                                  help="Output directory")
-    parser["build_amplicon_resources"].add_argument("-p", "--padding", required=False, default=100,
-                                               dest="padding", help="Pad transcripts by this amount (default is 100)")
-    parser["build_amplicon_resources"].add_argument("-e", "--amp_extension", required=False, default=100,
-                                               dest="amp_extension",
-                                               help="Extend transcripts by this amount (default is 100)")
+    p = sp.add_parser('create_testdata', help='Create test data directory')
+    p.add_argument("-o", "--out_dir", type=str, required=True, help='Output directory.')
+    p.add_argument("-a", "--all", type=bool, required=False, help='if set, both sets of \
+            resources are created (small + large)', default=False)
     # ============================================================================
-    mode, args = parse_args(args, parser, usage)
+    p = sp.add_parser('prune_tags', help='Remove TAGs from BAM file')
+    p.add_argument("-b", "--bam_file", type=str, required=True, help='Input BAM file.')
+    p.add_argument("-o", "--out_file", type=str, required=True, help='Output BAM file.')
+    p.add_argument("-t", "--kept_tags", type=str, required=False, help='Comma-separated list of tags that are kept (default: ("NH", "HI", "AS"))', default=False)
+    # ============================================================================
+    args = parser.parse_args()
     start_time = time.time()
-    # ============================================================================
-    if mode == "tag_tc":
+    if args.mode == "tag_tc":
         from rnalib.tools import tag_tc
         tag_tc(args.bam_file,
                out_prefix=args.out_prefix,
@@ -101,18 +100,30 @@ def main(args, usage=usage):
                min_mapping_quality=args.min_mapping_quality,
                flag_filter=args.flag_filter,
                min_base_quality=args.min_base_quality)
-    # ============================================================================
-    if mode == "filter_tc":
+    elif args.mode == "filter_tc":
         from rnalib.tools import filter_tc
         filter_tc(bam_file=args.bam_file, out_file=args.outfile,
                   min_tc=args.min_tc, tags=args.tags)
-    # ============================================================================
-    if mode == "build_amplicon_resources":
+    elif args.mode == "build_amplicon_resources":
         from rnalib.tools import build_amplicon_resources
-        build_amplicon_resources(bed_file=args.bed_file, fasta_file=args.fasta_file,
-                                 out_dir=args.out_dir, padding=args.padding, amp_extension=args.amp_extension)
-    # ============================================================================
+        build_amplicon_resources(
+            transcriptome_name=args.transcriptome_name,
+            bed_file=args.bed_file, fasta_file=args.fasta_file,
+            out_dir=args.out_dir, padding=args.padding, amp_extension=args.amp_extension)
+    elif args.mode == "create_testdata":
+        from rnalib.testdata import create_testdata, test_resources, large_test_resources
+        create_testdata(args.out_dir, test_resources, show_data_dir=True)
+        if args.all:
+            create_testdata(args.out_dir, large_test_resources, show_data_dir=True)
+        print("Done. Add the following monkeypatch if you want to use get_resource(<name>) in your code:")
+        print(f"import rnalib; rnalib.__RNALIB_TESTDATA__ = '{args.out_dir}'")
+    elif args.mode == "prune_tags":
+        from rnalib.tools import prune_tags
+        prune_tags(args.bam_file, args.out_file, args.kept_tags.split(',') if args.kept_tags else ("NH", "HI", "AS"))
+    else:
+        raise parser.parse_args(["-h"])
     print(f"All done in {time.time() - start_time} sec.")
 
+
 if __name__ == '__main__':
-    main(sys.argv)
+    main()
