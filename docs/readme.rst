@@ -143,15 +143,11 @@ We compare *rnalib* to other genomics libraries with a focus on performance and 
 
 We provide a set of tutorials for demonstrating *rnalib* in realistic usage scenarios:
 
-* `Tutorial: Read mismatch analysis <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_mismatch_analysis.ipynb>`_
-* `Tutorial: Comparison of gene annotation sets <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_compare_annotation_sets.ipynb>`_
-* `Tutorial: shRNA analysis <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_shRNA_analysis.ipynb>`_
-* `Tutorial: Transcriptome analysis <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_transcriptome_annotation.ipynb>`_
-
-Finally, we showcase how the combination of (the strengths of) multiple genomics libraries leads to an overall benefit in multiple tutorials:
-
-* `Tutorial: CTCF analysis with rnalib and bioframe <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_CTCF_analysis.ipynb>`_
-* `Tutorial: Expression analysis with rnalib and genemunge <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_expression_analysis.ipynb>`_
+* `Tutorial: Transcriptome annotation with genemunge, archs4 and mygene.info: annotation with data from public databases <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_transcriptome_annotation.ipynb>`_
+* `Tutorial: SLAM-seq analysis: Simplified analysis of a SLAM-seq timecourse dataset <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_SLAM-seq.ipynb>`_
+* `Tutorial: Comparison of gene annotation sets: Comparison of different gene annotation sets (human and fly) <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_compare_annotation_sets.ipynb>`_
+* `Tutorial: CTCF analysis with rnalib and bioframe: Annotation of genes with CTCF sites <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_CTCF_analysis.ipynb>`_
+* `Tutorial: shRNA analysis: a small analysis of shRNA targets <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_shRNA_analysis.ipynb>`_
 
 Related work
 ------------

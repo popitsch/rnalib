@@ -15,3 +15,5 @@
 /TODOs.txt
 /.tox/
 /notebooks/DELME_*
+/docs/_static/screencasts/test.gif
+/docs/_static/screencasts/test.py
