@@ -4,6 +4,9 @@
 /docs/_templates/
 /docs/_build/
 /docs/_api/
+/docs/_static/screencasts/all.sh
+/docs/build_docs.sh
+/docs/_static/screencasts/*.yml
 /release.txt
 /dist/
 /rnalib/rnalib.egg-info/
@@ -11,3 +14,4 @@
 /build/
 /TODOs.txt
 /.tox/
+/notebooks/DELME_*
