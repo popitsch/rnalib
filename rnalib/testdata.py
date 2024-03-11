@@ -1,7 +1,7 @@
 """
-    Provides access to test files and can be used to initially build the _delme_testdata folder.
+    Provides access to test files and can be used to initially build the testdata folder.
 
-    _delme_testdata creation:
+    testdata creation:
         Rnalib tests use various test data files that can be created by running this python script.
         The contained test_resources dict describes the various test resources and their origin.
         Briefly, this script does the following for each configured resource:
@@ -9,10 +9,10 @@
         * Download source file from a public URL or copy from the static_test_files directory
         * Ensure that the files are sorted by genomic coordinates and are compressed and indexed with bgzip and tabix.
         * Slice a genomic subregions from the files if configured
-        * Copy the resultfiles and corresponding indices to the _delme_testdata directory
+        * Copy the resultfiles and corresponding indices to the testdata directory
 
-    _delme_testdata access:
-        Once you have created the _delme_testdata folder, you can get the filenames of test resources via the
+    testdata access:
+        Once you have created the testdata folder, you can get the filenames of test resources via the
         `get_resource(<resource_id>)` method. If `<resource_id>` starts with 'pybedtools::<id>' then this method
         will return the filename of the respective pybedtools test file.
         To list the ids of all available test resources, use the list_resources() method.
@@ -24,7 +24,7 @@
     >>> list_resources()
     >>> ['gencode_gff','gencode_gtf', ... ,'pybedtools::y.bam']
 
-    Note that for _delme_testdata creation, the  following external tools need to be installed:
+    Note that for testdata creation, the  following external tools need to be installed:
 
     * samtools
     * bedtools
@@ -374,7 +374,7 @@ def download_bgzip_slice(
 ):
     """
     Download the resource with the passed name from the passed config dict.
-    The resource will be downloaded to the _delme_testdata directory and will be sorted, compressed and indexed.
+    The resource will be downloaded to the testdata directory and will be sorted, compressed and indexed.
     If the resource is a genomic file (gff, gtf, bed, vcf, fasta, bam), then a subregion can be sliced from the
     file by passing a list of regions in the 'regions' key of the resource dict.
 

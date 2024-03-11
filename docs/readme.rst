@@ -1,41 +1,59 @@
 rnalib: a python-based genomics library
 =========================================
 
-*Rnalib* is a python utilities library for handling genomics data with a focus on transcriptomics.
-It implements a transcriptome model and provides efficient iterators for the annotation of its features
-(genes, transcripts, exons, etc.). It also provides a number of utility functions for working with
-genomics data.
+*Rnalib*  is a python library for handling transcriptomics data. It implements a transcriptome model and provides
+efficient iterators for the annotation of its features (genes, transcripts, exons, etc.).
+It also provides a number of utility functions for working with genomics data.
 
-Design Principles
------------------
+Design
+------
+Here are our main *rnalib* design considerations:
 
-*Rnalib* was designed with the following principles in mind:
+* In *rnalib*, genomic data is represented by **tuples of genomic locations and associated data**.
 
-* Genomic data is represented by an (immutable) location object and arbitrary associated (mutable) annotation data.
-* Immutable representations of genomic intervals (`GI`) and features (e.g., genes, transcripts, exons, etc.) can be
-  used in indexing and hashing.
-* Underlying reference genomes are represented by a `RefDict` object that store chromosome names, their order and
-  (possibly) length. RefDicts are used to validate and merge genomic datasets from different sources.
-* Annotation data can be incrementally added by direct assignment or by using genomic iterators that yield genomic
-  data (location/data tuples).
-* Genomic iterators are based on the `pysam <https://pysam.readthedocs.io/en/latest/api.html>`__ library and leverage
-  respective indexing data structures (e.g., tabix or bai files) for efficient random access. This enables users
-  to quickly switch between genomic sub regions (e.g., for focussing on difficult/complex regions) and whole
-  transcriptome analyses during development.
-* *rnalib* implements a transcriptome model that models parent/child relationships between genomic features
-  (e.g., genes, transcripts, exons, etc.) as python objects and references that are dynamically created when loading
-  a GFF/GTF file. rnalib understands respective GFF/GTF 'flavours' (e.g., ID attribute names) from different major
-  providers such as gencode, ensembl, refseq, etc.
+* Genomic locations are represented by **immutable genomic intervals** (`GI <_api/rnalib.html#rnalib.GI>`_) that
+  can safely be used in indexing and hashing. Genomic intervals are **named tuples** (chromosome, start, end,
+  strand)
 
-Most importantly, *rnalib* was not designed to replace the great work of others but to integrate with it and fill
-gaps. For example, *rnalib* provides interfaces for integrating with `pybedtools <https://daler.github
-.io/pybedtools/index.html>`__, `bioframe <https://bioframe.readthedocs.io/>`__ and `HTSeq <https://htseq.readthedocs
-.io/>`__.
+* Chromosome order is determined by **reference dictionaries** (`RefDict <_api/rnalib.html#rnalib.RefDict>`_ )
+  that store chromosome names, their order and (possibly) lengths.
+  Reference dictionaries are used to **validate and merge** genomic datasets from different sources.
+
+* Associated annotation data are represented by **arbitrary, mutable objects** (e.g., dicts, *numpy* arrays or
+  *pandas* dataframes).
+
+* *Rnalib* implements a `Transcriptome <_api/rnalib.html#rnalib.Transcriptome>`_ class that explicitly models **genomic
+  features** (e.g., genes, transcripts, exons, etc.) and their **relationships** (e.g., parent/child relationships)
+  using dynamically created python *dataclasses* that inherit from the `GI <_api/rnalib.html#rnalib.GI>`_ class.
+  Associated annotations are stored in a separate dictionary that maps features to annotation data.
+
+* A transcriptome can be **instantiated from a GFF/GTF file** and *rnalib* understands various popular GFF/GTF
+  '`flavours <_api/rnalib.constants.html#rnalib.constants.GFF_FLAVOURS>`_' (e.g., gencode, ensembl, refseq, flybase,
+  etc.).
+  Users can then **incrementally add annotation data** to transcriptomes, either by direct assignment or by using
+  `LocationIterators <_api/rnalib.html#rnalib.LocationIterator>`_ that yield genomic locations and associated data.
+
+* *Rnalib* implements `a number of LocationIterators <_api/rnalib.html#rnalib.it>`_ for iterating genomic data
+  (location/data tuples) via a common interface. Most are based on respective
+  `pysam <https://pysam.readthedocs.io/en/latest/api.html>`__ classes and leverage associated indexing data structures
+  (e.g., .tbi or .bai files) for **efficient random access**.
+  This enables users to quickly switch between genomic sub regions (e.g., for focussing on difficult/complex regions)
+  and whole transcriptome analyses during development.
+
+* Annotated transcriptomes can be **exported** in various formats (e.g., GFF, BED, pandas dataframes etc.) for further
+  processing using other tools/libraries.
+
+* **Most importantly**, *rnalib* was not designed to replace the great work of others but to integrate with it and fill
+  gaps. For example, *rnalib* provides interfaces for integrating with `pybedtools <https://daler.github.io/pybedtools/index.html>`__,
+  `bioframe <https://bioframe.readthedocs.io/>`__ and `HTSeq <https://htseq.readthedocs.io/>`__.
+
+*Rnalib*'s target audience are bioinformatics analysts and developers and its main design goal is to enable
+**fast, readable, reproducible and robust development of novel bioinformatics tools and methods**.
 
 Installation
 ------------
 
-Rnalib is hosted on PyPI and can be installed via pip:
+*Rnalib* is hosted on PyPI and can be installed via pip:
 
 .. code:: bash
 
@@ -43,7 +61,7 @@ Rnalib is hosted on PyPI and can be installed via pip:
 
 The source code is `available on GitHub <https://github.com/popitsch/rnalib>`_.
 
-You can then import the library in your python code:
+You can import the library as follows:
 
 .. code:: python
 
@@ -53,16 +71,16 @@ You can then import the library in your python code:
 To use *rnalib* in jupyter lab (recommended), you should:
 
 * Install jupyter lab
-* Install and create a new virtual environment (venv)
-* Activate the venv and install the required packages from the requirements.txt file
-* Add the venv to jupyter lab
-* Start jupyter lab and create/load a notebook
+* Install and create a new virtual environment (*venv*)
+* Activate the *venv* and install the required packages from the `requirements.txt <https://raw.githubusercontent.com/popitsch/rnalib/main/requirements.txt>`_ file
+* Add the *venv* to jupyter lab
+* Start jupyter lab, create/load a notebook and select the *venv* as kernel
 
 Here is an example of how to use *rnalib* in jupyter lab (adapt paths to your system):
 
 .. code:: bash
 
-    $ cd /Users/niko/.virtualenvs # change to your venv directory
+    $ cd /Users/myusername/.virtualenvs # change to your venv directory
     $ python3 -m venv rnalib      # create venv with name 'rnalib'
     $ source rnalib/bin/activate  # activate venv
     (rnalib) $ python3 -m pip install ipykernel ipywidgets # install required ipython packages
@@ -71,65 +89,65 @@ Here is an example of how to use *rnalib* in jupyter lab (adapt paths to your sy
     (rnalib) $ deactivate # deactivate venv
     $ jupyter lab # start jupyter lab
 
-Now, you can load an *rnalib* notebook and select 'rnalib' as kernel. All basic requirements of rnalib should be
-installed, some notebook-specific requirements (e.g., seaborn) might need to be installed separately (see the respective
-notebook).
+Now, you can load an *rnalib* notebook and select 'rnalib' as kernel. All basic requirements of *rnalib* should be
+installed, however, some *notebook-specific* requirements might still need to be installed separately. Respective
+instructions are provided at the beginning of each notebook.
+
 
 Test data
 ---------
 
-The *rnalib* test suite and the tutorial ipython notebooks use various genomic test data files that are not included in
-the GitHub repository. These test resources are 'configured' in the `rnalib.testdata <https://github.com/popitsch/rnalib/blob/main/rnalib/testdata.py>`__
+The *rnalib* test suite and the tutorial ipython notebooks use various genomic **test data files** that are not included
+in the GitHub repository due to size restrictions and potential licensing issues.
+These test resources are 'configured' in the `rnalib.testdata <https://github.com/popitsch/rnalib/blob/main/rnalib/testdata.py>`__
 module (i.e., their source file/URL, the contained genomic region(s) and a short description of the data).
 
-You can get final test data files in one of the following ways:
+You can get final test data files in **one of the following ways**:
 
-* A zipped version (~260M) of the files can be downloaded from the `GitHub release page <https://github.com/popitsch/rnalib/releases>`__ of the rnalib repository (or
-  from the respective most recent release with an attached ZIP file).
-* The files can also be created by running the `rnalib_create_testdata` python script that is included in the rnalib
-  package. This script downloads the source files from public URLs and creates the test files by slicing,
-  sorting, compressing and indexing the files. For this, however, you need some external tools (bedtools, bgzip,
+* A zipped version (~260M) of the files can be downloaded from the `GitHub release page <https://github.com/popitsch/rnalib/releases>`__
+  of the *rnalib* repository (or from the respective *most recent release* with an attached ZIP file).
+* The files can also be created by running `rnalib create_testdata` from the commandline.
+  This will download the source files from public sources and creates the test files by slicing,
+  sorting, compressing and indexing the files. For this to work, however, you need some external tools (bedtools, bgzip,
   tabix) to be installed.
-* The tutorial notebooks provide code snippets for creating the test files via `rna.testdata.create_testdata()`.
-  Again, this is only possible if you have the required external tools installed.
+* The tutorial notebooks provide code snippets for creating the test files via `rna.testdata.create_testdata()` which
+  does the same as `rnalib create_testdata`. Again, this is only possible if you have the required external tools
+  installed.
 
-Once you have created the testdata folder, you need to tell *rnalib* about its location.
-To do so, you can either:
-
-* set the `RNALIB_TESTDATA` environment variable (e.g., in your IDE or in the terminal before starting the python
-  interpreter). Example:  "``RNALIB_TESTDATA=notebooks/rnalib_testdata python3``"
-
-* or monkey-patch the global __RNALIB_TESTDATA__ variable to point to your testdata directory as done in the ipython
-  notebooks as shown below.
-
-You can then access test resources via the `rnalib.get_resource(<resource_id>) <https://github.com/search?q=repo%3Apopitsch/rnalib%20get_resource&type=code>`__ method.
-The list of valid resource_ids is accessible via the `rnalib.list_resources() <https://github.com/search?q=repo%3Apopitsch/rnalib%20list_resources&type=code>`__ method.
-
-.. code:: python
-
-   >>> rna.__RNALIB_TESTDATA__ = "rnalib_testdata/" # point __RNALIB_TESTDATA__ to the testdata directory
-   >>> print(rna.get_resource('test_bed')) # get file path of test_bed resource
 
 .. note::
 
-   Larger test data files are not included in the rnalib package to keep the package size small and to avoid
-   potential licensing issues. The test data files are not required for using the rnalib package itself.
-   To test the rnalib package from commandline, you can run
-   "``RNALIB_TESTDATA=<path_to_testdata> pytest``" in the rnalib source directory.
-
+   The test data files are not required for using the *rnalib package* itself but only for testing it or
+   for running the tutorial notebooks.
 
 
 Usage
 -----
 
 An introduction to the API, its design and several usage examples is provided in the
-`README.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ jupyter
-notebook. A second notebook, `AdvancedUsage.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/AdvancedUsage.ipynb>`_
-provides more advanced usage examples and demonstrates some utility functions for working with genomics data.
+`README.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ and
+in the `AdvancedUsage.ipynb <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/AdvancedUsage.ipynb>`_
+notebooks.
 
-If you don't have jupyter installed, you can also view the notebooks on `GitHub <https://github.com/popitsch/rnalib/tree/main/notebooks>`_ or run them on Google Colab.
-On Google Colab, you need to install rnalib and its dependencies first (see fist, commented code cell).
-You also need to upload the required test data files to your Google Drive and mount the drive or upload the files to the Colab runtime.
+If you don't have jupyter installed, you can also view the notebooks on `GitHub <https://github.com/popitsch/rnalib/tree/main/notebooks>`_
+or run them on `Google Colab <https://colab.research.google.com/>`_. On Google Colab, you need to install *rnalib* and
+its dependencies first. You also need to upload the required test data files to your Google Drive and mount the drive or
+upload the files directly to the Colab runtime.
+
+
+Quick Start
+-----------
+Here are some examples of how to use *rnalib*:
+
+.. image:: https://github.com/popitsch/rnalib/raw/main/docs/_static/screencasts/introduction.gif
+   :alt: Introduction to rnalib
+   :align: center
+
+And how to use *rnalib* LocationIterators:
+
+.. image:: https://github.com/popitsch/rnalib/raw/main/docs/_static/screencasts/iterator_demo.gif
+   :alt: Introduction to rnalib LocationIterators
+   :align: center
 
 
 Tutorials
@@ -143,38 +161,40 @@ We compare *rnalib* to other genomics libraries with a focus on performance and 
 
 We provide a set of tutorials for demonstrating *rnalib* in realistic usage scenarios:
 
-* `Tutorial: Transcriptome annotation with genemunge, archs4 and mygene.info: annotation with data from public databases <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_transcriptome_annotation.ipynb>`_
-* `Tutorial: SLAM-seq analysis: Simplified analysis of a SLAM-seq timecourse dataset <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_SLAM-seq.ipynb>`_
-* `Tutorial: Comparison of gene annotation sets: Comparison of different gene annotation sets (human and fly) <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_compare_annotation_sets.ipynb>`_
-* `Tutorial: CTCF analysis with rnalib and bioframe: Annotation of genes with CTCF sites <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_CTCF_analysis.ipynb>`_
-* `Tutorial: shRNA analysis: a small analysis of shRNA targets <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_shRNA_analysis.ipynb>`_
+* `Tutorial: SLAM-seq time-course data analysis <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_SLAM-seq.ipynb>`_
+* `Tutorial: Comparison of different gene annotation sets (human and fly) <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_compare_annotation_sets.ipynb>`_
+* `Tutorial: Transcriptome annotation with genemunge, archs4 and mygene.info <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_transcriptome_annotation.ipynb>`_
+* `Tutorial: CTCF analysis with rnalib and bioframe <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_CTCF_analysis.ipynb>`_
+* `Tutorial: A small analysis of shRNA targets <https://colab.research.google.com/github/popitsch/rnalib/blob/main/notebooks/Tutorial_shRNA_analysis.ipynb>`_
 
 Related work
 ------------
 There exists a broad range of python libraries for working with genomics data that have more or less overlap with
 *rnalib*. Here is a selection:
 
-* `pysam <https://pysam.readthedocs.io/en/latest/api.html>`__ Python wrapper for the samtools suite. Most rnalib
+* `pysam <https://pysam.readthedocs.io/en/latest/api.html>`__ Python wrapper for the samtools suite. Most *rnalib*
   iterators are based on pysam.
 * `bioframe <https://bioframe.readthedocs.io/>`__ A python library
   enabling flexible and scalable operations on genomic intervals built
-  on top of pandas dataframes. rnalib provides interfaces for integrating with bioframe.
+  on top of pandas dataframes. *Rnalib* provides interfaces for integrating with bioframe.
 * `pybedtools <https://daler.github.io/pybedtools/index.html>`__ Python wrapper for the bedtools suite.
-  rnalib provides interfaces for integrating with pybedtools.
+  *Rnalib* provides interfaces for integrating with pybedtools.
 * `pyranges <https://pyranges.readthedocs.io/>`__ Python library for efficient and intuitive manipulation of
-  genomic intervals. rnalib provides interfaces for integrating with pyranges.
+  genomic intervals. *Rnalib* provides interfaces for integrating with pyranges.
+* `HTSeq <https://htseq.readthedocs.io/en/release_0.11.1/>`__ A python library for working with high-throughput
+  sequencing data. *Rnalib* provides interfaces for integrating with pyranges.
 * `biotite <https://www.biotite-python.org/>`__ Python genomics library
 * `biopython <https://biopython.org/>`__ Python genomics library
-* `HTSeq <https://htseq.readthedocs.io/en/release_0.11.1/>`__ A python library for working with high-throughput sequencing data
+* `Pygenomics <https://gitlab.com/gtamazian/pygenomics>`__ Python genomics library
 * `scikit-bio <https://github.com/biocore/scikit-bio>`__ A general python library for working with biological data
 * `cyvcf2 <https://brentp.github.io/cyvcf2/>`__ A fast python VCF parser
-* `Pygenomics <https://gitlab.com/gtamazian/pygenomics>`__ A general python genomics library
-* `BioNumPy <https://bionumpy.github.io/bionumpy/>`__ A python library for efficient representation and analysis of biological data built on top of NumPy
+* `BioNumPy <https://bionumpy.github.io/bionumpy/>`__ Python library for efficient representation and analysis of
+  biological data built on top of NumPy
 * `RNAlysis <https://guyteichman.github.io/RNAlysis/build/index.html>`__ Python based RNA-seq analysis software
-* `biocantor <https://biocantor.readthedocs.io/en/latest/>`__ is another API targeted at transcriptomics analyses but it
+* `biocantor <https://biocantor.readthedocs.io/en/latest/>`__ Another API targeted at transcriptomics analyses but it
   is unclear whether it is still supported.
 
-We are happy to include other libraries in this list. Please open an issue or a pull request.
+We are **happy to include other libraries in this list**. Please open an issue or a pull request.
 
 
 
@@ -205,20 +225,22 @@ To run a specific tests with a specific python version, you can use the followin
 To skip missing interpreters, you can use the ``--skip-missing-interpreters`` switch.
 
 
+Documentation
+"""""""""""""
+
+We use sphinx to generate the documentation. The documentation can be built by running the `build_docs.sh` script in
+the `docs/` directory. The documentation of official releases is hosted on
+`ReadTheDocs <https://rnalib.readthedocs.io/en/latest/>`_. and is built automatically via an
+`AutomationRule <https://docs.readthedocs.io/en/stable/automation-rules.html>`_.
+
+
 Screencasts
 """""""""""
 
 We use `terminalizer <https://www.terminalizer.com/>`__ to create animated GIF screencasts that demonstrate *rnalib*'s
 API. All required resources can be found in the ``docs/_static/screencasts`` directory. The screencasts are created by
-running record_screencasts.sh. The script uses the ``execute_screencast()`` (implemented in `utils.py`) that simulated
-a user interaction with the *rnalib* API. Note that the current version requires multi-line commands to start with an
-indentation beyond the first line. Note that all python files in the screencasts directory are excluded from
-reformatting with black (see tox.ini)
+running ``record_screencasts.sh``. This script uses the *execute_screencast()* method (implemented in `utils.py`) that
+simulates user interactions with the *rnalib* API. Note that the current version requires multi-line commands to start
+with an indentation beyond the first line, see the existing examples. Note, that all python files in the screencasts
+directory are excluded from reformatting with black (see tox.ini)
 
-
-Documentation
-"""""""""""""
-
-We use sphinx to generate the documentation. The documentation can be built by running the `build_docs.sh` script in
-the `docs/` directory. The documentation of official realases is hosted on
-`ReadTheDocs <https://rnalib.readthedocs.io/en/latest/>`_. and currently needs to be built manually.

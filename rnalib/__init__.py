@@ -5315,36 +5315,42 @@ def read_aligns_to_loc(loc: gi, read: pysam.AlignedSegment):
 
 
 def it(obj, **kwargs):
-    """Factory function for creating LocationIterators for the passed object.
+    """Factory function for creating :meth:`LocationIterators <LocationIterator>` for the passed object.
     In most cases, the type of the created iterator will be determined by the type of the passed object.
     If there are multiple possibilities, the style parameter can be used to select the desired iterator type.
-    For example, if a pandas data frame is passed then the style=... parameter determines whether a
-    PandasIterator, a BioframeIterator or a PyrangesIterator is returned.
+    For example, if a pandas dataframe is passed then the ``style=...`` parameter determines whether a
+    :meth:`PandasIterator`, a :meth:`BioframeIterator` or a :meth:`PyrangesIterator` is returned.
 
     The following object types are supported:
 
-    * If the object is a standard python type (dict, list, tuple), a MemoryIterator will be created.
-    * If the object is a GI, a MemoryIterator will be created that iterates the GI's individual positions.
-    * If the object is a file or a string, the file format will be guessed from the file extension.
+    * If the object is a standard python type (**dict, list, tuple**), a :meth:`MemoryIterator` will be created.
+    * If the object is a **file or a string**, the file format will be guessed from the file extension.
+
         * The following file formats are supported:
-            * fasta: FastaIterator
-            * sam, bam: ReadIterator or FastPileupIterator if you pass style=='pileup'
-            * tsv: TabixIterator
-            * bed: BedIterator
-            * vcf, bcf: VcfIterator
-            * gff, gtf: GFF3Iterator
-            * fastq: FastqIterator
-        * if you pass style=='pybedtools', a PybedtoolsIterator will be created
-    * If the object is a pandas DataFrame, a PandasIterator will be created.
-    * If you pass style='bioframe', a BioframeIterator will be created
-    * If you pass style='pyranges', a PyrangesIterator will be created
-    * If the object is a pybedtools.BedTool, a PybedtoolsIterator will be created
-    * If the object is a pyBigWig.pyBigWig:
-        * if style == 'bigbed', a BigBedIterator will be created
-        * else a BigWigIterator will be created
-    * If the object is a rnalib.LocationIterator, an AnnotationIterator will be created
-    * If the object is a rnalib.Transcriptome, a TranscriptomeIterator will be created
-    * If style=='tabix', a TabixIterator will be created
+
+            * fasta: :meth:`FastaIterator`
+            * sam, bam: :meth:`ReadIterator` (or :meth:`FastPileupIterator` if you pass ``style=='pileup'``)
+            * tsv: :meth:`TabixIterator`
+            * bed: :meth:`BedIterator`
+            * vcf, bcf: :meth:`VcfIterator`
+            * gff, gtf: :meth:`GFF3Iterator`
+            * fastq: :meth:`FastqIterator`
+        * If you pass ``style=='pybedtools'``, a :meth:`PybedtoolsIterator` will be created
+        * If you pass ``style=='tabix'``, a :meth:`TabixIterator` will be created
+
+    * If the object is a pandas dataframe, a :meth:`PandasIterator` will be created.
+
+      * If you pass ``style='bioframe'``, a :meth:`BioframeIterator` will be created
+      * If you pass ``style='pyranges'``, a :meth:`PyrangesIterator` will be created
+    * If the object is a **pybedtools.BedTool**, a :meth:`PybedtoolsIterator` will be created
+    * If the object is a **pyBigWig.pyBigWig**:
+
+        * if ``style == 'bigbed'``, a :meth:`BigBedIterator` will be created
+        * else a :meth:`BigWigIterator` will be created
+    * If the object is a :meth:`GI`, a :meth:`MemoryIterator` will be created that iterates the GI's individual
+      positions.
+    * If the object is a :meth:`LocationIterator`, an :meth:`AnnotationIterator` will be created
+    * If the object is a :meth:`Transcriptome`, a :meth:`TranscriptomeIterator` will be created
 
     Parameters
     ----------
@@ -5358,7 +5364,7 @@ def it(obj, **kwargs):
 
     Returns
     -------
-    A LocationIterator
+    LocationIterator
 
     Examples
     --------
@@ -5372,8 +5378,6 @@ def it(obj, **kwargs):
     style = kwargs.get("style", None)
     if style is not None:
         del kwargs["style"]
-    if style == "tabix":
-        return TabixIterator(obj, **kwargs)
     if isinstance(obj, GI):  # iterate over positions
         return MemoryIterator(obj, **kwargs)
     if (
@@ -5388,6 +5392,8 @@ def it(obj, **kwargs):
         assert ff is not None, f"Could not guess file format for file {obj}."
         if style == "pybedtools":
             return PybedtoolsIterator(obj, **kwargs)
+        elif style == "tabix":
+            return TabixIterator(obj, **kwargs)
         if ff == "fasta":
             return FastaIterator(obj, **kwargs)
         elif ff == "sam" or ff == "bam":
