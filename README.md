@@ -1,6 +1,6 @@
 # rnalib: a Python-based transcriptomics library
+[<img alt="rnalib" src="docs/_static/rnalib_logo.png" align="right" width="200"/>](https://rnalib.readthedocs.io/en/latest/)
 
-[<img alt="rnalib" src="docs/_static/rnalib_logo.png" style="float: right; width: 200px;"/>](https://rnalib.readthedocs.io/en/latest/)
 
 Rnalib is a python library for handling transcriptomics data.
 
