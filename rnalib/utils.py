@@ -66,20 +66,26 @@ def ensure_outdir(outdir=None) -> os.PathLike:
 def check_list(lst, mode="inc1") -> bool:
     """
     Tests whether the (numeric, comparable) items in a list are
-    mode=='inc': increasing
-    mode=='dec': decreasing
-    mode=='inc1': increasing by one
-    mode=='dec1': decreasing by one
-    mode=='eq': all equal
+    * mode=='inc': increasing (strictly monotonic)
+    * mode=='dec': decreasing (strictly monotonic)
+    * mode=='inceq': increasing (monotonic)
+    * mode=='deceq': decreasing (monotonic)
+    * mode=='inc1': increasing by one
+    * mode=='dec1': decreasing by one
+    * mode=='eq': all equal
     """
     if mode == "inc":
         return all(x < y for x, y in zip(lst, lst[1:]))
     elif mode == "inc1":
         return all(x + 1 == y for x, y in zip(lst, lst[1:]))
+    if mode == "inceq":
+        return all(x <= y for x, y in zip(lst, lst[1:]))
     elif mode == "dec":
         return all(x > y for x, y in zip(lst, lst[1:]))
     elif mode == "dec1":
         return all(x - 1 == y for x, y in zip(lst, lst[1:]))
+    elif mode == "deceq":
+        return all(x >= y for x, y in zip(lst, lst[1:]))
     elif mode == "eq":
         g = groupby(lst)  # see itertools
         return next(g, True) and not next(g, False)

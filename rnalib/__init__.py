@@ -1288,7 +1288,7 @@ class Transcriptome:
             return self.anno[key]
         else:
             raise TypeError(
-                "Index must be a GI or a feature id string, not {type(key).__name__}"
+                f"Index must be a GI or a feature id string, not {type(key).__name__}"
             )
 
     def add(
@@ -2723,7 +2723,7 @@ class LocationIterator:
         Parameters
         ----------
         style : str
-            'item' (default): all items with be returned
+            'item' (default): all items with be returned. Same as list(iterator).
             'location': only the locations of the items will be returned
             'data': only the data of the items will be returned
 
