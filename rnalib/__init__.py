@@ -4511,6 +4511,9 @@ class ReadIterator(LocationIterator):
         Useful only in combination with report_mismatches; filters mismatches based on minimum per-base quality
     fun_alias : Callable
         optional, if set, the iterator will use this function for aliasing chromosome names
+    include_unmapped : bool
+        If set, this iterator will also yield unmapped reads after all mapped ones.
+
 
     Notes
     -----
@@ -4527,7 +4530,8 @@ class ReadIterator(LocationIterator):
             Number of reads filtered due to a TAG filter
         n_fil_max_span, chromosome:
             Number of reads filtered due to exceeding a configured maximum alignment span
-
+    * If you need to non-default settings for opening the BAM file, you should open the pysam.AlignmentFile object
+      yourself and pass the file object to this iterator.
     """
 
     def __init__(
@@ -4542,6 +4546,7 @@ class ReadIterator(LocationIterator):
             report_mismatches=False,
             min_base_quality=0,
             fun_alias=None,
+            include_unmapped=False,
     ):
         super().__init__(
             bam_file,
@@ -4556,7 +4561,7 @@ class ReadIterator(LocationIterator):
         self.tag_filters = tag_filters
         self.report_mismatches = report_mismatches
         self.min_base_quality = min_base_quality
-
+        self.include_unmapped = include_unmapped
     def max_items(self):
         """Returns number of reads retrieved from the SAM/BAM index"""
         return sum([x.total for x in self.file.get_index_statistics()])
@@ -4618,7 +4623,16 @@ class ReadIterator(LocationIterator):
                     yield Item(self.location, (r, mm))  # yield read/mismatch tuple
                 else:
                     yield Item(self.location, r)
-
+        if self.include_unmapped:
+            for r in self.file.fetch(until_eof=True):
+                if r.is_mapped:
+                    continue
+                self.location = gi()
+                self._stats["unmapped_reads"] += 1
+                if self.report_mismatches:
+                    yield Item(self.location, (r, ()))  # yield read/mismatch tuple
+                else:
+                    yield Item(self.location, r)
 
 class FastPileupIterator(LocationIterator):
     """

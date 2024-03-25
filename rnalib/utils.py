@@ -127,10 +127,10 @@ def split_list(lst, n, is_chunksize=False) -> list:
     if not isinstance(lst, list):
         lst = list(lst)
     if is_chunksize:
-        return [lst[i * n : (i + 1) * n] for i in range((len(lst) + n - 1) // n)]
+        return [lst[i * n: (i + 1) * n] for i in range((len(lst) + n - 1) // n)]
     else:
         k, m = divmod(len(lst), n)
-        return (lst[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
+        return (lst[i * k + min(i, m): (i + 1) * k + min(i + 1, m)] for i in range(n))
 
 
 def intersect_lists(*lists, check_order=False) -> list:
@@ -155,8 +155,8 @@ def intersect_lists(*lists, check_order=False) -> list:
     for lst in lists:
         if check_order:
             assert [
-                x for x in lst if x in isec
-            ] == isec, f"Input list have differing order of shared elements {isec}"
+                       x for x in lst if x in isec
+                   ] == isec, f"Input list have differing order of shared elements {isec}"
         elif [x for x in lst if x in isec] != isec:
             warnings.warn(f"Input list have differing order of shared elements {isec}")
     return isec
@@ -260,17 +260,17 @@ def to_str(*args, sep=",", na="NA") -> str:
     if args is None:
         return na
     if (
-        hasattr(args, "__len__")
-        and callable(getattr(args, "__len__"))
-        and len(args) == 0
+            hasattr(args, "__len__")
+            and callable(getattr(args, "__len__"))
+            and len(args) == 0
     ):
         return na
     if isinstance(args, str):
         return args
     if (
-        hasattr(args, "__len__")
-        and hasattr(args, "__iter__")
-        and callable(getattr(args, "__iter__"))
+            hasattr(args, "__len__")
+            and hasattr(args, "__iter__")
+            and callable(getattr(args, "__iter__"))
     ):
         return sep.join([to_str(x, sep=sep, na=na) for x in args])
     return str(args)
@@ -291,7 +291,7 @@ def write_data(dat, out=None, sep="\t", na="NA"):
 
 def format_fasta(string, ncol=80) -> str:
     """Format a string for FASTA files"""
-    return "\n".join(string[i : i + ncol] for i in range(0, len(string), ncol))
+    return "\n".join(string[i: i + ncol] for i in range(0, len(string), ncol))
 
 
 def convert_size(size_bytes):
@@ -307,15 +307,15 @@ def convert_size(size_bytes):
 
 
 def dir_tree(
-    root: Path,
-    prefix: str = "",
-    space="    ",
-    branch="│   ",
-    tee="├── ",
-    last="└── ",
-    max_lines=10,
-    glob=None,
-    show_size=True,
+        root: Path,
+        prefix: str = "",
+        space="    ",
+        branch="│   ",
+        tee="├── ",
+        last="└── ",
+        max_lines=10,
+        glob=None,
+        show_size=True,
 ):
     """A recursive generator yielding a visual tree structure line by line.
 
@@ -617,18 +617,18 @@ def parse_gff_attributes(info, fmt="gff3"):
 
 
 def bgzip_and_tabix(
-    in_file,
-    out_file=None,
-    sort=False,
-    create_index=True,
-    del_uncompressed=True,
-    preset="auto",
-    seq_col=0,
-    start_col=1,
-    end_col=1,
-    meta_char=ord("#"),
-    line_skip=0,
-    zerobased=False,
+        in_file,
+        out_file=None,
+        sort=False,
+        create_index=True,
+        del_uncompressed=True,
+        preset="auto",
+        seq_col=0,
+        start_col=1,
+        end_col=1,
+        meta_char=ord("#"),
+        line_skip=0,
+        zerobased=False,
 ):
     """
     BGZIP the input file and create a tabix index with the given parameters if create_index is True.
@@ -753,14 +753,14 @@ def bgzip_and_tabix(
 
 
 def _fast5_tree(
-    h5node,
-    prefix: str = "",
-    space="    ",
-    branch="│   ",
-    tee="├── ",
-    last="└── ",
-    max_lines=10,
-    show_attrs=True,
+        h5node,
+        prefix: str = "",
+        space="    ",
+        branch="│   ",
+        tee="├── ",
+        last="└── ",
+        max_lines=10,
+        show_attrs=True,
 ):
     """Recursively yielding strings describing the structure of an h5 file"""
     if hasattr(h5node, "keys"):
@@ -797,7 +797,7 @@ def print_fast5_tree(fast5_file, max_lines=10, n_reads=1, show_attrs=True):
     with h5py.File(fast5_file, "r") as f:
         for cnt, rn in enumerate(f.keys()):
             for line in _fast5_tree(
-                f[rn], prefix=rn + " ", max_lines=max_lines, show_attrs=show_attrs
+                    f[rn], prefix=rn + " ", max_lines=max_lines, show_attrs=show_attrs
             ):
                 print(line)
             print("---")
@@ -924,10 +924,10 @@ def display_help(obj, icon="help_icon.png", bg_color="#dcf6fa"):
         )
     )
     msg = (
-        f"<h1>{title}</h1>"
-        + "<p style='font-family:Courier New; font-size: 14px;'>"
-        + msg
-        + "</p>"
+            f"<h1>{title}</h1>"
+            + "<p style='font-family:Courier New; font-size: 14px;'>"
+            + msg
+            + "</p>"
     )
     display(
         Javascript(
@@ -965,13 +965,13 @@ def head_counter(cnt, non_empty=True):
 
 
 def plot_times(
-    title,
-    times,
-    n=None,
-    reference_method=None,
-    show_speed=True,
-    ax=None,
-    orientation="h",
+        title,
+        times,
+        n=None,
+        reference_method=None,
+        show_speed=True,
+        ax=None,
+        orientation="h",
 ):
     """
     Helper method to plot a dict with timings (seconds).
@@ -1212,6 +1212,29 @@ class GeneSymbol:
 # genomics helpers :: SAM/BAM specific
 # --------------------------------------------------------------
 
+def yield_unaligned_reads(dat_file: str):
+    """
+        Convenience method that yields FastqRead items representing unaligned reads from either a FASTQ or
+        an unaligned BAM file.
+
+        Examples
+        --------
+        >>> for read in yield_unaligned_reads('unaligned_reads.bam'):
+        >>>     print(read)
+        >>> for read in yield_unaligned_reads('unaligned_reads.fastq.gz'):
+        >>>     print(read)
+    """
+    if rna.guess_file_format(dat_file) == 'fastq':  # FASTQ file input
+        for read in tqdm(rna.it(dat_file)):
+            yield read
+    elif rna.guess_file_format(dat_file) == 'bam':  # unaligned BAM file input
+        for _, read in tqdm(rna.it(dat_file, include_unmapped=True)):
+            if not read.is_mapped:
+                yield rna.FastqRead(read.query_name, read.query_sequence, ''.join(map(lambda x: chr(x + 33),
+                                                                                      read.query_qualities)))
+    else:
+        raise NotImplementedError(f"unsupported format for {dat_file}")
+
 
 def aligns_to(anno, read, min_frac=0.5):
     """Calculates the fraction of aligned read bases that overlap with the passed annotation and returns True if >= min_frac"""
@@ -1267,6 +1290,24 @@ def get_softclip_seq(read: pysam.AlignedSegment) -> tuple[Optional[int], Optiona
     return left, right
 
 
+def get_softclipped_seq_and_qual(read):
+    """
+        Returns the softclipped sequence+qualities of this read
+    """
+    seq, qual = read.query_sequence, read.query_qualities
+    if read.cigartuples is not None:
+        op, l = read.cigartuples[0]
+        if op == 4:
+            seq = seq[l:]
+            qual = qual[l:]
+        op, l = read.cigartuples[-1]
+        if op == 4:
+            seq = seq[:-l]
+            qual = qual[:-l]
+    return seq, qual
+
+
+
 def get_covered_contigs(bam_files):
     """Returns all contigs that have some coverage across a set of BAMs.
 
@@ -1289,11 +1330,56 @@ def get_covered_contigs(bam_files):
     return covered_contigs
 
 
+
+def downsample_per_chrom(bam_file, max_reads, out_file_bam=None):
+    """ Simple convenience method that randomly subsamples reads to ensure max_reads per chromosome.
+        The resulting BAM file will be sorted and indexed.
+
+        Parameters
+        ----------
+        bam_file : str
+            The input BAM file.
+        max_reads : int
+            The maximum number of reads to keep per chromosome.
+        out_file_bam : str
+            The output file name. If None, it will be set to bam_file + '.subsampled_max<max_reads>.bam'.
+    """
+    samfile = pysam.AlignmentFile(bam_file, "rb", check_sq=False)  # @UndefinedVariable
+    if out_file_bam is None:
+        out_file_bam = bam_file + '.subsampled_max%i.bam' % max_reads
+    samout = pysam.AlignmentFile(out_file_bam, "wb", template=samfile)
+    read_indices = {i.contig: random.sample(range(i.mapped), min(max_reads, i.mapped)) for i in
+                    samfile.get_index_statistics()}
+    for c in samfile.references:
+        idx = 0
+        ri = set(read_indices[c])
+        for read in samfile.fetch(c):
+            if idx in ri:
+                samout.write(read)
+            idx += 1
+    samout.close()
+    try:
+        pysam.sort("-o", out_file_bam + '.tmp.bam', out_file_bam)  # @UndefinedVariable
+        os.replace(out_file_bam + '.tmp.bam', out_file_bam)
+        pysam.index(out_file_bam)  # @UndefinedVariable
+    except Exception as e:
+        print("error sorting+indexing bam: %s" % e)
+
+
+def sort_and_index_bam(bam_file):
+    """Sort and index a BAM file"""
+    try:
+        pysam.sort("-o", bam_file + '.tmp.bam', bam_file)  # @UndefinedVariable
+        os.replace(bam_file + '.tmp.bam', bam_file)
+        pysam.index(bam_file)  # @UndefinedVariable
+    except Exception as e:
+        print(f"error sorting+indexing bam: {e}")
+
 def merge_bam_files(
-    out_file: str,
-    bam_files: list,
-    sort_output: bool = False,
-    del_in_files: bool = False,
+        out_file: str,
+        bam_files: list,
+        sort_output: bool = False,
+        del_in_files: bool = False,
 ):
     """Merge multiple BAM files, sort and index results.
 
@@ -1317,7 +1403,7 @@ def merge_bam_files(
         return None
     samfile = pysam.AlignmentFile(bam_files[0], "rb")  # @UndefinedVariable
     with pysam.AlignmentFile(
-        out_file + ".unsorted.bam", "wb", template=samfile
+            out_file + ".unsorted.bam", "wb", template=samfile
     ) as out:  # @UndefinedVariable
         for f in bam_files:
             samfile = None
@@ -1445,10 +1531,10 @@ def read_alias_file(gene_name_alias_file, disable_progressbar=False) -> (dict, s
             keep_default_na=False,
         )
         for r in tqdm(
-            tab.itertuples(),
-            desc="load gene aliases",
-            total=tab.shape[0],
-            disable=disable_progressbar,
+                tab.itertuples(),
+                desc="load gene aliases",
+                total=tab.shape[0],
+                disable=disable_progressbar,
         ):
             sym = r.symbol.strip()  # noqa
             current_symbols.add(sym)
@@ -1650,11 +1736,11 @@ def get_archs4_sample_dict(file="data/human_gene_v2.2.h5", remove_sc=True):
 
 
 def get_sample_metadata(
-    samples,
-    sample_dict=None,
-    keys=None,
-    file="data/human_gene_v2.2.h5",
-    disable_progressbar=False,
+        samples,
+        sample_dict=None,
+        keys=None,
+        file="data/human_gene_v2.2.h5",
+        disable_progressbar=False,
 ):
     if sample_dict is None:
         sample_dict = get_archs4_sample_dict(file)  # all samples (non sc)
@@ -1714,12 +1800,12 @@ def random_sample(conf_str, rng=np.random.default_rng(seed=None)):
 
 
 def execute_screencast(
-    command_file,
-    col=True,
-    default_delay=1,
-    console_prompt=">>> ",
-    min_typing_delay=0.001,
-    max_typing_delay=0.05,
+        command_file,
+        col=True,
+        default_delay=1,
+        console_prompt=">>> ",
+        min_typing_delay=0.001,
+        max_typing_delay=0.05,
 ):
     """
     Executes the passed command file in a python shell.
@@ -1747,13 +1833,13 @@ def execute_screencast(
         print()
 
     def colored_cmd(
-        cmd,
-        comment,
-        col=True,
-        def_col="green",
-        eq_col="yellow",
-        comment_col="red",
-        banner_col="magenta",
+            cmd,
+            comment,
+            col=True,
+            def_col="green",
+            eq_col="yellow",
+            comment_col="red",
+            banner_col="magenta",
     ):
         """colorize a command string.
         Todo: use ast to parse and highlight the commands

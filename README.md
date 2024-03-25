@@ -17,7 +17,7 @@ pip install rnalib
 
 Please see the [rnalib's documentation](https://rnalib.readthedocs.io/en/latest/) for more information.
 
-[<img alt="readthedocs" src="https://about.readthedocs.com/theme/img/logo-wordmark-dark.svg" width="300"/>](https://rnalib.readthedocs.io/en/latest/).
+[<img alt="readthedocs" src="https://about.readthedocs.com/theme/img/logo-wordmark-dark.svg" width="300"/>](https://rnalib.readthedocs.io/en/latest/)
 
 ## Notebooks
 
