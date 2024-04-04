@@ -8,9 +8,8 @@ import rnalib
 """Script to call rnalib tools."""
 
 description = f'''
-  rnalib {rnalib.__version__} Copyright (C) 2024.  All rights reserved.\n
-  Distributed on an "AS IS" basis without warranties
-  or conditions of any kind, either express or implied.
+  Rnalib {rnalib.__version__} Copyright (C) 2024.  All rights reserved.\n
+  Distributed on an "AS IS" basis without warranties or conditions of any kind, either express or implied.
 '''
 
 

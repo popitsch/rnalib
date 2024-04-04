@@ -417,15 +417,15 @@ def slugify(value, allow_unicode=False) -> str:
     return re.sub(r"[-\s]+", "_", value).strip("_")
 
 
-def remove_extension(p, remove_gzip=True):
-    """Returns a resolved PosixPath of the passed path and removes the extension.
-    Will also remove '.gz' extensions if remove_gzip is True.
-    example remove_extension('b/c.txt.gz') -> <pwd>/b/c
+def remove_extension(p, remove_gzip=True) -> str:
+    """Returns a string representation of a resolved PosixPath of the passed path with removed file extension.
+        Will also remove '.gz' extensions if remove_gzip is True.
+        example remove_extension('b/c.txt.gz') -> '<pwd>/b/c'
     """
     p = Path(p).resolve()
     if remove_gzip and ".gz" in p.suffixes:
         p = p.with_suffix("")  # drop '.gz'
-    return p.with_suffix("")  # drop ext
+    return str(p.with_suffix("")) # drop ext
 
 
 def download_file(url, filename, show_progress=True):

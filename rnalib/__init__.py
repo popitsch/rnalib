@@ -2295,6 +2295,7 @@ class TranscriptFilter(AbstractFeatureFilter):
         )
 
     def __repr__(self):
+        """Returns a string representation of the filter"""
         return json.dumps(self.config, indent=4)
 
     def include_chromosomes(self, chromosomes: set):
@@ -4562,6 +4563,7 @@ class ReadIterator(LocationIterator):
         self.report_mismatches = report_mismatches
         self.min_base_quality = min_base_quality
         self.include_unmapped = include_unmapped
+
     def max_items(self):
         """Returns number of reads retrieved from the SAM/BAM index"""
         return sum([x.total for x in self.file.get_index_statistics()])
@@ -4633,6 +4635,7 @@ class ReadIterator(LocationIterator):
                     yield Item(self.location, (r, ()))  # yield read/mismatch tuple
                 else:
                     yield Item(self.location, r)
+
 
 class FastPileupIterator(LocationIterator):
     """
