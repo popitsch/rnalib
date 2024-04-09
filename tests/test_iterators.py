@@ -109,100 +109,28 @@ def test_FastaIterator():
     with pysam.Fastafile(fasta_file) as fh:
         ref = {c: fh.fetch(c) for c in fh.references}
     # consume all
-    all_chrom = "".join(
-        [
-            s
-            for _, s in rna.FastaIterator(
-            fasta_file, region="chr3", width=1, step=1
-        ).to_list()
-        ]
-    )
+    all_chrom = "".join([s for _, s in rna.FastaIterator( fasta_file, region="chr3", width=1, step=1)])
     assert all_chrom == ref["chr3"]
     # with aliasing
-    all_chrom = "".join(
-        [
-            s
-            for _, s in rna.FastaIterator(
-            fasta_file, region="3", width=1, step=1, fun_alias=toggle_chr
-        ).to_list()
-        ]
-    )
+    all_chrom = "".join([s for _, s in rna.FastaIterator( fasta_file, region="3", width=1, step=1, fun_alias=toggle_chr)])
     assert all_chrom == ref["chr3"]
     # some edge cases where the provided sequence is shorter than the requested window size
-    assert rna.FastaIterator(
-        fasta_file, region="chr7:3-6", width=5, step=3, padding=False
-    ).to_list() == [
-               (gi("chr7", 3, 7), "GTGCN")
-           ]  # 5-mer from region of size 4, wo padding
-    assert rna.FastaIterator(
-        fasta_file, region="chr7:3-6", width=5, step=3, padding=True
-    ).to_list() == [
-               (gi("chr7:1-5"), "NNGTG"),
-               (gi("chr7:4-8"), "TGCNN"),
-           ]  # 5-mer from region of size 4, wiwth padding
+    assert list(rna.FastaIterator(fasta_file, region="chr7:3-6", width=5, step=3, padding=False)) == \
+                [(gi("chr7", 3, 7), "GTGCN")]  # 5-mer from region of size 4, wo padding
+    assert list(rna.FastaIterator(fasta_file, region="chr7:3-6", width=5, step=3, padding=True)) == \
+           [(gi("chr7:1-5"), "NNGTG"),(gi("chr7:4-8"), "TGCNN")]  # 5-mers from region of size 4, with padding
     # consume in tiling windows
-    tiled = "".join(
-        [
-            s
-            for _, s in rna.FastaIterator(
-            fasta_file, region="chr7", width=3, step=3
-        ).to_list()
-        ]
-    )
-    assert (
-            tiled[:-1] == ref["chr7"]
-    )  # NOTE cut last char in tiled as it is padded by a single N (as len(ref['chr7']) % 3 = 2)
+    assert "".join([s for _, s in rna.FastaIterator(fasta_file, region="chr7", width=3, step=3)])[:-1] == ref["chr7"]
+    # NOTE cut last char in tiled as it is padded by a single N (as len(ref['chr7']) % 3 = 2)
     # get the first 10 5-mers with and w/o padding
-    fivemers = [
-                   s
-                   for _, s in rna.FastaIterator(
-            fasta_file, region="chr7", width=5, step=2, padding=False
-        ).to_list()
-               ][:10]
-    assert fivemers == [
-        "TTGTG",
-        "GTGCC",
-        "GCCAT",
-        "CATTA",
-        "TTACA",
-        "ACACT",
-        "ACTCC",
-        "TCCAG",
-        "CAGCC",
-        "GCCTG",
-    ]
-    fivemers = [
-                   s
-                   for _, s in rna.FastaIterator(
-            fasta_file, region="chr7", width=5, step=2, padding=True
-        ).to_list()
-               ][:10]
-    assert fivemers == [
-        "NNTTG",
-        "TTGTG",
-        "GTGCC",
-        "GCCAT",
-        "CATTA",
-        "TTACA",
-        "ACACT",
-        "ACTCC",
-        "TCCAG",
-        "CAGCC",
-    ]
+    assert [s for _, s in rna.FastaIterator(fasta_file, region="chr7", width=5, step=2, padding=False)][:10] == \
+           ["TTGTG","GTGCC","GCCAT","CATTA","TTACA","ACACT","ACTCC","TCCAG","CAGCC","GCCTG",]
+    assert [s for _, s in rna.FastaIterator(fasta_file, region="chr7", width=5, step=2, padding=True)][:10] == \
+           ["NNTTG","TTGTG","GTGCC","GCCAT","CATTA","TTACA","ACACT","ACTCC","TCCAG","CAGCC",]
     # get 11-mers with padding
-    ctx = [
-        s
-        for _, s in rna.FastaIterator(
-            fasta_file, region="chr7:1-10", width=11, step=1, padding=True
-        )
-    ]
-    assert ctx[:5] == [
-        "NNNNNTTGTGC",
-        "NNNNTTGTGCC",
-        "NNNTTGTGCCA",
-        "NNTTGTGCCAT",
-        "NTTGTGCCATT",
-    ]
+    ctx = [s for _, s in rna.FastaIterator(fasta_file, region="chr7:1-10", width=11, step=1, padding=True)]
+    assert ctx[:5] == \
+           ["NNNNNTTGTGC","NNNNTTGTGCC","NNNTTGTGCCA","NNTTGTGCCAT","NTTGTGCCATT",]
     assert "".join([x[5] for x in ctx]) == ref["chr7"][:10]
 
 

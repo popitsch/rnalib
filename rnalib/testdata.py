@@ -205,7 +205,7 @@ test_resources = {
         # small example bedgraph file with track header
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/test.bedgraph.gz",
         "filename": "bed/test.bedgraph.gz",
-        "tabix_options": "-p bed -S 1",
+        "tabix_options": "-S 1",  # skip header
     },
     "human_umap_k24": {
         #  actb ex1+2 (on chr7) umap data from https://bismap.hoffmanlab.org/raw/hg38/k24.umap.bedgraph.gz
@@ -214,7 +214,7 @@ test_resources = {
         "format": "bed",
         "regions": ["chr7:5529160-5531863"],  # actb ex1+2
         "filename": "bed/GRCh38.k24.umap.ACTB_ex1+2.bedgraph.gz",
-        "tabix_options": "-p bed -S 1",
+        "tabix_options": "-S 1",  # skip header
         "include": True,
     },
     "pybedtools_snps": {
@@ -224,7 +224,7 @@ test_resources = {
     },
     "dmel_randomvalues": {
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/dmel_randomvalues.bedgraph.gz",
-        "filename": "bed/dmel_randomvalues.bedgraph.gz",
+        "filename": "bed/dmel_randomvalues.bedgraph.gz"
     },
     # -------------- FASTA -------------------------------
     "ACTB+SOX2_genome": {
@@ -297,7 +297,7 @@ large_test_resources = {
     "grch38_umap": {
         "uri": "https://bismap.hoffmanlab.org/raw/hg38/k24.umap.bed.gz",
         "filename": "bigfiles/GRCh38.k24.umap.bed.gz",
-        "tabix_options": "-p bed -S 1",
+        "tabix_options": "-p bed -S 1",  # this is a bedgraph file. Skip header.
         "recreate": False,
     },
     # -------------- SLAM-seq example data -------------------------------
@@ -354,7 +354,7 @@ def get_resource(k, data_dir: Path = None, conf=None, create_resource=False):
         conf = test_resources
         conf.update(large_test_resources)
     if k.startswith("pybedtools::"):
-        k = k[len("pybedtools::") :]
+        k = k[len("pybedtools::"):]
         return pybedtools.filenames.example_filename(k)
     assert k in conf, f"No test resource with key {k} defined in passed config"
     resfile = str(data_dir) + f"/{conf[k]['filename']}"
@@ -362,15 +362,15 @@ def get_resource(k, data_dir: Path = None, conf=None, create_resource=False):
         try:
             # this method will download only if the resource doe not (completely) exist
             download_bgzip_slice(conf, k, data_dir, view_tempdir=False)
-        except Exception:
+        except Exception as ex:
             logging.debug(traceback.format_exc())
-            logging.error(f"Error creating resource {k}. Some tests may not work...")
+            logging.error(f"Error creating resource {k}: {ex}. Some tests may not work...")
             return None
     return resfile
 
 
 def download_bgzip_slice(
-    config, resource_name, outdir, view_tempdir=False, show_progress=True
+        config, resource_name, outdir, view_tempdir=False, show_progress=True
 ):
     """
     Download the resource with the passed name from the passed config dict.
@@ -378,14 +378,25 @@ def download_bgzip_slice(
     If the resource is a genomic file (gff, gtf, bed, vcf, fasta, bam), then a subregion can be sliced from the
     file by passing a list of regions in the 'regions' key of the resource dict.
 
+    This method requires the following external tools to be installed:
+    * samtools
+    * bedtools
+    * htslib (bgzip, tabix)
+
+    Examples
+    --------
+    >>> download_bgzip_slice(test_resources, "gencode_gff", "/path/to/testdata")
     """
     res = config[resource_name]
     outfile = f"{outdir}/{res['filename']}"
     outfiledir, outfilename = os.path.dirname(outfile), os.path.basename(outfile)
     ff = res.get("format", rna.guess_file_format(outfile))
+    tabix_options = res.get("tabix_options", "")
+    if ff == "bedgraph":
+        tabix_options += " -p bed"  # ensure BED coordinate presets for bedgraph format
     # check expected resources
     outfiles = [outfile]  # list of created files (e.g., bam + bai)
-    if ff in ["gff", "gtf", "bed", "vcf"]:
+    if ff in ["gff", "gtf", "bed", "bedgraph", "vcf"]:
         outfiles += [outfile + ".tbi"]  # tabix index
     elif ff == "fasta":
         outfiles += [outfile + ".fai"]  # fasta index
@@ -401,9 +412,7 @@ def download_bgzip_slice(
         logging.debug("Resource already exists, skipping...")
         return
     logging.debug(f"Creating testdataset {resource_name}")
-
-    # ensure outdir
-    os.makedirs(outfiledir, exist_ok=True)
+    rna.ensure_outdir(outfiledir)  # ensure outdir
     # download data
     with tempfile.TemporaryDirectory() as tempdirname:
         try:
@@ -416,17 +425,19 @@ def download_bgzip_slice(
                 "gff",
                 "gtf",
                 "bed",
+                "bedgraph",
                 "vcf",
             ]:  # use bgzip and index with tabix, sort, slice
                 tmpfile = f"{tempdirname}/sorted.{ff}.gz"
                 subprocess.call(
                     f"bedtools sort -header -i {f} | bgzip > {tmpfile}", shell=True
                 )  # index
+
                 subprocess.call(
-                    f'tabix {res.get("tabix_options", "")} {tmpfile}', shell=True
+                    f'tabix {tabix_options} {tmpfile}', shell=True
                 )  # index
                 f = tmpfile
-            if ff == "fasta":
+            elif ff == "fasta":
                 if outfile.endswith(".gz"):
                     tmpfile = f"{tempdirname}/bgzip.{ff}.gz"
                     subprocess.call(
@@ -439,7 +450,7 @@ def download_bgzip_slice(
                 logging.debug(f"Indexing BAM file {f}")
                 subprocess.call(f"samtools index {f}", shell=True)  # index
             # slice and copy result files
-            if ff in ["gff", "gtf", "bed", "vcf"]:
+            if ff in ["gff", "gtf", "bed", "bedgraph", "vcf"]:
                 if res.get("regions", None) is not None:
                     logging.debug(f"Slicing {ff}")
                     tmpfile = f"{tempdirname}/sliced.{ff}"
@@ -528,9 +539,11 @@ def create_testdata(out_dir, resources=None, show_data_dir=False, mkdir=True):
     nerr = 0
     logging.debug(f"============= Output directory: {out_dir}=========")
     for res in resources:
-        for resname in tqdm(res, desc="Creating testdata"):
-            if get_resource(resname, out_dir, res, create_resource=True) is None:
-                nerr += 1
+        with tqdm(res, desc="Creating testdata") as pbar:
+            for resname in pbar:
+                pbar.set_description(f"Creating test dataset '{resname}'")
+                if get_resource(resname, out_dir, res, create_resource=True) is None:
+                    nerr += 1
         if show_data_dir:
             print(f"============= resulting test data dir: =========")
             rna.print_dir_tree(out_dir)

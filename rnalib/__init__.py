@@ -3307,6 +3307,10 @@ class FastaIterator(LocationIterator):
         optional, fill value for padding. default: 'N'
     padding : bool
         optional, if True, the sequence will be padded with fill_value characters. default: False
+        Padding may prefix/postfix the reported sequences at the region boundaries and accordingly, first and last
+        reported location GIs may extend beyond the region boundaries. Especially, if the region is close to the
+        chromosome start or end, the first and last reported locations may start/end outside the chromosome boundaries
+        and start coordinates may become negative.
     fun_alias : Callable
         optional, if set, the iterator will use this function for aliasing chromosome names
 

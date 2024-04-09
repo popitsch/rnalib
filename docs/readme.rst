@@ -106,11 +106,11 @@ You can get final test data files in **one of the following ways**:
 
 * A zipped version (~260M) of the files can be downloaded from the `GitHub release page <https://github.com/popitsch/rnalib/releases>`__
   of the *rnalib* repository (or from the respective *most recent release* with an attached ZIP file).
-* The files can also be created by running `rnalib create_testdata` from the commandline.
+* The files can also be created by running :code:`rnalib create_testdata` from the commandline.
   This will download the source files from public sources and creates the test files by slicing,
   sorting, compressing and indexing the files. For this to work, however, you need some external tools (bedtools, bgzip,
-  tabix) to be installed.
-* The tutorial notebooks provide code snippets for creating the test files via `rna.testdata.create_testdata()` which
+  tabix and samtools) to be installed.
+* The tutorial notebooks provide code snippets for creating the test files via :code:`rna.testdata.create_testdata()` which
   does the same as `rnalib create_testdata`. Again, this is only possible if you have the required external tools
   installed.
 
@@ -118,7 +118,8 @@ You can get final test data files in **one of the following ways**:
 .. note::
 
    The test data files are not required for using the *rnalib package* itself but only for testing it or
-   for running the tutorial notebooks.
+   for running the tutorial notebooks. The additional tools (e.g., tabix) required for creating the test data files are
+   also not required for using the *rnalib package* itself.
 
 
 Usage
@@ -148,6 +149,23 @@ And how to use *rnalib* LocationIterators:
 .. image:: https://github.com/popitsch/rnalib/raw/main/docs/_static/screencasts/iterator_demo.gif
    :alt: Introduction to rnalib LocationIterators
    :align: center
+
+Commandline tools
+-----------------
+*Rnalib* provides a growing number of commandline tools for working with genomics data. These tools are implemented
+in the *rnalib* `tools <https://rnalib.readthedocs.io/en/latest/_api/rnalib.tools.html>`_ modulde and can be called from
+the commandline via `rnalib <tool>` or from within python scripts. Here is a list of the available tools:
+
+* `rnalib create_testdata <https://rnalib.readthedocs.io/en/latest/_api/rnalib.testdata.html#rnalib.testdata.create_testdata>`_ - Create test data files from public sources
+* `rnalib tag_tc <https://rnalib.readthedocs.io/en/latest/_api/rnalib.tools.html#rnalib.tools.tag_tc>`_ - Annotate T-to-C reads
+* `rnalib filter_tc <https://rnalib.readthedocs.io/en/latest/_api/rnalib.tools.html#rnalib.tools.filter_tc>`_ - Filter T-to-C reads
+* `rnalib prune_tags <https://rnalib.readthedocs.io/en/latest/_api/rnalib.tools.html#rnalib.tools.prune_tags>`_ - Remove TAGs from a BAM file
+* `rnalib build_amplicon_resources <https://rnalib.readthedocs.io/en/latest/_api/rnalib.tools.html#rnalib.tools.build_amplicon_resources>`_ - Build amplicon resources
+
+
+.. note::
+
+   Call :code:`rnalib <tool> --help` for more information on the respective tool.
 
 
 Tutorials

@@ -43,9 +43,18 @@ import rnalib as rna
 
 
 # --------------------------------------------------------------
-# Commandline and config handling
+# datastructures
 # --------------------------------------------------------------
 
+GeneSymbol = namedtuple("GeneSymbol", "symbol name taxid")
+GeneSymbol.__doc__ = "A named tuple representing a gene symbol with symbol, name, and taxid fields."
+
+
+
+
+# --------------------------------------------------------------
+# Commandline and config handling
+# --------------------------------------------------------------
 
 def ensure_outdir(outdir=None) -> os.PathLike:
     """Ensures that the configured output dir exists (will use current dir if none provided)"""
@@ -425,11 +434,42 @@ def remove_extension(p, remove_gzip=True) -> str:
     p = Path(p).resolve()
     if remove_gzip and ".gz" in p.suffixes:
         p = p.with_suffix("")  # drop '.gz'
-    return str(p.with_suffix("")) # drop ext
+    return str(p.with_suffix(""))  # drop ext
+
+
+class UrlretrieveTqdm():
+    def __init__(self, filename):
+        self.pbar = None
+        self.filename = os.path.basename(filename)
+
+    def __call__(self, block_num, block_size, total_size):
+        if not self.pbar:
+            self.pbar = tqdm(total=total_size, desc=f"Downloading {self.filename}", unit="B",
+                                unit_scale=True, unit_divisor=1024, position=0, leave=True)
+        downloaded = block_num * block_size
+        if downloaded < total_size:
+            self.pbar.update(block_size)
+        else:
+            self.pbar.set_description(f"Download complete.")
+    def __enter__(self):
+        pass
+    def __exit__(self, type, value, traceback):
+        if self.pbar:
+            self.pbar.close()
 
 
 def download_file(url, filename, show_progress=True):
     """Downloads a file from the passed (https) url into a  file with the given path
+
+    Parameters
+    ----------
+    url: str
+        URL to download from
+    filename: str
+        Path to the file to be created
+    show_progress: bool
+        If True, a progress bar will be shown
+
     Examples
     --------
     >>> import tempfile
@@ -439,14 +479,18 @@ def download_file(url, filename, show_progress=True):
     >>>     # Note that the temporary created dir will be removed once the context manager is closed.
     """
 
-    def print_progress(block_num, block_size, total_size):
-        print(
-            f"progress: {round(block_num * block_size / total_size * 100, 2)}%",
-            end="\r",
-        )
-
+    #def print_progress(block_num, block_size, total_size):
+    #    print(
+    #        f"progress: {min(100, round(block_num * block_size / total_size * 100, 2))}%",
+    #        end="\r",
+    #    )
     ssl._create_default_https_context = ssl._create_unverified_context  # noqa
-    urllib.request.urlretrieve(url, filename, print_progress if show_progress else None)
+    if show_progress:
+        with UrlretrieveTqdm(filename) as pbar:
+            # urllib.request.urlretrieve(url, filename, print_progress if show_progress else None)
+            urllib.request.urlretrieve(url, filename, pbar)
+    else:
+        urllib.request.urlretrieve(url, filename)
     return filename
 
 
@@ -1194,19 +1238,6 @@ def toggle_chr(s):
         return f"chr{s}"
 
 
-@dataclass(frozen=True)
-class GeneSymbol:
-    """
-    Class for representing a gene symbol, name and taxonomy id.
-    """
-
-    symbol: str  #
-    name: str  #
-    taxid: int  #
-
-    def __repr__(self):
-        return f"{self.symbol} ({self.name}, tax: {self.taxid})"
-
 
 # --------------------------------------------------------------
 # genomics helpers :: SAM/BAM specific
@@ -1307,7 +1338,6 @@ def get_softclipped_seq_and_qual(read):
     return seq, qual
 
 
-
 def get_covered_contigs(bam_files):
     """Returns all contigs that have some coverage across a set of BAMs.
 
@@ -1328,7 +1358,6 @@ def get_covered_contigs(bam_files):
         s = pysam.AlignmentFile(b, "rb")  # @UndefinedVariable
         covered_contigs.update([c for c, _, _, t in s.get_index_statistics() if t > 0])
     return covered_contigs
-
 
 
 def downsample_per_chrom(bam_file, max_reads, out_file_bam=None):
@@ -1374,6 +1403,7 @@ def sort_and_index_bam(bam_file):
         pysam.index(bam_file)  # @UndefinedVariable
     except Exception as e:
         print(f"error sorting+indexing bam: {e}")
+
 
 def merge_bam_files(
         out_file: str,
@@ -1573,9 +1603,7 @@ def geneid2symbol(gene_ids):
     mg = mygene.MyGeneInfo()
     galias = mg.getgenes(set(gene_ids), filter="symbol,name,taxid")
     id2sym = {
-        x["query"]: GeneSymbol(
-            x.get("symbol", x["query"]), x.get("name", None), x.get("taxid", None)
-        )
+        x["query"]: GeneSymbol(x.get("symbol", x["query"]), x.get("name", None), x.get("taxid",None) )
         for x in galias
     }
     return id2sym
@@ -1818,9 +1846,7 @@ def execute_screencast(
     >>> terminalizer record -c myconfig.yml --skip-sharing --command "python3 -c \"import rnalib as rna; rna.execute_screencast('myscript.py')\"" ${name} # noqa
     where myconfig.yml is a terminalizer configuration file and myscript.py is the python script to execute.
 
-    Todo
-    ----
-    Use ast to parse and highlight the commands
+    Todo: Use ast to parse and highlight the commands
 
     """
 

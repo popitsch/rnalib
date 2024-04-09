@@ -32,8 +32,7 @@ def prune_tags(bam_in, bam_out, kept_tags=("NH", "HI", "AS")):
 
     Example
     -------
-    >>> prune_tags('/Users/niko/projects/rnalib/rnalib/static_test_files/small.ACTB+SOX2.bam', \
-    >>> '/Users/niko/projects/rnalib/rnalib/static_test_files/small.ACTB+SOX2.clean.bam')
+    >>> prune_tags('small.ACTB+SOX2.bam', 'small.ACTB+SOX2.clean.bam')
 
     """
     with rna.ReadIterator(bam_in, flag_filter=0) as it:
