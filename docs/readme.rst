@@ -1,3 +1,12 @@
+.. |PyPI status| image:: https://img.shields.io/pypi/status/ansicolortags.svg
+   :target: https://pypi.python.org/pypi/ansicolortags/
+
+.. |PyPI version| image:: https://img.shields.io/pypi/v/rnalib.svg
+    :target: https://pypi.python.org/pypi/rnalib/
+
+.. |GitHub license| image:: https://img.shields.io/github/license/Naereen/StrapDown.js.svg
+   :target: https://github.com/Naereen/StrapDown.js/blob/master/LICENSE
+
 rnalib: a python-based genomics library
 =========================================
 
@@ -215,6 +224,14 @@ There exists a broad range of python libraries for working with genomics data th
 We are **happy to include other libraries in this list**. Please open an issue or a pull request.
 
 
+Getting Help
+------------
+
+If you have questions of how to use *rnalib* that is not addressed in the documentation,
+please post it on `StackOverflow using the rnalib tag <https://stackoverflow.com/questions/tagged/rnalib>`__.
+For bugs and feature requests, please open a `Github Issue <https://github.com/popitsch/rnalib/issues>`__.
+
+
 
 Contributing
 ------------
@@ -224,6 +241,12 @@ on the GitHub repository.
 
 Testing
 """""""
+
+.. |Pytest| image:: https://img.shields.io/badge/logo-pytest-blue?logo=pytest&labelColor=5c5c5c&label=%20
+   :target: https://github.com/pytest-dev/pytest
+
+.. |Tox| image:: https://img.shields.io/badge/logo-tox-blue?logo=tox&labelColor=5c5c5c&label=testing
+   :target: https://tox.wiki/
 
 We use `pytest <https://docs.pytest.org/en/stable/>`__ and `tox <https://tox.wiki/>`__ for testing *rnalib* against
 different python versions as configured in the tox.ini file. We also use `black <https://black.readthedocs.io/>`__
