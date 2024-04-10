@@ -20,6 +20,7 @@
 """
 __version__ = "0.0.3"
 
+import heapq
 import sys
 from abc import abstractmethod, ABC
 from collections import Counter, abc
@@ -2411,6 +2412,25 @@ class RefDict(abc.Mapping[str, int]):
             return not all(v is None for v in self.values())
         return self.d[chrom] is not None
 
+    def set_len(self, chrom:str=None, length:int=None):
+        """
+            Sets the length of the passed chromosome.
+            If chrom is None, all chromosomes will be set to the passed length.
+            Use set_len() to unset the length of all chromosomes.
+
+            Parameters
+            ----------
+            chrom : str
+                The chromosome name. If None, all chromosomes will be set to the passed length.
+            length : int
+                The chromosome length or None if not set
+        """
+        if chrom is None:
+            for c in self.d:
+                self.d[c] = length
+        else:
+            self.d[chrom] = length
+
     def tile(self, tile_size=int(1e6)):
         """
         Iterates in an ordered fashion over the reference dict, yielding non-overlapping genomic intervals of the
@@ -2981,6 +3001,25 @@ class LocationIterator:
             # add 1 to end coordinate, see itree conventions @ https://github.com/chaimleib/intervaltree
             chr2itree[loc.chromosome].addi(loc.start, loc.end + 1, item)
         return chr2itree
+
+    def merge(self, iterables: Iterable['LocationIterator'], labels:Iterable[str]=None, refdict:RefDict=None):
+        """Merges this iterator with the passed iterables and returns a new iterator.
+
+        Parameters
+        ----------
+        iterables : iterable
+            an iterable of LocationIterators to be merged with this iterator
+        labels : iterable
+            an iterable of labels for the passed iterables. If None, f"it{idx}" will be used.
+        refdict : RefDict
+            optional, if set, this refdict will be used for the merged iterator, otherwise a merged refdict will be used
+        """
+        if not isinstance(iterables, (list, tuple)):
+            iterables = [self] + [iterables]
+        else:
+            iterables = [self] + list(iterables)
+        return MergedLocationIterator(iterables, labels=labels, refdict=refdict)
+
 
     def group(self, strategy="both"):
         """Wraps this iterator in a GroupedLocationIterator"""
@@ -4823,13 +4862,16 @@ class FastPileupIterator(LocationIterator):
 # grouped anno_its
 # ---------------------------------------------------------
 
-
 class GroupedLocationIterator(LocationIterator):
     """
     Wraps another location iterator and yields groups of items sharing (parts of) the same location
     given a matching strategy  (e.g., same start, same end, same coords, overlapping).
     The iterator yields tuples of (merged) group location and a (locations, items) tuple containing lists of
     locations/items yielded from the wrapped iterator.
+
+    This iterator is useful for grouping features that share ovelapping genomic locations (e.g., overlapping
+    features, features with shared start coordinates, etc.).
+    It is typically instantiated from an existing LocationIterator via its `group()` method.
 
 
     Parameters
@@ -4859,6 +4901,8 @@ class GroupedLocationIterator(LocationIterator):
 
     def __iter__(self) -> Item[gi, (tuple, tuple)]:
         for loc, value in self.it:
+            if isinstance(loc, Feature):
+                loc = loc.location
             mloc = loc.copy()
             values = [value]
             locations = [loc]
@@ -4896,6 +4940,68 @@ class GroupedLocationIterator(LocationIterator):
         except AttributeError:
             pass
 
+
+class MergedLocationIterator(LocationIterator):
+    """
+    Merges multiple location iterators into a single iterator that yields sorted locations and corresponding
+    result items (named tuples) that contain the data from the yielding iterator and an associated label.
+    This class uses a heap queue to merge-sort the iterators in a memory-efficient way.
+
+    It is typically instantiated from an existing LocationIterator via its `merge()` method.
+
+    Parameters
+    ----------
+    iterables : list
+        A list of LocationIterators to merge
+    labels : list
+        A list of labels for the merged iterators. If None, default labels (f"it{idx}") will be used.
+    refdict : RefDict
+        A reference dictionary to use. If not set, the merged refdict of the passed iterators will be used.
+
+    """
+
+    def __init__(self, iterables, labels=None, refdict=None):
+        # get iterables
+        self.iterables = iterables
+        if not isinstance(self.iterables, (tuple, list)):
+            self.iterables = [iterables]
+        for lit in iterables:
+            assert issubclass(type(lit),
+                              LocationIterator), f"Only implemented for LocationIterators, not for {type(lit)}"
+        # get labels
+        if labels is None:
+            self.labels = [f"it{i}" for i in range(len(self.iterables))]
+        else:
+            self.labels = to_list(labels)
+        assert len(self.labels) == len(self.iterables)
+        if refdict is None:
+            self.refdict = RefDict.merge_and_validate(*[lit.refdict for lit in iterables])
+            if self.refdict is None:
+                warnings.warn("Could not determine RefDict from anno_its: using alphanumerical chrom order.")
+            else:
+                if len(self.refdict) == 0:
+                    warnings.warn("RefDict is empty! {self.refdict}")
+        else:
+            self.refdict = refdict
+        self.chromosomes = self.refdict.chromosomes()
+        assert len(self.chromosomes) > 0, "No common chromosomes found"
+        self.Result = namedtuple("Result", "data name")  # result type
+
+    def _yield_per_chrom(self, it, label, chromosome):
+        if chromosome not in it.refdict:
+            return # not covered
+        it.set_region(gi(chromosome))
+        for loc, dat in it:
+            yield (loc, dat, label)
+
+    def max_items(self):
+        return sum([lit.max_items() for lit in self.iterables])
+
+    def __iter__(self) ->Item[gi, tuple]:
+        for chromosome in self.chromosomes:
+            its = [self._yield_per_chrom(it, label, chromosome) for it, label in zip(self.iterables, self.labels)]
+            for loc, dat, label in heapq.merge(*its):
+                yield Item(loc, self.Result(dat, label))
 
 @DeprecationWarning
 class SyncPerPositionIterator(LocationIterator):

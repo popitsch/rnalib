@@ -109,28 +109,29 @@ def test_FastaIterator():
     with pysam.Fastafile(fasta_file) as fh:
         ref = {c: fh.fetch(c) for c in fh.references}
     # consume all
-    all_chrom = "".join([s for _, s in rna.FastaIterator( fasta_file, region="chr3", width=1, step=1)])
+    all_chrom = "".join([s for _, s in rna.FastaIterator(fasta_file, region="chr3", width=1, step=1)])
     assert all_chrom == ref["chr3"]
     # with aliasing
-    all_chrom = "".join([s for _, s in rna.FastaIterator( fasta_file, region="3", width=1, step=1, fun_alias=toggle_chr)])
+    all_chrom = "".join(
+        [s for _, s in rna.FastaIterator(fasta_file, region="3", width=1, step=1, fun_alias=toggle_chr)])
     assert all_chrom == ref["chr3"]
     # some edge cases where the provided sequence is shorter than the requested window size
     assert list(rna.FastaIterator(fasta_file, region="chr7:3-6", width=5, step=3, padding=False)) == \
-                [(gi("chr7", 3, 7), "GTGCN")]  # 5-mer from region of size 4, wo padding
+           [(gi("chr7", 3, 7), "GTGCN")]  # 5-mer from region of size 4, wo padding
     assert list(rna.FastaIterator(fasta_file, region="chr7:3-6", width=5, step=3, padding=True)) == \
-           [(gi("chr7:1-5"), "NNGTG"),(gi("chr7:4-8"), "TGCNN")]  # 5-mers from region of size 4, with padding
+           [(gi("chr7:1-5"), "NNGTG"), (gi("chr7:4-8"), "TGCNN")]  # 5-mers from region of size 4, with padding
     # consume in tiling windows
     assert "".join([s for _, s in rna.FastaIterator(fasta_file, region="chr7", width=3, step=3)])[:-1] == ref["chr7"]
     # NOTE cut last char in tiled as it is padded by a single N (as len(ref['chr7']) % 3 = 2)
     # get the first 10 5-mers with and w/o padding
     assert [s for _, s in rna.FastaIterator(fasta_file, region="chr7", width=5, step=2, padding=False)][:10] == \
-           ["TTGTG","GTGCC","GCCAT","CATTA","TTACA","ACACT","ACTCC","TCCAG","CAGCC","GCCTG",]
+           ["TTGTG", "GTGCC", "GCCAT", "CATTA", "TTACA", "ACACT", "ACTCC", "TCCAG", "CAGCC", "GCCTG", ]
     assert [s for _, s in rna.FastaIterator(fasta_file, region="chr7", width=5, step=2, padding=True)][:10] == \
-           ["NNTTG","TTGTG","GTGCC","GCCAT","CATTA","TTACA","ACACT","ACTCC","TCCAG","CAGCC",]
+           ["NNTTG", "TTGTG", "GTGCC", "GCCAT", "CATTA", "TTACA", "ACACT", "ACTCC", "TCCAG", "CAGCC", ]
     # get 11-mers with padding
     ctx = [s for _, s in rna.FastaIterator(fasta_file, region="chr7:1-10", width=11, step=1, padding=True)]
     assert ctx[:5] == \
-           ["NNNNNTTGTGC","NNNNTTGTGCC","NNNTTGTGCCA","NNTTGTGCCAT","NTTGTGCCATT",]
+           ["NNNNNTTGTGC", "NNNNTTGTGCC", "NNNTTGTGCCA", "NNTTGTGCCAT", "NTTGTGCCATT", ]
     assert "".join([x[5] for x in ctx]) == ref["chr7"][:10]
 
 
@@ -305,6 +306,35 @@ def test_TiledIterator(testdata):
     assert stats == {gi("chr1:22000001-23000000"): 31678}
 
 
+def test_merged_iterator(testdata):
+    a = {
+        "A": gi("chr1", 1, 4),
+        "B": gi("chr1", 1, 5),
+        "C": gi("chr3", 5, 6),
+    }
+    b = {
+        "D1": gi("chr1", 1, 4),
+        "D2": gi("chr1", 1, 4),
+        "E": gi("chr2", 1, 5),
+        "F": gi("chr3", 1, 5),
+        "G": gi("chr4", 5, 6),
+    }
+    rd = rna.RefDict({'chr1': None, 'chr2': None, 'chr3': None, 'chr4': None})
+    with rna.MergedLocationIterator([rna.MemoryIterator(a), rna.MemoryIterator(a)]) as it:
+        loc, dat = zip(*list(it))
+        dat, names = zip(*dat)
+    assert loc == (a["A"], a["A"], a["B"], a["B"], a["C"], a["C"])
+    assert dat == ('A', 'A', 'B', 'B', 'C', 'C')
+    assert names == ('it0', 'it1', 'it0', 'it1', 'it0', 'it1')
+
+    with rna.MemoryIterator(a).merge(rna.MemoryIterator(b), refdict=rd) as it:
+        loc, dat = zip(*list(it))
+        dat, names = zip(*dat)
+    assert dat == ('A', 'D1', 'D2', 'B', 'E', 'F', 'C', 'G')
+    assert loc == (a["A"], b["D1"], b["D2"], a["B"], b["E"], b["F"], a["C"], b["G"])
+    assert names == ('it0', 'it1', 'it1', 'it0', 'it1', 'it1', 'it0', 'it1')
+
+
 def test_AnnotationIterator(testdata):
     # simple test
     a = {
@@ -417,7 +447,8 @@ def test_meapq_merge(testdata):
     loc, dat = zip(*[x for x in heapq.merge(rna.it(rna.get_resource('test_bed')),
                                             rna.it(rna.get_resource('test_bedgraph')))])
     assert list(loc) == sorted(loc)
-    assert {type(x) for x in dat} == {float,rna.BedRecord} # mixed list of bedtgraph floats and bedrecords
+    assert {type(x) for x in dat} == {float, rna.BedRecord}  # mixed list of bedtgraph floats and bedrecords
+
 
 def test_SyncPerPositionIterator(testdata):
     pytest.skip("Needs fixing")
