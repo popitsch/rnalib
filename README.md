@@ -6,10 +6,16 @@ Rnalib is a python library for handling transcriptomics data.
 
 ## Installation
 
-To install the latest version of rnalib, use the following command:
+To install the latest release of rnalib, use the following command:
 
 ```bash
 pip install rnalib
+```
+
+To install the latest version of rnalib from source, use the following command:
+
+```bash
+pip install git+https://github.com/popitsch/rnalib.git
 ```
 
 ## Quickstart
