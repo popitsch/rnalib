@@ -5579,7 +5579,10 @@ def it(obj, **kwargs):
         * The following file formats are supported:
 
             * fasta: :meth:`FastaIterator`
-            * sam, bam: :meth:`ReadIterator` (or :meth:`FastPileupIterator` if you pass ``style=='pileup'``)
+            * sam, bam: :meth:`ReadIterator`
+
+                * or :meth:`FastPileupIterator` if you pass ``style=='pileup'``
+                * or :meth:`PairedReadIterator` if you pass ``style=='paired'``
             * tsv: :meth:`TabixIterator`
             * bed: :meth:`BedIterator`
             * vcf, bcf: :meth:`VcfIterator`
@@ -5675,6 +5678,8 @@ def it(obj, **kwargs):
     elif isinstance(obj, pysam.AlignmentFile):  # @UndefinedVariable
         if style == "pileup":
             return FastPileupIterator(obj, **kwargs)
+        elif style == "paired":
+            return PairedReadIterator(obj, **kwargs)
         return ReadIterator(obj, **kwargs)
     elif isinstance(obj, pysam.VariantFile):  # @UndefinedVariable
         return VcfIterator(obj, **kwargs)
