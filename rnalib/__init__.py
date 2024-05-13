@@ -276,14 +276,20 @@ class GI(NamedTuple):
         return self.start <= other.end and other.start <= self.end
 
     def overlap(self, other, strand_specific=False) -> int:
-        """Calculates the overlap with the passed one"""
+        """Calculates the overlap with the passed genomic interval.
+            Supports unrestricted start/end coordinates and optional strand check
+            If the intervals are not on the same chromosome or strand, 0 is returned.
+            If the intervals are empty, 0 is returned.
+            If the intervals are adjacent, 0 is returned.
+            If the intervals do not overlap, 0 is returned.
+        """
         if self.is_unbounded() or other.is_unbounded():  # overlaps all
             return MAX_INT
         if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
             return 0
         if not self.cs_match(other, strand_specific):
             return 0
-        return min(self.end, other.end) - max(self.start, other.start) + 1.0
+        return max(0, min(self.end, other.end) - max(self.start, other.start) + 1.0)
 
     def split_coordinates(self) -> (str, int, int):
         return self.chromosome, self.start, self.end
@@ -537,7 +543,7 @@ class GI_dataclass:  # noqa
     __iter__ = GI.__iter__
 
 
-def _transcript_to_bed(idx, tx, item):
+def _transcript_to_bed(idx, tx, item):  # noqa
     """Default conversion of transcripts to BED12 format.
     CDS are used as thick_start/thick_end if available, otherwise the transcript start/end is used.
     Note that the BED12 format is 0-based, half-open, i.e., the end coordinate is not included.
@@ -988,8 +994,7 @@ class Transcriptome:
                                 parent=genes.get(gid, None),
                                 children={
                                     k: []
-                                    for k in set(fmt["ftype_to_SO"].values())
-                                             - {"gene", "transcript"}
+                                    for k in set(fmt["ftype_to_SO"].values()) - {"gene", "transcript"}
                                 },
                             )
                             for cf in self.copied_fields:
@@ -1393,24 +1398,13 @@ class Transcriptome:
             if feature.strand == "-":
                 seq = reverse_complement(
                     sep.join(
-                        [
-                            fseq[
-                            (ex.start - feature.start): (ex.start - feature.start)
-                                                        + len(ex)
-                            ]
-                            for ex in reversed(feature.exon)
-                        ]
+                        [fseq[(ex.start - feature.start): (ex.start - feature.start) + len(ex)] for ex in
+                         reversed(feature.exon)]
                     )
                 )
             else:
                 seq = sep.join(
-                    [
-                        fseq[
-                        (ex.start - feature.start): (ex.start - feature.start)
-                                                    + len(ex)
-                        ]
-                        for ex in feature.exon
-                    ]
+                    [fseq[(ex.start - feature.start): (ex.start - feature.start) + len(ex)] for ex in feature.exon]
                 )
         elif mode == "translated":
             assert (
@@ -1424,24 +1418,15 @@ class Transcriptome:
                 seq = reverse_complement(
                     sep.join(
                         [
-                            fseq[
-                            (cds.start - feature.start): (
-                                                                 cds.start - feature.start
-                                                         )
-                                                         + len(cds)
-                            ]
-                            for cds in reversed(feature.CDS)
+                            fseq[(cds.start - feature.start): (cds.start - feature.start) + len(cds)] for cds in
+                            reversed(feature.CDS)
                         ]
                     )
                 )
             else:
                 seq = sep.join(
                     [
-                        fseq[
-                        (cds.start - feature.start): (cds.start - feature.start)
-                                                     + len(cds)
-                        ]
-                        for cds in feature.CDS
+                        fseq[(cds.start - feature.start): (cds.start - feature.start) + len(cds)] for cds in feature.CDS
                     ]
                 )
         else:
@@ -1790,18 +1775,12 @@ class Transcriptome:
             print(
                 "\t".join(
                     [
-                        str(x)
-                        for x in [
-                        o.chromosome,
-                        "rnalib",
-                        feature_type,
-                        o.start,  # start
-                        o.end,  # end
-                        to_str(o.score if hasattr(o, "score") else None, na="."),
-                        "." if o.strand is None else o.strand,
-                        to_str(o.phase if hasattr(o, "phase") else None, na="."),
-                        to_str([f"{k}={v}" for k, v in data_dict.items()], sep=";"),
-                    ]
+                        str(x) for x in [o.chromosome, "rnalib", feature_type, o.start, o.end,
+                                         to_str(o.score if hasattr(o, "score") else None, na="."),
+                                         "." if o.strand is None else o.strand,
+                                         to_str(o.phase if hasattr(o, "phase") else None, na="."),
+                                         to_str([f"{k}={v}" for k, v in data_dict.items()], sep=";"),
+                                         ]
                     ]
                 ),
                 file=out_stream,
@@ -2412,7 +2391,7 @@ class RefDict(abc.Mapping[str, int]):
             return not all(v is None for v in self.values())
         return self.d[chrom] is not None
 
-    def set_len(self, chrom:str=None, length:int=None):
+    def set_len(self, chrom: str = None, length: int = None):
         """
             Sets the length of the passed chromosome.
             If chrom is None, all chromosomes will be set to the passed length.
@@ -2898,20 +2877,10 @@ class LocationIterator:
         if max_items is None:  # fast list comprehension
             df = pd.DataFrame(
                 [
-                    [
-                        loc.chromosome,
-                        loc.start,
-                        loc.end,
-                        "." if loc.strand is None else loc.strand,
-                    ]
-                    + fun(loc, item, fun_col, default_value)
-                    for idx, (loc, item) in enumerate(
-                    tqdm(
-                        self,
-                        desc=f"Building dataframe",
-                        disable=disable_progressbar,
-                    )
-                )
+                    [loc.chromosome, loc.start, loc.end, "." if loc.strand is None else loc.strand, ] +
+                    fun(loc, item, fun_col, default_value)
+                    for idx, (loc, item) in enumerate(tqdm(self, desc=f"Building dataframe",
+                                                           disable=disable_progressbar, ))
                 ],
                 columns=coord_colnames + fun_col,
             )
@@ -2973,8 +2942,8 @@ class LocationIterator:
         return (
             df.describe(include="all"),
             {
-                "contains_overlapping": len(df.index)
-                                        > len(bioframe.merge(df, cols=("Chromosome", "Start", "End")).index),
+                "contains_overlapping": len(df.index) > len(bioframe.merge(df, cols=("Chromosome", "Start",
+                                                                                     "End")).index),
                 "contains_empty": sum((df["End"] - df["Start"]) < 0) > 0,
             },
         )
@@ -3002,7 +2971,7 @@ class LocationIterator:
             chr2itree[loc.chromosome].addi(loc.start, loc.end + 1, item)
         return chr2itree
 
-    def merge(self, iterables: Iterable['LocationIterator'], labels:Iterable[str]=None, refdict:RefDict=None):
+    def merge(self, iterables: Iterable['LocationIterator'], labels: Iterable[str] = None, refdict: RefDict = None):
         """Merges this iterator with the passed iterables and returns a new iterator.
 
         Parameters
@@ -3019,7 +2988,6 @@ class LocationIterator:
         else:
             iterables = [self] + list(iterables)
         return MergedLocationIterator(iterables, labels=labels, refdict=refdict)
-
 
     def group(self, strategy="both"):
         """Wraps this iterator in a GroupedLocationIterator"""
@@ -3873,6 +3841,7 @@ class VcfRecord:
     location: gi
     pos: int
     id: str
+    filter: str
     ref: str
     alt: str
     qual: float
@@ -3895,6 +3864,7 @@ class VcfRecord:
         self.id = pysam_var.id if pysam_var.id != "." else None
         self.ref = pysam_var.ref
         self.alt = pysam_var.alt
+        self.filter = None if pysam_var.filter in ['.', 'PASS'] else pysam_var.filter
         self.qual = pysam_var.qual if pysam_var.qual != "." else None
         self.info = parse_info(pysam_var.info)
         if (len(pysam_var.ref) == 1) and (len(pysam_var.alt) == 1):
@@ -3967,6 +3937,8 @@ class VcfIterator(TabixIterator):
         optional, if set, the iterator will use this function for aliasing chromosome names
     samples : list
         optional, if set, only records with calls in these samples will be reported
+    filter_nopass : bool
+        if True (default), the iterator will report only records with the PASS filter flag
     filter_nocalls : bool
         if True (default), the iterator will report only records with at least 1 call in one of the configured
         samples.
@@ -3985,15 +3957,18 @@ class VcfIterator(TabixIterator):
     * reported stats:
         iterated_items, chromosome: (int, str)
             Number of iterated items
+        filtered_nopass_{filter}, chromosome: (int, str)
+            Number of filtered non-PASS records (filter is the filter value)
         filtered_nocalls, chromosome: (int, str)
-            Number of filtered no-calls
+            Number of filtered no-call records
         yielded_items, chromosome: (int, str)
             Number of yielded items (remaining are filtered, e.g., due to region constraints)
 
     """
 
     def __init__(
-            self, vcf_file, region=None, fun_alias=None, samples=None, filter_nocalls=True
+            self, vcf_file, region=None, fun_alias=None, samples=None, filter_nopass: bool = True,
+            filter_nocalls: bool = True
     ):
         assert (
                 guess_file_format(vcf_file) == "vcf"
@@ -4018,14 +3993,15 @@ class VcfIterator(TabixIterator):
             [i for i, j in enumerate(self.header.samples) if j in samples]
             if (samples is not None)
             else range(len(self.allsamples))
-        )  # list of all sammple indices to be considered
+        )  # list of all sample indices to be considered
+        self.filter_nopass = filter_nopass
         self.filter_nocalls = filter_nocalls
         self.formats = list(self.header.formats)
 
     def __iter__(self) -> Item[gi, VcfRecord]:
         for chromosome in self.chromosomes:
             if chromosome not in self.file.contigs:
-                self.stats["empty_chromosomes"] += 1
+                self.stats["empty_chromosomes", "all"] += 1
                 continue
             for pysam_var in self.file.fetch(
                     reference=chromosome,
@@ -4044,6 +4020,9 @@ class VcfIterator(TabixIterator):
                 self.location = rec.location
                 chromosome = self.location.chromosome
                 self._stats["iterated_items", chromosome] += 1
+                if self.filter_nopass and (rec.filter is not None):
+                    self._stats[f"filtered_nopass_{rec.filter}", chromosome] += 1
+                    continue
                 if (
                         ("n_calls" in rec.__dict__)
                         and self.filter_nocalls
@@ -4662,8 +4641,7 @@ class ReadIterator(LocationIterator):
                         for (off, pos, ref) in r.get_aligned_pairs(
                             with_seq=True, matches_only=True
                         )
-                        if ref.islower()
-                           and r.query_qualities[off] >= self.min_base_quality
+                        if ref.islower() and r.query_qualities[off] >= self.min_base_quality
                     ]  # mask bases with low per-base quailty
                     yield Item(self.location, (r, mm))  # yield read/mismatch tuple
                 else:
@@ -4673,11 +4651,152 @@ class ReadIterator(LocationIterator):
                 if r.is_mapped:
                     continue
                 self.location = gi()
-                self._stats["unmapped_reads"] += 1
+                self._stats["unmapped_reads", "all"] += 1
                 if self.report_mismatches:
                     yield Item(self.location, (r, ()))  # yield read/mismatch tuple
                 else:
                     yield Item(self.location, r)
+
+
+class ReadPair(NamedTuple):
+    """namedtuple for paired reads"""
+    r1: pysam.AlignedSegment
+    r2: pysam.AlignedSegment
+    mm1: List[Tuple[int, int, str, str]]
+    mm2: List[Tuple[int, int, str, str]]
+
+
+class PairedReadIterator(ReadIterator):
+    """
+    Iterates over a BAM alignment and yields paired reads as readpair objects.
+    This iterator is used to extract paired reads from a BAM file. It is assumed that the input BAM file is coordinate
+    sorted and that the reads are paired.
+    This iterator stores incomplete pairs in a dictionary and yields them when the second read is found. This approach
+    is more memory efficient than the naive approach of loading all reads into memory and then pairing them. It may,
+    however, still result in high memory consumption if the input BAM file contains many orphaned reads or pairs with
+    large insert sizes. It is thus recommended to use this iterator with a region parameter to limit the number of
+    reads that are loaded into memory.
+
+    Parameters
+    ----------
+    bam_file : str
+        BAM file name
+    region : gi or str
+        optional, if set, only features overlapping with this region will be iterated
+    file_format : str
+        optional, if set, the iterator will assume this file format (e.g., 'bam' or 'sam')
+    min_mapping_quality : int
+        Minimum mapping quality. If set, reads with lower mapping quality will be filtered.
+    flag_filter : int
+        Bitwise flag filter. If set, reads with any of the specified flags will be filtered.
+    tag_filters : list
+        List of TagFilter objects. If set, reads with any of the specified tags will be filtered.
+    max_span : int
+        Maximum alignment span. If set, reads with a larger alignment span will be filtered.
+    report_mismatches : bool
+        If set, this iterator will additionally yield (read, mismatches) tuples where 'mismatches' is a list of
+        (read_position, genomic_position, ref_allele, alt_allele) tuples that describe differences wrt. the
+        aligned reference sequence. This options requires MD BAM tags to be present.
+    min_base_quality : int
+        Useful only in combination with report_mismatches; filters mismatches based on minimum per-base quality
+    fun_alias : Callable
+        optional, if set, the iterator will use this function for aliasing chromosome names
+    filter_pcr_duplicates : bool
+        If set, this iterator will filter PCR duplicates based on the read sequence and same start/end coordinates.
+
+    Returns
+    -------
+    Item[gi, readpair]
+        The (merged) location of the read pair and a readpair namedtuple that contains the two reads as
+        pysam.AlignedSegment objects. If report_mismatches is set, mm1 and mm2 contain the mismatch lists of the
+        two mates. Note that r1 always contains read1 and r2 always read2. Both can be None for orphaned reads
+        (e.g., if the mate was not mapped or maps outside the region).
+    Notes
+    -----
+    * Reported stats (additional to ReadIterator stats)
+        * ("found_pairs", "complete"): number of complete read pairs found
+        * ("found_pairs", "incomplete"): number of incomplete (i.e., read1 or read2 missing) read pairs found
+        * ("filtered_duplicates", chromosome): number of filtered PCR duplicates per chromosome
+    """
+
+    def __init__(
+            self,
+            bam_file,
+            region,
+            file_format=None,
+            min_mapping_quality=0,
+            flag_filter=DEFAULT_FLAG_FILTER,
+            tag_filters=None,
+            max_span=None,
+            report_mismatches=False,
+            min_base_quality=0,
+            fun_alias=None,
+            filter_pcr_duplicates=False
+    ):
+        super().__init__(bam_file=bam_file,
+                         region=region,
+                         file_format=file_format,
+                         min_mapping_quality=min_mapping_quality,
+                         flag_filter=flag_filter,
+                         tag_filters=tag_filters,
+                         max_span=max_span,
+                         report_mismatches=report_mismatches,
+                         min_base_quality=min_base_quality,
+                         fun_alias=fun_alias,
+                         include_unmapped=False)  # no unmapped reads are reported
+        self.filter_pcr_duplicates = filter_pcr_duplicates
+        if region is None:
+            logging.warning("running PairedReadIterator without location. This might result in high memory "
+                            "consumption and is not recommended")
+
+    def __iter__(self) -> Item[gi, ReadPair]:
+        pairs = defaultdict(list)
+        out_queue: List[(gi, ReadPair)] = list()
+        for loc, r in super().__iter__():
+            mm = None
+            if self.report_mismatches:
+                r, mm = r
+            read_name = r.query_name
+            pairs[read_name].append((loc, r, mm))
+            if len(pairs[read_name]) == 2:
+                (l1, r1, mm1), (l2, r2, mm2) = pairs[read_name]
+                del pairs[read_name]
+                # check chrom
+                if l1.chromosome == l2.chromosome:
+                    loc = gi(l1.chromosome, min(l1.start, l2.start), max(l1.end, l2.end), '-' if r1.is_reverse else '+')
+                    if r1.is_read2:  # always report read1 first
+                        r1, r2 = r2, r1
+                        mm1, mm2 = mm2, mm1
+                    out_queue.append((loc, ReadPair(r1, r2, mm1, mm2)))
+        # add orphaned reads
+        self._stats["found_pairs", "complete"] = len(out_queue)
+        self._stats["found_pairs", "incomplete"] = len(pairs)
+        for read_name in pairs:
+            (loc, r1, mm1) = pairs[read_name][0]
+            r2, mm2 = None, None
+            if r1.is_read2:  # always report read1 first
+                r1, r2 = r2, r1
+                mm1, mm2 = mm2, mm1
+            out_queue.append((loc, ReadPair(r1, r2, mm1, mm2)))
+        last_left, dups = None, set()
+        for loc, p in out_queue:
+            if self.filter_pcr_duplicates:
+                if (last_left is None) or (last_left < loc.left_pos()):  # find duplicates
+                    last_left = loc.left_pos()
+                    dups = set()
+                else:
+                    key = (("" if (p.r1 is None) else p.r1.query_sequence) +  # noqa
+                           ("" if (p.r2 is None) else p.r2.query_sequence))  # noqa
+                    if (key != "") and (key in dups):
+                        self._stats["filtered_duplicates", loc.chromosome] += 1
+                        continue
+                    dups.add(key)
+
+            yield Item(loc, p)
+            # if self.report_mismatches:
+            #    yield Item(p.loc, (p.r1, p.r2, p.mm1, p.mm2))
+            # else:
+            #    yield Item(p.loc, (p.r1, p.r2))
 
 
 class FastPileupIterator(LocationIterator):
@@ -4987,21 +5106,22 @@ class MergedLocationIterator(LocationIterator):
         assert len(self.chromosomes) > 0, "No common chromosomes found"
         self.Result = namedtuple("Result", "data name")  # result type
 
-    def _yield_per_chrom(self, it, label, chromosome):
-        if chromosome not in it.refdict:
-            return # not covered
-        it.set_region(gi(chromosome))
-        for loc, dat in it:
-            yield (loc, dat, label)
+    def _yield_per_chrom(self, i, label, chromosome):
+        if chromosome not in i.refdict:
+            return  # not covered
+        i.set_region(gi(chromosome))
+        for loc, dat in i:
+            yield loc, dat, label
 
     def max_items(self):
         return sum([lit.max_items() for lit in self.iterables])
 
-    def __iter__(self) ->Item[gi, tuple]:
+    def __iter__(self) -> Item[gi, tuple]:
         for chromosome in self.chromosomes:
-            its = [self._yield_per_chrom(it, label, chromosome) for it, label in zip(self.iterables, self.labels)]
+            its = [self._yield_per_chrom(i, label, chromosome) for i, label in zip(self.iterables, self.labels)]
             for loc, dat, label in heapq.merge(*its):
-                yield Item(loc, self.Result(dat, label))
+                yield Item(loc, self.Result(dat, label))  # noqa
+
 
 @DeprecationWarning
 class SyncPerPositionIterator(LocationIterator):
@@ -5014,7 +5134,7 @@ class SyncPerPositionIterator(LocationIterator):
     Examples
     --------
     >>> it1, it2, it3 = ...
-    >>> for pos, (i1,i2,i3) in SyncPerPositionIterator([it1, it2, it3]):
+    >>> for pos, (i1,i2,i3) in SyncPerPositionIterator([it1, it2, it3]): # noqa
     >>>     print(pos,i1,i2,i3)
     >>>     # where i1,...,i3 are lists of tx/data tuples from the passed LocationIterators
 
@@ -5418,7 +5538,7 @@ class FastqIterator:
         """
         with open_file_obj(self.file, file_format="fastq") as fin:
             for d in grouper(fin, 4, ""):
-                self._stats["yielded_items"] += 1
+                self._stats["yielded_items", "all"] += 1
                 name, seq, qual = d[0].strip(), d[1].strip(), d[3].strip()
                 if type(name) is bytes:
                     name, seq, qual = name.decode('utf-8'), seq.decode('utf-8'), qual.decode('utf-8')

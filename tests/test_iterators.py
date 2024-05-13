@@ -746,6 +746,22 @@ def test_ReadIterator():
     # TODO add data from /groups/.../ref/_delme_testdata/smallbams/
 
 
+def test_PairedReadIterator():
+    with (rna.PairedReadIterator(get_resource("small_Actb_PE_bam"), "5", filter_pcr_duplicates=True) as it):
+        for loc, r in it:
+            if r.r1 is not None:
+                assert r.r1.is_read1, f"rp {r}"
+            if r.r2 is not None:
+                assert r.r2.is_read2, f"rp {r}"
+            if r.r1 is not None and r.r2 is not None:
+                assert r.r1.get_tag("NH") == r.r2.get_tag("NH")
+        assert it.stats["iterated_items", "5"] == 112961
+        assert it.stats["yielded_items", "5"] == 112734
+        assert it.stats["found_pairs", "complete"] == 56328
+        assert it.stats["found_pairs", "incomplete"] == 78
+        assert it.stats["filtered_duplicates", "5"] == 9317
+        assert it.stats["n_fil_flag", "5"] == 227
+
 def slow_pileup(bam, chrom, start, stop):
     """Runs pysam pileup for reference"""
     ac = Counter()
@@ -878,7 +894,8 @@ def test_gt2zyg():
 
 
 def test_VcfIterator():
-    """TODO: test INDELs"""
+    """TODO: test INDELs. Test non-pass variants. Test missing values. Test sample filtering. Test region filtering.
+    """
     with rna.VcfIterator(get_resource("test_vcf")) as it:
         assert [v.GT for _, v in it] == [{"SAMPLE": "1/1"}] * 4
     with rna.VcfIterator(get_resource("test_vcf")) as it:

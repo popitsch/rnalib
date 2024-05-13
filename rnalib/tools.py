@@ -4,6 +4,7 @@ Implementation of rnalib command line tools.
 import ast
 import hashlib
 import json
+import logging
 import os
 from collections import Counter
 from pathlib import Path
@@ -45,16 +46,17 @@ def prune_tags(bam_in, bam_out, kept_tags=("NH", "HI", "AS")):
 
 
 def tag_tc(
-    bam_file,
-    included_chrom=None,
-    snp_vcf_file=None,
-    out_prefix=None,
-    fractional_counts=False,
-    write_density_histogram=True,
-    tags=None,
-    min_mapping_quality=0,
-    flag_filter=DEFAULT_FLAG_FILTER,
-    min_base_quality=10,
+        bam_file,
+        included_chrom=None,
+        snp_vcf_file=None,
+        out_prefix=None,
+        fractional_counts=False,
+        write_density_histogram=True,
+        tags=None,
+        min_mapping_quality=0,
+        flag_filter=DEFAULT_FLAG_FILTER,
+        min_base_quality=10,
+        reverse_strand=False,
 ):
     """
     Determines the T/C status per read while masking SNP positions and create density histogram per chrom.
@@ -84,17 +86,23 @@ def tag_tc(
         flag filter for filtering reads.
     min_base_quality: int
         minimum base quality
+    reverse_strand: bool
+        if set, the reverse strand will be considered as the conversion strand. Default is False.
 
     """
     if tags is None:
-        tags = {"ntc": "xc", "ntt": "xt", "col": "YC"}  # Used BAM tags
+        tags = {"ntc": "xc", "ntt": "xt", 'mmtc': "xm", "col": "YC"}  # Used BAM tags
     elif isinstance(tags, str):
         tags = ast.literal_eval(tags)  # parse from string
+    # examples: "1,2,3,4", "(1, 2, 3)"
     if included_chrom is not None and isinstance(included_chrom, str):
         try:
             included_chrom = ast.literal_eval(included_chrom)
-        except ValueError as e:
+        except ValueError as e:  # noqa
             included_chrom = included_chrom.split(",")  # parse from string
+    if included_chrom is not None:
+        included_chrom = [str(x) for x in included_chrom]
+        logging.info("Considered chromosomes: %s" % included_chrom)
     out_prefix = rna.remove_extension(bam_file) if out_prefix is None else out_prefix
     out_bam_file = f"{out_prefix}+tc.bam"
     out_tsv_file = f"{out_prefix}.density.tsv"
@@ -112,14 +120,14 @@ def tag_tc(
         )
     # print(f'Considered chromosomes: {refdict.keys()}')
     with rna.ReadIterator(
-        bam_file,
-        report_mismatches=False,
-        min_mapping_quality=min_mapping_quality,
-        flag_filter=flag_filter,
-        min_base_quality=min_base_quality,
+            bam_file,
+            report_mismatches=False,
+            min_mapping_quality=min_mapping_quality,
+            flag_filter=flag_filter,
+            min_base_quality=min_base_quality,
     ) as it:
         with pysam.AlignmentFile(
-            out_bam_file, "wb", template=it.file
+                out_bam_file, "wb", template=it.file
         ) as out:  # @UndefinedVariable
             with tqdm(total=it.max_items()) as pbar:
                 for chrom in refdict:
@@ -128,14 +136,9 @@ def tag_tc(
                     # get genomic positions of all T/C and A/G snps in the considered region
                     masked_pos = (
                         set(
-                            [
-                                loc.start
-                                for loc, snp in rna.VcfIterator(
-                                    snp_vcf_file, region=reg
-                                )
-                                if ((snp.ref, snp.alt) == ("T", "C"))
-                                or ((snp.ref, snp.alt) == ("A", "G"))
-                            ]
+                            [loc.start for loc, snp in rna.VcfIterator(snp_vcf_file, region=reg) if
+                             ((snp.ref, snp.alt) == ("T", "C")) or ((snp.ref, snp.alt) == ("A", "G"))
+                             ]
                         )
                         if snp_vcf_file is not None
                         else set()
@@ -146,6 +149,8 @@ def tag_tc(
                     for loc, r in it:
                         pbar.update(1)
                         is_rev = not r.is_reverse if r.is_read2 else r.is_reverse
+                        if reverse_strand:
+                            is_rev = not is_rev
                         refc = "A" if is_rev else "T"
                         altc = "G" if is_rev else "C"
                         mm = [
@@ -153,9 +158,8 @@ def tag_tc(
                             for (off, pos, ref) in r.get_aligned_pairs(
                                 with_seq=True, matches_only=True
                             )
-                            if (ref.upper() == refc)
-                            and (r.query_qualities[off] >= it.min_base_quality)
-                            and (pos + 1 not in masked_pos)
+                            if (ref.upper() == refc) and (r.query_qualities[off] >= it.min_base_quality) and
+                               (pos + 1 not in masked_pos)
                         ]
                         mm_tc = [
                             (off, pos1, ref, alt)
@@ -172,6 +176,8 @@ def tag_tc(
                         # set bam tags, etc.
                         r.set_tag(tag=tags["ntt"], value=len(mm), value_type="i")
                         r.set_tag(tag=tags["ntc"], value=len(mm_tc), value_type="i")
+                        r.set_tag(tag=tags["mmtc"], value=','.join([str(off) for (off, pos1, ref, alt) in mm_tc]),
+                                  value_type="Z")
                         if len(mm_tc) > 0:
                             ftc = len(mm_tc) / len(mm)
                             r.set_tag(
@@ -207,8 +213,8 @@ def filter_tc(bam_file, out_file=None, min_tc=1, tags=None):
     ----------
     bam_file : str
         T/C annotated bam file to be analysed
-    out_prefix : str
-        output file prefix
+    out_file : str
+        output file. Default is {bam_file_name}_tc-only.bam
     min_tc : int
         minimum number of T/C conversions
     tags : dict
@@ -222,14 +228,14 @@ def filter_tc(bam_file, out_file=None, min_tc=1, tags=None):
     if out_file is None:
         out_file = f"{Path(bam_file).stem}_tc-only.bam"
     with rna.ReadIterator(
-        bam_file,
-        report_mismatches=False,
-        min_mapping_quality=0,
-        flag_filter=0,
-        min_base_quality=0,
+            bam_file,
+            report_mismatches=False,
+            min_mapping_quality=0,
+            flag_filter=0,
+            min_base_quality=0,
     ) as it:
         with pysam.AlignmentFile(
-            out_file, "wb", template=it.file
+                out_file, "wb", template=it.file
         ) as out:  # @UndefinedVariable
             for loc, r in tqdm(it, total=it.max_items()):
                 if r.get_tag(tags["ntc"], 0) >= min_tc:
@@ -242,7 +248,7 @@ def filter_tc(bam_file, out_file=None, min_tc=1, tags=None):
 
 
 def build_amplicon_resources(
-    transcriptome_name, bed_file, fasta_file, out_dir, padding=100, amp_extension=100
+        transcriptome_name, bed_file, fasta_file, out_dir, padding=100, amp_extension=100
 ):
     """
     Builds resources for amplicon analyses from a bed file.
@@ -286,10 +292,10 @@ def build_amplicon_resources(
     >>> with tempfile.TemporaryDirectory() as tmpdir:
     >>>     # create a small BED file with two defined amplicons that map to the genomic positions in the FASTA file
     >>>     with open(f'{tmpdir}/test.bed', 'wt') as out:
-    >>>         rna.MemoryIterator({'amp1.1': gi('chr3:1-100'), 'amp1.2': gi('chr3:50-150'),
-    >>>             'amp2': gi('chr7:10-50')}).to_bed(out, no_header=True)
+    >>>         rna.MemoryIterator({'amp1.1': rna.gi('chr3:1-100'), 'amp1.2': rna.gi('chr3:50-150'),
+    >>>             'amp2': rna.gi('chr7:10-50')}).to_bed(out, no_header=True)
     >>>     # build amplicon resources
-    >>>     rna.tools.build_amplicon_resources('test_transcriptome', bed_file=test_bed,
+    >>>     rna.tools.build_amplicon_resources('test_transcriptome', bed_file=...,
     >>>         fasta_file=rna.get_resource('ACTB+SOX2_genome'), padding=50, amp_extension=10, out_dir=tmpdir)
     >>>     rna.print_dir_tree(tmpdir) # show the created resources
 
@@ -333,20 +339,19 @@ def build_amplicon_resources(
                 with open(out_file_gff3, "w") as out_gff3:
                     with open(out_file_bed, "w") as out_bed:
                         with pysam.FastaFile(
-                            fasta_file
+                                fasta_file
                         ) as genome:  # @UndefinedVariable
                             for loc, bed_item in rna.BedIterator(bed_file):
                                 if loc.chromosome not in refdict:
                                     continue  # skip
-                                gi = next(
-                                    iter(ampcoords[loc.chromosome][loc.start : loc.end])
-                                )  # get amplicon interval (genomic coords)
+                                gi = next(iter(ampcoords[loc.chromosome][loc.start: loc.end]))  # get amplicon
+                                # interval (genomic coords)
                                 ampstart, ampend, ampchrom = gi.begin, gi.end, gi.data
                                 offset = padding + (loc.start - ampstart) + 1
                                 seq = (
-                                    "N" * padding
-                                    + genome.fetch(loc.chromosome, ampstart - 1, ampend)
-                                    + "N" * padding
+                                        "N" * padding
+                                        + genome.fetch(loc.chromosome, ampstart - 1, ampend)
+                                        + "N" * padding
                                 )
                                 ampchrom_len = len(seq)
                                 log["mean_amplicon_length"] += ampchrom_len
@@ -369,7 +374,8 @@ def build_amplicon_resources(
                                             hashlib.md5(
                                                 seq.encode("utf-8")
                                             ).hexdigest(),
-                                            # M5 MD5 checksum of the sequence in the uppercase, excluding spaces but including pads (as ‘*’s)
+                                            # M5 MD5 checksum of the sequence in the uppercase,
+                                            # excluding spaces but including pads (as ‘*’s)
                                             os.path.abspath(out_file_fasta),
                                         ),
                                         file=out_dict,
@@ -378,45 +384,19 @@ def build_amplicon_resources(
                                 # BED
                                 print(
                                     "\t".join(
-                                        [
-                                            str(x)
-                                            for x in [
-                                                ampchrom,
-                                                offset - 1,  # start
-                                                offset + loc.end - loc.start,  # end
-                                                bed_item.name,
-                                                "."
-                                                if bed_item.score is None
-                                                else bed_item.score,
-                                                "."
-                                                if loc.strand is None
-                                                else loc.strand,
-                                            ]
-                                        ]
+                                        [str(x) for x in [ampchrom, offset - 1, offset + loc.end - loc.start,
+                                                          bed_item.name, "." if bed_item.score is None else
+                                                          bed_item.score, "." if loc.strand is None else loc.strand, ]]
                                     ),
                                     file=out_bed,
                                 )
                                 # GFF3
                                 print(
                                     "\t".join(
-                                        [
-                                            str(x)
-                                            for x in [
-                                                ampchrom,
-                                                "transcriptome_tools",
-                                                "transcript",
-                                                offset,  # start
-                                                offset + loc.end - loc.start,  # end
-                                                "."
-                                                if bed_item.score is None
-                                                else bed_item.score,
-                                                "."
-                                                if loc.strand is None
-                                                else loc.strand,
-                                                0,
-                                                f"gene_name={bed_item.name}",
-                                            ]
-                                        ]
+                                        [str(x) for x in [ampchrom, "transcriptome_tools", "transcript", offset,
+                                                          offset + loc.end - loc.start, "." if bed_item.score is None
+                                                          else bed_item.score, "." if loc.strand is None else
+                                                          loc.strand, 0, f"gene_name={bed_item.name}", ]]
                                     ),
                                     file=out_gff3,
                                 )

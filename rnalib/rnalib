@@ -53,6 +53,10 @@ def main():
     p.add_argument("-Q", "--min_base_quality", type=int, required=False,
                    default=10, dest="min_base_quality", metavar="min_base_quality",
                    help="minimum base quality")
+    p.add_argument("-r", "--reverse_strand", action="store_true", required=False,
+                   default=False,
+                   dest="reverse_strand", help="reverse read strand (default is False)")
+
     # ============================================================================
     p = sp.add_parser('filter_tc', help='Filter T-to-C reads',
                       epilog="Example: rnalib filter_tc -b <bam> -o test_tc2.bam -m 2 (write only reads with at least 2 T/C conversions)")
@@ -99,7 +103,8 @@ def main():
                fractional_counts=args.fractional_counts,
                min_mapping_quality=args.min_mapping_quality,
                flag_filter=args.flag_filter,
-               min_base_quality=args.min_base_quality)
+               min_base_quality=args.min_base_quality,
+               reverse_strand=args.reverse_strand)
     elif args.mode == "filter_tc":
         from rnalib.tools import filter_tc
         filter_tc(bam_file=args.bam_file, out_file=args.outfile,

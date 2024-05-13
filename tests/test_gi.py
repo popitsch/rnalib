@@ -228,6 +228,8 @@ def test_overlap():
     assert gi("1:1-10 (+)").overlap(gi("1:1-10 (-)"), strand_specific=True) == 0
     assert gi("1:1-10").overlap(gi("1:10-15")) == 1
     assert gi("1:5-10 (+)").overlap(gi("1:1-5 (-)"), strand_specific=True) == 0
+    assert gi("1:5-10").overlap(gi("1:11-50")) == 0 # no overlap
+    assert gi("1:5-10").overlap(gi("1:20-50")) == 0  # no overlap
 
 
 def test_sort():

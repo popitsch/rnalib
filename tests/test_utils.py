@@ -78,16 +78,16 @@ def test_get_reference_dict():
         rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
     ).keys() == {"chr3", "chr7"}
     assert (
-        rna.RefDict.load(rna.get_resource("ensembl_gff")).orig.keys()
-        == rna.RefDict.load(
-            rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
-        ).orig.keys()
+            rna.RefDict.load(rna.get_resource("ensembl_gff")).orig.keys()
+            == rna.RefDict.load(
+        rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
+    ).orig.keys()
     )
     assert (
-        rna.RefDict.load(
-            rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
-        ).alias("1")
-        == "chr1"
+            rna.RefDict.load(
+                rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
+            ).alias("1")
+            == "chr1"
     )
     # compare 2 refdicts, one w/o chr prefix (ensembl) and one with (fasta file)
     assert rna.RefDict.merge_and_validate(
@@ -115,7 +115,7 @@ def test_kmer_search():
     res = rna.kmer_search(seq, ["TACGA", "ATCAG", "AACGC"])
     for k in res:
         for s in res[k]:
-            assert seq[s : s + len(k)], k
+            assert seq[s: s + len(k)], k
 
 
 def test_split_list():
@@ -133,7 +133,7 @@ def test_intersect_lists():
     assert rna.intersect_lists([1, 2, 3, 4], [1, 4]) == [1, 4]
     assert rna.intersect_lists([1, 2, 3], [3, 2, 1]) == [3, 2, 1]
     with pytest.raises(
-        AssertionError
+            AssertionError
     ) as e_info:  # assert that assertion error is raised
         rna.intersect_lists([1, 2, 3], [3, 2, 1], check_order=True)
     print(f"Expected assertion: {e_info}")
@@ -312,7 +312,7 @@ def test_calc_3end():
     # test whether returned 3'end intervals are in sum 200bp long or None (if tx too short)
     for tx in t.transcripts:
         assert (
-            rna.calc_3end(tx) is None or sum([len(x) for x in rna.calc_3end(tx)]) == 200
+                rna.calc_3end(tx) is None or sum([len(x) for x in rna.calc_3end(tx)]) == 200
         )
 
 
@@ -320,8 +320,8 @@ def test_geneid2symbol():  # needs internet connection
     res = rna.geneid2symbol(["ENSMUSG00000029580", 60])
     assert res["60"].symbol == "ACTB" and res["60"].taxid == 9606
     assert (
-        res["ENSMUSG00000029580"].symbol == "Actb"
-        and res["ENSMUSG00000029580"].taxid == 10090
+            res["ENSMUSG00000029580"].symbol == "Actb"
+            and res["ENSMUSG00000029580"].taxid == 10090
     )
 
 
@@ -347,8 +347,46 @@ def test_build_amplicon_resources():
             amp_extension=10,
             out_dir=tmpdir,
         ) == {
-            "mean_amplicon_length": 340.0,
-            "parsed_intervals": 3,
-            "written_amplicons": 2,
-        }
+                   "mean_amplicon_length": 340.0,
+                   "parsed_intervals": 3,
+                   "written_amplicons": 2,
+               }
         rna.print_dir_tree(tmpdir)
+
+
+def print_bam_file(bam_file):
+    with pysam.AlignmentFile(bam_file, "rb") as f:
+        print(f.header, end="")
+        for r in f:
+            print(r.to_string())
+
+
+def test_bam_writer():
+    # load transcriptome
+    t = rna.Transcriptome(genome_fa="/Users/niko/Desktop/data/ref/genomes/GRCh38/GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna",
+                          annotation_gff=rna.get_resource("gencode_gff"),
+                          annotation_flavour="gencode",
+                          load_sequence_data=True,
+                          feature_filter = rna.TranscriptFilter(config={"gene": {"included": {"gene_type": [
+                              "protein_coding"]}}})
+                          )
+    with tempfile.TemporaryDirectory(dir=rna.__RNALIB_TESTDATA__) as tmpdir:
+        #tmpdir="/Users/niko/Desktop/data/projects/Ameres/slamlib/data/delme"
+        out_bam = f"{tmpdir}/test.bam"
+        cr = 0.05
+        with rna.BamWriter(t.genome_fa, out_bam) as wout:
+            read_len = 200
+            for tx in [t.transcripts[0], t.transcripts[1]]:
+                splice_seq, idx, idx0 = rna.get_tx_indices(tx)
+                for start in range(0, len(splice_seq)-read_len, 50):
+                    read_seq, blocks = rna.get_aligned_blocks(tx, start, start + read_len, splice_seq, idx, idx0)
+                    if blocks is None:
+                        continue
+                    # add T/C mismatches
+                    read_tpos = np.array([i for (i, x) in enumerate(read_seq) if x == 'T'])
+                    read_tc_pos = np.array([i for i, p in zip(read_tpos, rna.random_sample(f'uniform(0,1,{len(read_tpos)})')) if p <= cr])
+                    for i in read_tc_pos:
+                        read_seq = read_seq[:i] + 'C' + read_seq[i+1:]
+                    query_sequence = rna.reverse_complement(read_seq) if tx.strand == "-" else read_seq
+                    wout.write(aligned_blocks = blocks, query_sequence = query_sequence)
+        #print_bam_file(out_bam)

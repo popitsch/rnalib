@@ -21,7 +21,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from functools import reduce
 from io import StringIO
-from itertools import groupby, zip_longest, islice
+from itertools import groupby, zip_longest, islice, pairwise
 from pathlib import Path
 from typing import Optional, List
 import html
@@ -41,15 +41,12 @@ from tqdm.auto import tqdm
 
 import rnalib as rna
 
-
 # --------------------------------------------------------------
 # datastructures
 # --------------------------------------------------------------
 
 GeneSymbol = namedtuple("GeneSymbol", "symbol name taxid")
 GeneSymbol.__doc__ = "A named tuple representing a gene symbol with symbol, name, and taxid fields."
-
-
 
 
 # --------------------------------------------------------------
@@ -437,7 +434,7 @@ def remove_extension(p, remove_gzip=True) -> str:
     return str(p.with_suffix(""))  # drop ext
 
 
-class UrlretrieveTqdm():
+class UrlretrieveTqdm:
     def __init__(self, filename):
         self.pbar = None
         self.filename = os.path.basename(filename)
@@ -445,15 +442,17 @@ class UrlretrieveTqdm():
     def __call__(self, block_num, block_size, total_size):
         if not self.pbar:
             self.pbar = tqdm(total=total_size, desc=f"Downloading {self.filename}", unit="B",
-                                unit_scale=True, unit_divisor=1024, position=0, leave=True)
+                             unit_scale=True, unit_divisor=1024, position=0, leave=True)
         downloaded = block_num * block_size
         if downloaded < total_size:
             self.pbar.update(block_size)
         else:
             self.pbar.set_description(f"Download complete.")
+
     def __enter__(self):
         pass
-    def __exit__(self, type, value, traceback):
+
+    def __exit__(self, extype, value, traceback):
         if self.pbar:
             self.pbar.close()
 
@@ -479,7 +478,7 @@ def download_file(url, filename, show_progress=True):
     >>>     # Note that the temporary created dir will be removed once the context manager is closed.
     """
 
-    #def print_progress(block_num, block_size, total_size):
+    # def print_progress(block_num, block_size, total_size):
     #    print(
     #        f"progress: {min(100, round(block_num * block_size / total_size * 100, 2))}%",
     #        end="\r",
@@ -1238,7 +1237,6 @@ def toggle_chr(s):
         return f"chr{s}"
 
 
-
 # --------------------------------------------------------------
 # genomics helpers :: SAM/BAM specific
 # --------------------------------------------------------------
@@ -1250,10 +1248,10 @@ def yield_unaligned_reads(dat_file: str):
 
         Examples
         --------
-        >>> for read in yield_unaligned_reads('unaligned_reads.bam'):
-        >>>     print(read)
-        >>> for read in yield_unaligned_reads('unaligned_reads.fastq.gz'):
-        >>>     print(read)
+        >>> for r in yield_unaligned_reads('unaligned_reads.bam'):
+        >>>     print(r)
+        >>> for r in yield_unaligned_reads('unaligned_reads.fastq.gz'):
+        >>>     print(r)
     """
     if rna.guess_file_format(dat_file) == 'fastq':  # FASTQ file input
         for read in tqdm(rna.it(dat_file)):
@@ -1267,14 +1265,28 @@ def yield_unaligned_reads(dat_file: str):
         raise NotImplementedError(f"unsupported format for {dat_file}")
 
 
-def aligns_to(anno, read, min_frac=0.5):
-    """Calculates the fraction of aligned read bases that overlap with the passed annotation and returns True if >= min_frac"""
+def aligns_to(anno_blocks, read_blocks, min_overlap=0.95):
+    """Calculates the fraction of aligned read bases that overlap with the passed annotation and returns True if >= min_frac
+        Parameters
+        ----------
+        anno_blocks : list
+            List of annotation blocks (e.g., exons)
+        read_blocks : list
+            List of read blocks (e.g., [rna.gi(read.reference_name,a+1,b) for a,b in read.get_blocks()])
+        min_overlap : float
+            The minimum overlap fraction required for a positive result
+
+        Returns
+        -------
+        bool
+            True if the fraction of aligned read bases that overlap with the passed annotation is >= min_frac
+    """
     rblen, overlap = 0, 0
-    for bs, be in read.get_blocks():
-        block = rna.gi(anno.chromosome, bs, be)  # aligned block
-        rblen += len(block)
-        overlap += block.overlap(anno)
-    return overlap / rblen >= min_frac
+    for sb in read_blocks:
+        rblen += len(sb)
+        for txb in anno_blocks:
+            overlap += max(0, sb.overlap(txb))
+    return overlap / rblen >= min_overlap
 
 
 def count_reads(in_file):
@@ -1327,14 +1339,14 @@ def get_softclipped_seq_and_qual(read):
     """
     seq, qual = read.query_sequence, read.query_qualities
     if read.cigartuples is not None:
-        op, l = read.cigartuples[0]
+        op, ln = read.cigartuples[0]
         if op == 4:
-            seq = seq[l:]
-            qual = qual[l:]
-        op, l = read.cigartuples[-1]
+            seq = seq[ln:]
+            qual = qual[ln:]
+        op, ln = read.cigartuples[-1]
         if op == 4:
-            seq = seq[:-l]
-            qual = qual[:-l]
+            seq = seq[:-ln]
+            qual = qual[:-ln]
     return seq, qual
 
 
@@ -1393,6 +1405,192 @@ def downsample_per_chrom(bam_file, max_reads, out_file_bam=None):
         pysam.index(out_file_bam)  # @UndefinedVariable
     except Exception as e:
         print("error sorting+indexing bam: %s" % e)
+
+
+def get_tx_indices(tx):
+    """
+    Returns the splice sequence of the transcript, a numpy array with genomic indices of the respective nucleotides in the
+    genome and a numpy array with the distances to the next consecutive nucleotide in the genome for each nucleotide in
+    the transcript.
+
+    Parameters
+    ----------
+    tx : rnalib.Transcript
+        The transcript object
+
+    Returns
+    -------
+    splice_seq : str
+        The spliced transcript sequence
+    idx : np.array
+        The genomic indices of the respective nucleotides in the genome
+    idx0 : np.array
+        The distances to the next consecutive nucleotide in the genome for each nucleotide in the transcript
+
+    """
+    chrom, strand = tx.chromosome, tx.strand
+    splice_seq = tx.spliced_sequence
+    if strand == "-":
+        idx = np.concatenate([
+            np.array(list(range(ex.start, ex.start + len(ex)))) for ex in reversed(tx.exon)
+        ])[::-1]
+    else:
+        idx = np.concatenate([
+            np.array(list(range(ex.start, ex.start + len(ex)))) for ex in tx.exon
+        ])
+    idx0 = np.array([(a - b - 1) for a, b in pairwise(idx)]) if strand == "-" else np.array(
+        [b - a - 1 for a, b in pairwise(idx)])
+    return splice_seq, idx, idx0
+
+
+def get_aligned_blocks(tx, spliced_seq_start: int, spliced_seq_end: int, splice_seq=None, idx=None, idx0=None):
+    """
+        Return the aligned blocks of a read sequence to the genomic sequence.
+        The read sequence is defined by the passed transcript and the spliced_seq_start and spliced_seq_end indices.
+
+        Examples
+        --------
+        >>> t = rna.Transcriptome(...)
+        >>> rs, bl = get_aligned_blocks(t['ENST00000674681.1'], 0, 100)
+
+        Parameters
+        ----------
+        tx : rnalib.Transcript
+            The transcript object
+        spliced_seq_start : int
+            The start index of the read in the spliced transcript sequence
+        spliced_seq_end : int
+            The end index of the read in the spliced transcript sequence
+        splice_seq : str
+            The spliced transcript sequence. If None, tx.spliced_sequence is used.
+        idx : np.array
+            The genomic indices of the respective nucleotides in the genome. If None, it is calculated from the transcript.
+        idx0 : np.array
+            The distances to the next consecutive nucleotide in the genome for each nucleotide in the transcript.
+            If None, it is calculated from the transcript.
+
+        Returns
+        -------
+        read_seq : str
+            The read sequence
+        blocks : list
+            The (sorted) aligned blocks of the read sequence to the genomic sequence
+    """
+
+    chrom, strand = tx.chromosome, tx.strand
+    if splice_seq is None or idx is None or idx0 is None:
+        splice_seq, idx, idx0 = get_tx_indices(tx)
+    read_seq = splice_seq[spliced_seq_start:spliced_seq_end]
+    if len(read_seq) < spliced_seq_end - spliced_seq_start:
+        return None, None
+    read_idx = idx[spliced_seq_start:spliced_seq_end]
+    read_idx0 = idx0[spliced_seq_start:spliced_seq_end]
+    blocks = []
+    start = read_idx[0]
+    if len(np.where(read_idx0 != 0)) > 0:
+        for splice_off in np.where(read_idx0 != 0)[0]:
+            if splice_off + 1 >= len(read_idx):
+                break  # special case: SJ at the end of the read
+            end = read_idx[splice_off]
+            if strand == "-":
+                start, end = end, start
+            blocks.append(rna.gi(chrom, start, end, strand))
+            start = read_idx[splice_off + 1]
+    end = read_idx[-1]
+    if strand == "-":
+        start, end = end, start
+    blocks.append(rna.gi(chrom, start, end, strand))
+    if strand == "-":
+        blocks = blocks[::-1]
+    return read_seq, blocks
+
+
+class BamWriter:
+    """ A simple helper class for creating custom BAM files.
+        The BAM header is initialized from the passed genome FASTA file.
+    """
+
+    def __init__(self, genome_fa: str, out_file_bam: str, sort_and_index=True):
+        self.fasta = pysam.Fastafile(genome_fa)  # @UndefinedVariable
+        self.rd = rna.RefDict.load(self.fasta)
+        header = {'HD': {'VN': '1.0'}, 'SQ': [{'SN': chrom, 'LN': chrlen} for chrom, chrlen in self.rd.items()]}
+        if not os.path.isdir(Path(out_file_bam).parent.absolute()):
+            os.makedirs(Path(out_file_bam).parent.absolute())
+        self.samout = pysam.AlignmentFile(out_file_bam, "wb", header=header)
+        self.out_file_bam = out_file_bam
+        self.sort_and_index = sort_and_index
+        self._stats = Counter()
+        print("Writing to ", out_file_bam)
+
+    def write(self,
+              aligned_blocks: list,
+              query_sequence: str = None,
+              query_qualities: str = None,
+              query_name: str = None,
+              mm: list[tuple] = None,
+              mapping_quality=255,
+              tags=None):
+        """ Writes a read to the BAM file."""
+        if not isinstance(aligned_blocks, list):
+            aligned_blocks = [aligned_blocks]
+        read_span = rna.GI.merge(aligned_blocks)  # merge blocks
+        assert read_span is not None, f"Could not merge passed aligned blocks {aligned_blocks}"  # checks strand/chrom
+        assert read_span.chromosome in self.rd, f"Chromosome {read_span.chrom} not found in reference genome"
+        assert read_span.strand is not None, f"Strand not set for read {read_span}"
+        aligned_blocks_len = sum([len(b) for b in aligned_blocks])
+        if query_sequence is None:
+            query_sequence = ''.join([self.fasta.fetch(read_span.chromosome, b.start - 1, b.end) for b in
+                                      aligned_blocks])
+        assert len(query_sequence) == aligned_blocks_len, (
+            f"Sequence length {len(query_sequence)} does not match aligned "
+            f"blocks length {aligned_blocks_len}")
+        if query_qualities is None:
+            query_qualities = "~" * len(query_sequence)  # max quality
+        assert len(query_qualities) == aligned_blocks_len, (
+            f"Quality length {len(query_qualities)} does not match aligned "
+            f"blocks length {aligned_blocks_len}")
+        NM = 0
+        if mm is not None:
+            for off, alt in mm:
+                query_sequence = query_sequence[:off] + alt + query_sequence[off + 1:]
+                NM += 1
+        r = pysam.AlignedSegment()
+        r.query_name = f"read{self._stats['reads']}_{read_span.to_file_str()}" if query_name is None else query_name
+        r.query_sequence = query_sequence
+        r.query_qualities = pysam.qualitystring_to_array(query_qualities)
+        r.flag = 0 if read_span.strand == '+' else 16
+        r.reference_id = self.rd.index(read_span.chromosome)
+        r.reference_start = read_span.start - 1
+        r.mapping_quality = mapping_quality
+        if len(aligned_blocks) == 1:
+            cigar = [(0, len(aligned_blocks[0]))]
+        else:  # more than one block
+            cigar = list()
+            for a, b in pairwise(aligned_blocks):
+                cigar.append((0, len(a)))  # M-block
+                cigar.append((3, a.distance(b) - 1))  # N-block
+            cigar.append((0, len(b)))  # final M-block
+        r.cigar = tuple(cigar)
+        if tags is None:
+            tags = []
+        tags += [('NM', NM)]
+        r.tags = tags
+        self.write_read(r)
+
+    def write_read(self, read: pysam.AlignedSegment):
+        self._stats['reads'] += 1
+        self.samout.write(read)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, extype, value, traceback):
+        self.close()
+
+    def close(self):
+        self.samout.close()
+        if self.sort_and_index:
+            sort_and_index_bam(self.out_file_bam)
 
 
 def sort_and_index_bam(bam_file):
@@ -1603,7 +1801,7 @@ def geneid2symbol(gene_ids):
     mg = mygene.MyGeneInfo()
     galias = mg.getgenes(set(gene_ids), filter="symbol,name,taxid")
     id2sym = {
-        x["query"]: GeneSymbol(x.get("symbol", x["query"]), x.get("name", None), x.get("taxid",None) )
+        x["query"]: GeneSymbol(x.get("symbol", x["query"]), x.get("name", None), x.get("taxid", None))
         for x in galias
     }
     return id2sym

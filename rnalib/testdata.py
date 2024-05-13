@@ -154,6 +154,11 @@ test_resources = {
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small.ACTB+SOX2.clean.MD.bam",
         "filename": "bam/small.ACTB+SOX2.clean.MD.bam",
     },
+    "small_Actb_PE_bam": {
+        # small example BAM file containing paired-end reads for mouse Actb
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/GSM3185042.Actb.bam",
+        "filename": "bam/GSM3185042.Actb.bam"
+    },
     # -------------- VCF -------------------------------
     "dmel_multisample_vcf": {
         "#uri": "https://www.ebi.ac.uk/eva/webservices/vcf-dumper/v1/segments/2L%3A574291-575734/variants?species=dmelanogaster_6&studies=SNPASSAY_4_SUBMISSION_2010_11_14",
@@ -256,6 +261,18 @@ test_resources = {
     "slamseq_example_gff": {
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/slamseq_example_mm10.gff3.gz",
         "filename": "gff/slamseq_example_mm10.gff3.gz",
+    },
+    "slamseq_example_pe_no4sU_bam": {
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/GSM3185046.pe_example.bam",
+        "filename": "bam/GSM3185046.pe_example.bam",
+    },
+    "slamseq_example_pe_no4sU_vcf": {
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/GSM3185046.pe_example.vcf.gz",
+        "filename": "bam/GSM3185046.pe_example.vcf.gz",
+    },
+    "slamseq_example_pe_4sU_bam": {
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/GSM3185043.pe_example.bam",
+        "filename": "bam/GSM3185043.pe_example.bam",
     },
     # -------------- BigWig/BigBed -------------------------------
     "test_bigwig": {

@@ -802,3 +802,5 @@ def test_annotate_with_mygene():
     print([g.gene_name for g in t.genes])
     assert "hsa04390" in [a["id"] for a in t["SOX2"].pathway_kegg]
     assert "hsa04015" in [a["id"] for a in t["ACTB"].pathway_kegg]
+
+
