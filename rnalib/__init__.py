@@ -5652,6 +5652,8 @@ def it(obj, **kwargs):
         elif ff == "sam" or ff == "bam":
             if style == "pileup":
                 return FastPileupIterator(obj, **kwargs)
+            elif style == "paired":
+                return PairedReadIterator(obj, **kwargs)
             return ReadIterator(obj, **kwargs)
         elif ff == "tsv":
             return TabixIterator(obj, **kwargs)
