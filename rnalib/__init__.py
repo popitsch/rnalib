@@ -254,7 +254,7 @@ class GI(NamedTuple):
         return gi(self.chromosome, self.end, self.end, strand=self.strand)
 
     def envelops(self, other, strand_specific=False) -> bool:
-        """Tests whether this interval envelops the passed one."""
+        """Tests whether this interval envelops (i.e., contains) the passed one."""
         if self.is_unbounded():  # envelops all
             return True
         if self.is_empty() or other.is_empty():  # zero overlap with empty intervals
@@ -294,11 +294,82 @@ class GI(NamedTuple):
     def split_coordinates(self) -> (str, int, int):
         return self.chromosome, self.start, self.end
 
+    def __add__(self, other):
+        """Returns a new interval that is the union of this and the passed interval.
+            Use merge() to merge a list of intervals.
+            If and int is passed, an interval that is extended by the passed number of nucleotides is returned.
+        """
+        assert isinstance(other, (GI, int)), "Can only add GIs or ints"
+        if isinstance(other, int):
+            if self.end + other <= 0:
+                return gi(self.chromosome, 0, -1, self.strand)  # return empty interval
+            return gi(
+                self.chromosome,
+                self.start,
+                self.end + other,
+                self.strand,
+            )
+        if not self.cs_match(other, strand_specific=True):
+            return self.copy()
+        return gi(
+            self.chromosome,
+            min(self.start, other.start),
+            max(self.end, other.end),
+            self.strand,
+        )
+
+    def __radd__(self, other):
+        """Reverse add, see https://docs.python.org/3/reference/datamodel.html#emulating-numeric-types
+            Note that sum() is also possible on lists of GIs. sum starts with the int 0 and recursively adds the GIs.
+        """
+        return self.__add__(other)
+
+    def __sub__(self, other, strand_specific=False):
+        """Returns a new interval that is the difference of this and the passed interval.
+        If intervals do not overlap, a copy of the original interval is returned.
+        If the passed interval is fully contained in this interval, the passed interval is removed.
+        If the passed interval overlaps with this interval, the overlapping parts are removed.
+
+        Returns
+        -------
+        GenomicInterval or list of GenomicIntervals
+        """
+        assert isinstance(other, (GI, int)), "Can only subtract GIs or ints"
+        if isinstance(other, int):
+            if self.end - other <= 0:
+                return gi(self.chromosome, 0, -1, self.strand)  # return empty interval
+            return gi(
+                self.chromosome,
+                self.start,
+                self.end - other,
+                self.strand,
+            )
+        if self.overlaps(other, strand_specific=strand_specific):
+            s1, e1, s2, e2 = self.start, self.end, other.start, other.end
+            # aaa  |  aaa | aaa | aaa |  aaa
+            #  bbb | bbb  |  b  | bbb | bbbbb
+            # a    |    a | a a |     |
+            if s1 < s2:
+                if e1 <= e2:
+                    return gi(self.chromosome, s1, s2-1, self.strand)
+                else:
+                    return [gi(self.chromosome, s1, s2 - 1, self.strand),
+                            gi(self.chromosome, e2 + 1, e1, self.strand)]
+            else: # s1 >= s2
+                if e1 > e2:
+                    return gi(self.chromosome, e2+1, e1, self.strand)
+                else:
+                    return gi(self.chromosome, 0, -1, self.strand)  # return empty interval
+        return self.copy()
+
     @classmethod
     def merge(cls, loc):
         """Merges a list of intervals.
         If intervals are not on the same chromosome or if strand is not matching, None is returned
         The resulting interval will inherit the chromosome and strand of the first passed one.
+        This is equal to sum() on a list of GIs sharing the same chromosome and strand.
+        Users may apply this method w/o checking for this condition though.
+
 
         Examples
         --------
@@ -1982,6 +2053,8 @@ class Feature(GI_dataclass):
                 return self.transcriptome.get_sequence(self, mode="translated")
             if attr in self.transcriptome.anno[self]:
                 return self.transcriptome.anno[self][attr]
+        if self.parent and self.parent.feature_type == attr:  # e.g., tx.gene
+            return self.parent
         raise AttributeError(
             f"{self.feature_type} has no attribute/magic function {attr}"
         )

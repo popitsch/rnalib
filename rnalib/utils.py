@@ -2025,6 +2025,28 @@ def random_sample(conf_str, rng=np.random.default_rng(seed=None)):
     return eval(f"rng.{conf_str}")
 
 
+def random_intervals(chromosomes=['1'], start_range=range(0, 1000), len_range=range(1, 100), n=10):
+    """ Generates random genomic intervals.
+    Parameters
+    ----------
+    chromosomes : list
+        The chromosomes to sample from.
+    start_range : range
+        The range of start positions.
+    len_range : range
+        The range of lengths.
+    n : int
+        The number of intervals to generate.
+    Returns
+    -------
+    A sorted list of genomic intervals.
+    """
+    refdict = rna.RefDict({c: None for c in chromosomes})
+    chroms = random.choices(chromosomes, k=n)
+    starts = random.choices(start_range, k=n)
+    lens = random.choices(len_range, k=n)
+    return rna.GI.sort([rna.gi(c, s, s + l) for c, s, l in zip(chroms, starts, lens)], refdict)
+
 def execute_screencast(
         command_file,
         col=True,

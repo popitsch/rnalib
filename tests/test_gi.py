@@ -58,10 +58,10 @@ def test_loc_simple():
     # stranded
     d["a+"] = d["a"].get_stranded("+")
     assert (
-        (d["a+"] < d["b"])
-        and (d["d"] > d["a+"])
-        and (not d["a+"] == d["b"])
-        and (d["a+"] != d["b"])
+            (d["a+"] < d["b"])
+            and (d["d"] > d["a+"])
+            and (not d["a+"] == d["b"])
+            and (d["a+"] != d["b"])
     )
     # stranded
     a = gi("chr1", 1, 10)
@@ -209,8 +209,8 @@ def test_eq():
 def test_regexp():
     locs = "1:1-10(+),  1:1-10 (-), chr2:1-10, 1:30-40    (+),"
     assert (
-        str(from_str(locs))
-        == "[1:1-10 (+), 1:1-10 (-), chr2:1-10, 1:30-40 (+), :0-2147483647]"
+            str(from_str(locs))
+            == "[1:1-10 (+), 1:1-10 (-), chr2:1-10, 1:30-40 (+), :0-2147483647]"
     )
 
 
@@ -228,8 +228,34 @@ def test_overlap():
     assert gi("1:1-10 (+)").overlap(gi("1:1-10 (-)"), strand_specific=True) == 0
     assert gi("1:1-10").overlap(gi("1:10-15")) == 1
     assert gi("1:5-10 (+)").overlap(gi("1:1-5 (-)"), strand_specific=True) == 0
-    assert gi("1:5-10").overlap(gi("1:11-50")) == 0 # no overlap
+    assert gi("1:5-10").overlap(gi("1:11-50")) == 0  # no overlap
     assert gi("1:5-10").overlap(gi("1:20-50")) == 0  # no overlap
+
+
+def test_add_sub():
+    d = {
+        "a": gi("1:1-10"),
+        "b": gi("1:20-30"),
+        "c": gi("1:40-50"),
+        "d": gi("1:2-9"),
+        "e": gi("1:1-3"),
+    }
+    assert d['a'] + d['a'] == d['a']
+    assert d['a'] + d['a'].get_stranded('+') == d['a']  # different strand, no overlap
+    assert d['a'] + d['b'] == gi("1:1-30")
+    assert sum([d['a'], d['b'], d['c']]) == gi("1:1-50")
+    assert (d['a'] - d['a']).is_empty()
+    assert (d['a'] - d['b']) == d['a']
+    assert (d['a'] - d['d']) == [gi("1:1-1"),gi("1:10-10")] # split
+    assert (d['a'] - d['e']) == gi("1:4-10")
+    assert (d['e'] - d['a']).is_empty()
+    assert (d['a'] - (d['d']+1)) == gi("1:1-1")
+    assert (d['a'] - (d['d'] - -1)) == gi("1:1-1")
+    # create 100 sets of unstranded random intervals from 1 single chrom and test whether this is equal to the sum
+    # note that merge is as fast as sum in this scenario.
+    rints = rna.split_list(rna.random_intervals(chromosomes=['1'], n=10000), 100)
+    for i in rints:
+        assert sum(i) == GI.merge(i)
 
 
 def test_sort():
@@ -250,7 +276,7 @@ def test_len():
     assert len(gi("chr1", 1, 2)) == 2  # interval
     assert len(gi("chr1", 1, 1)) == 1  # point
     assert (
-        gi("chr1", 20, 10).is_empty() and len(gi("chr1", 20, 10)) == 0
+            gi("chr1", 20, 10).is_empty() and len(gi("chr1", 20, 10)) == 0
     )  # empty interval
     assert len(gi()) == rna.MAX_INT  # None:-inf-inf # unbounded intervals
     assert len(gi("chr1", 1)) == rna.MAX_INT  # chr1:1-inf
