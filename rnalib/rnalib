@@ -90,6 +90,19 @@ def main():
                    dest="amp_extension",
                    help="Extend transcripts by this amount (default is 100)")
     # ============================================================================
+    p = sp.add_parser('calculate_mm_profile', help='Calculate a mismatch profile from a BAM file')
+    p.add_argument("-b", "--bam_file", type=str, required=True, help='Input BAM file.')
+    p.add_argument("-g", "--gff_file", type=str, required=True, help='Annotation GFF file.')
+    p.add_argument("-f", "--fasta_file", type=str, required=True, help='Reference sequence FASTA file.')
+    p.add_argument("-a", "--annotation_flavour", type=str, required=False, default="gencode",
+                   help='Annotation flavour (default is gencode).')
+    p.add_argument("-mc", "--min_cov", type=int, required=False, default=10, help='Minimum coverage (default is 10).')
+    p.add_argument("-mf", "--max_mm_frac", type=float, required=False, default=0.1, help='Maximum mismatch fraction (default is 0.1).')
+    p.add_argument("-ms", "--max_sample", type=int, required=False, default=1e6, help='Maximum number of samples ('
+                                                                                      'default is 1e6).')
+    p.add_argument("-s", "--strand_specific", action="store_true", required=False, default=False, help='Strand specific (default is False).')
+    p.add_argument("-o", "--out_file", type=str, required=False, help='Output TSV file.')
+    # ============================================================================
     args = parser.parse_args()
     start_time = time.time()
     if args.mode == "tag_tc":
@@ -125,6 +138,17 @@ def main():
     elif args.mode == "prune_tags":
         from rnalib.tools import prune_tags
         prune_tags(args.bam_file, args.out_file, args.kept_tags.split(',') if args.kept_tags else ("NH", "HI", "AS"))
+    elif args.mode == "calculate_mm_profile":
+        from rnalib.tools import calculate_mm_profile
+        calculate_mm_profile(bam_file=args.bam_file,
+                             gff_file=args.gff_file,
+                             fasta_file=args.fasta_file,
+                             annotation_flavour=args.annotation_flavour,
+                             min_cov=args.min_cov,
+                             max_mm_frac=args.max_mm_frac,
+                             max_sample=args.max_sample,
+                             strand_specific=args.strand_specific,
+                             out_file=args.out_file)
     else:
         raise parser.parse_args(["-h"])
     print(f"All done in {time.time() - start_time} sec.")

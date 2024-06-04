@@ -363,6 +363,39 @@ class GI(NamedTuple):
         return self.copy()
 
     @classmethod
+    def join(cls, *locs, refdict):
+        """joins two lists of intervals. Overlapping intervals are merged.
+
+            Parameters
+            ----------
+            locs: list of lists of GenomicIntervals
+                List of lists of GenomicIntervals to be joined.
+            refdict: RefDict
+                Reference dictionary to sort the intervals by chromosome and coordinate.
+
+            Examples
+            --------
+            >>> intervals = [gi("1:3-9"), gi("1:2-6"), gi("1:8-10"), gi("1:15-18")]
+            >>> assert list(GI.join(intervals, refdict=refdict)) == [gi("1:2-10"), gi("1:15-18")]
+
+        """
+        lst = GI.sort(sum(locs, []), refdict)
+        last = None
+        for loc in lst:
+            if last is None:
+                last = loc
+                continue
+            if last.overlaps(loc):
+                last = last + loc
+            else:
+                yield last
+                last = loc
+        if last is not None:
+            yield last
+
+
+
+    @classmethod
     def merge(cls, loc):
         """Merges a list of intervals.
         If intervals are not on the same chromosome or if strand is not matching, None is returned
@@ -857,9 +890,8 @@ class Transcriptome:
         assert (
                    self.annotation_flavour,
                    self.file_format,
-               ) in GFF_FLAVOURS, "Unsupported annotations flavour. Supported:\n" + ", ".join(
-            [f"{k}/{v}" for k, v in GFF_FLAVOURS]
-        )
+               ) in GFF_FLAVOURS, (f"Unsupported annotation flavour {self.annotation_flavour}/{self.file_format}. "
+                                   f"Supported:\n") + ", ".join([f"{k}/{v}" for k, v in GFF_FLAVOURS])
         self.genome_fa = genome_fa
         self.gene_name_alias_file = gene_name_alias_file
         self.annotation_fun_alias = annotation_fun_alias
@@ -2049,6 +2081,8 @@ class Feature(GI_dataclass):
                 return self.transcriptome.get_sequence(self)
             elif attr == "spliced_sequence":
                 return self.transcriptome.get_sequence(self, mode="spliced")
+            elif attr == "rna_sequence":
+                return self.transcriptome.get_sequence(self, mode="rna")
             elif attr == "translated_sequence":
                 return self.transcriptome.get_sequence(self, mode="translated")
             if attr in self.transcriptome.anno[self]:
@@ -4948,6 +4982,7 @@ class FastPileupIterator(LocationIterator):
             max_span: int = None,
             min_base_quality: int = 0,
             fun_alias=None,
+            strand_specific: bool = False
     ):
         self.file = bam_file
         self.location = None
@@ -4958,11 +4993,14 @@ class FastPileupIterator(LocationIterator):
             assert (region is not None) and (
                     reported_positions is None
             ), "Either chromosome and reported_positions or region must be set"
-            if not isinstance(region, GI):
+            if not isinstance(region, (GI, Feature)):
                 region = gi(region)
+            assert not region.is_unbounded(), "region must be bounded"
+            assert len(region)<1e7, f"region {region} is too large for pileup"
             reported_positions = {p.start for p in region}  # a set of positions
             chromosome = region.chromosome
         else:
+            assert reported_positions is not None, "Either chromosome and reported_positions or region must be set"
             if isinstance(reported_positions, range):
                 reported_positions = set(reported_positions)
             elif not isinstance(reported_positions, set):
@@ -4982,6 +5020,7 @@ class FastPileupIterator(LocationIterator):
         self.tag_filters = tag_filters
         self.max_span = max_span
         self.min_base_quality = min_base_quality
+        self.strand_specific = strand_specific
         super().__init__(
             bam_file,
             region=self.region,
@@ -5007,6 +5046,7 @@ class FastPileupIterator(LocationIterator):
                 fun_alias=self.fun_alias,
         ) as rit:
             for loc, r in rit:
+                strand = '-' if (not r.is_reverse if r.is_read2 else r.is_reverse) else '+'
                 self._stats["iterated_items", loc.chromosome] += 1
                 # find reportable positions, skips soft-clipped bases
                 gpos = r.reference_start + 1
@@ -5020,7 +5060,10 @@ class FastPileupIterator(LocationIterator):
                                 ):  # check base qual
                                     if not self.count_dict[gpos]:
                                         self.count_dict[gpos] = Counter()
-                                    self.count_dict[gpos][r.query_sequence[rpos]] += 1
+                                    if self.strand_specific:
+                                        self.count_dict[gpos][r.query_sequence[rpos], strand] += 1
+                                    else:
+                                        self.count_dict[gpos][r.query_sequence[rpos]] += 1
                             rpos += 1
                             gpos += 1
                     elif op == 1:  # I
@@ -5030,7 +5073,10 @@ class FastPileupIterator(LocationIterator):
                             if gpos in self.reported_positions:
                                 if not self.count_dict[gpos]:
                                     self.count_dict[gpos] = Counter()
-                                self.count_dict[gpos][None] += 1
+                                if self.strand_specific:
+                                    self.count_dict[gpos][None, strand]
+                                else:
+                                    self.count_dict[gpos][None] += 1
                         gpos += 1
                     elif op == 4:  # S
                         rpos += l

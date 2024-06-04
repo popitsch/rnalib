@@ -431,3 +431,48 @@ def build_amplicon_resources(
     print("GFF file + idx:\t" + out_file_gff3)
     print("BED file + idx:\t" + out_file_bed)
     return log
+
+
+def calculate_mm_profile(bam_file,
+                         gff_file,
+                         fasta_file,
+                         annotation_flavour="gencode",
+                         min_cov=10,
+                         max_mm_frac=0.1,
+                         max_sample=1e6,
+                         strand_specific=True,
+                         out_file=None):
+    """
+    Calculates the mismatch profile of a BAM file from random genes.
+
+    Parameters
+    ----------
+    bam_file: str
+        input BAM file
+    gff_file: str
+        gene annotation GFF file
+    fasta_file:
+        Reference sequence FASTA file
+    annotation_flavour: str
+        The annotation flavour of the GFF file. Default is 'gencode'.
+    min_cov : int
+        The minimum coverage required for a position to be considered.
+    max_mm_frac : float
+        The maximum mismatch fraction allowed for a position to be considered.
+    max_sample : int
+        The maximum number of mismatches to count.
+    strand_specific : bool
+        If True, the strand-specific profile is created.
+    out_file: str
+        TSV file to write the mismatch profile to. Deafult: {bam_file}.mm.tsv
+
+    """
+    t = rna.Transcriptome(annotation_gff=gff_file,
+                          annotation_flavour=annotation_flavour,
+                          genome_fa=fasta_file,
+                          load_sequence_data=True
+                          )
+    out_file = rna.remove_extension(bam_file)+'.mm.tsv' if out_file is None else out_file
+    se = rna.MismatchProfile.from_bam(bam_file, features=t.genes, min_cov=min_cov, max_mm_frac=max_mm_frac,
+                                      max_sample=max_sample, strand_specific=strand_specific)
+    se.to_tsv(out_file)

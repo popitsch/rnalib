@@ -192,6 +192,25 @@ def test_loc_merge_unrestricted():
 #         print(i, i.data)
 
 
+def test_join():
+    d = {
+        "a": gi("1", 1, 10),
+        "b": gi("1", 5, 15),
+        "c": gi("1", 15, 20),
+        "d": gi("1", 50, 100),
+        "e": gi("3", 21, 30),
+    }
+    refdict = rna.RefDict({"1": None, "3": None})
+    all = from_str("1:1-20, 1:50-100, 3:21-30")
+    assert list(GI.join(list(d.values()), refdict=refdict)) == all
+    assert list(GI.join([d["a"], d["d"]], [d["b"], d["e"], d["c"]], refdict=refdict)) == all
+    # see https://stackoverflow.com/questions/49071081/merging-overlapping-intervals-in-python
+    intervals = from_str("1:3-9, 1:2-6, 1:8-10, 1:15-18")
+    assert list(GI.join(intervals, refdict=refdict)) == from_str("1:2-10, 1:15-18")
+    # see https://stackoverflow.com/questions/43600878/merging-overlapping-intervals
+    intervals=from_str("1:1-3,1:4-10,1:5-12,1:6-8,1:20-33,1:30-35")
+    assert list(GI.join(intervals, refdict=refdict)) == from_str("1:1-3,1:4-12,1:20-35")
+
 def test_distance():
     a = from_str("1:1-10,1:1-10,1:10-20,1:25-30,1:1-10,2:1-10,2:11-12")
     dist = [a.distance(b) for a, b in pairwise(a)]

@@ -390,3 +390,36 @@ def test_bam_writer():
                     query_sequence = rna.reverse_complement(read_seq) if tx.strand == "-" else read_seq
                     wout.write(aligned_blocks = blocks, query_sequence = query_sequence)
         #print_bam_file(out_bam)
+
+
+def test_get_covered_regions():
+    assert list(rna.get_covered_regions(rna.get_resource("small_example_bam"))) == \
+        [rna.gi("1:22376052-22474991 (+)")]
+
+def test_SeqErrProfile():
+    se = rna.MismatchProfile({('T', 'C', '+'): 10, ('T', 'T', '+'): 990, ('T', 'A', '+'): 0, ('T', 'G', '+'): 0})
+    assert se.get_prob('T', 'C') == 10 / 1000
+    assert se.get_prob('T', 'A') == 0
+    se = rna.MismatchProfile({('T', 'C', '+'): 10, ('T', 'T', '+'): 975, ('T', 'A', '+'): 10, ('T', 'G', '+'): 5})
+    assert se.get_prob('T', 'C') == 10 / 1000
+    assert se.get_prob('T', 'A') == 10 / 1000
+    assert se.get_prob('T', None) == 25 / 1000
+    assert se.get_prob('x', None) == 0
+    se = rna.MismatchProfile.get_flat_profile(0.1)
+    assert se.get_mismatch_prob("+") == 0.1
+    assert se.get_prob('T', 'C', "-") == 0.1 / 3
+    se = rna.MismatchProfile.from_bam(rna.get_resource("small_example_bam"), features=None, min_cov=1, max_mm_frac=1)
+    print([se.get_prob(ref, alt, strand) for (ref, alt, strand) in \
+           [('N', 'A', "+"), ('N', 'T', "+"), ('N', 'G',  "+"), ('N',  'C',  "+")]])
+    print([se.get_prob(ref, alt, strand) for (ref, alt, strand) in \
+           [('N', 'A', "-"), ('N', 'T', "-"), ('N', 'G',  "-"), ('N',  'C',  "-")]])
+    assert np.allclose(
+        a=[se.get_prob(ref, alt, strand, revcomp=False) for (ref, alt, strand) in \
+           [('N', 'A', "+"), ('N', 'T', "+"), ('N', 'G',  "+"), ('N',  'C',  "+")]],
+        b=[0.28, 0.31, 0.21, 0.20],
+        atol=0.02)
+    assert np.allclose(
+        a=[se.get_prob(ref, alt, strand, revcomp=False) for (ref, alt, strand) in \
+           [('N', 'A', "-"), ('N', 'T', "-"), ('N', 'G',  "-"), ('N',  'C',  "-")]],
+        b=[0.28, 0.31, 0.21, 0.20],
+        atol=0.02)

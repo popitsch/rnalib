@@ -3,6 +3,7 @@ This module implements various general (low-level) utility methods
 
 """
 import gzip
+import itertools
 import logging
 import math
 import numbers
@@ -33,6 +34,7 @@ import pandas as pd
 import pyBigWig
 import pybedtools
 import pysam
+import seaborn as sns
 from IPython.core.display_functions import display
 from IPython.display import HTML, Javascript, clear_output
 from matplotlib import pyplot as plt
@@ -162,9 +164,9 @@ def intersect_lists(*lists, check_order=False) -> list:
         if check_order:
             assert [
                        x for x in lst if x in isec
-                   ] == isec, f"Input list have differing order of shared elements {isec}"
+                   ] == isec, f"Input lists have differing order of shared elements {isec}"
         elif [x for x in lst if x in isec] != isec:
-            warnings.warn(f"Input list have differing order of shared elements {isec}")
+            warnings.warn(f"Input lists have differing order of shared elements {isec}")
     return isec
 
 
@@ -186,6 +188,26 @@ def get_unique_keys(dict_of_dicts):
 def calc_set_overlap(a, b) -> float:
     """Calculates the overlap between two sets"""
     return len(a & b) / len(a | b)
+
+
+def powerset(it):
+    """
+    Returns all possible subsets of the passed iterable.
+    Parameters
+    ----------
+    iterable
+
+    Returns
+    -------
+    The powerset of the passed iterable
+
+    Examples
+    --------
+    >>> list(powerset([1,2,3])) # [(), (1,), (2,), (3,), (1, 2), (1, 3), (2, 3), (1, 2, 3)]
+
+    """
+    s = list(it)
+    return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s) + 1))
 
 
 def grouper(iterable, n, fill_value=None):
@@ -1372,6 +1394,16 @@ def get_covered_contigs(bam_files):
     return covered_contigs
 
 
+def get_covered_regions(bam_file):
+    """Returns all covered regions in a BAM file.
+    This is slow as it iterates over all reads in the BAM file and should be used for small files only.
+    """
+    for c in get_covered_contigs(bam_file):
+        all_reg = [loc for loc, _ in rna.it(bam_file, region=rna.gi(c))]
+        if len(all_reg) > 0:
+            yield all_reg[0] + all_reg[-1]
+
+
 def downsample_per_chrom(bam_file, max_reads, out_file_bam=None):
     """ Simple convenience method that randomly subsamples reads to ensure max_reads per chromosome.
         The resulting BAM file will be sorted and indexed.
@@ -1407,7 +1439,7 @@ def downsample_per_chrom(bam_file, max_reads, out_file_bam=None):
         print("error sorting+indexing bam: %s" % e)
 
 
-def get_tx_indices(tx):
+def get_tx_indices(tx, sequence_type='spliced_sequence'):
     """
     Returns the splice sequence of the transcript, a numpy array with genomic indices of the respective nucleotides in the
     genome and a numpy array with the distances to the next consecutive nucleotide in the genome for each nucleotide in
@@ -1417,6 +1449,8 @@ def get_tx_indices(tx):
     ----------
     tx : rnalib.Transcript
         The transcript object
+    sequence_type : str
+        The type of sequence to return. Can be 'spliced_sequence' or 'rna_sequence'. Default is 'spliced_sequence'.
 
     Returns
     -------
@@ -1429,21 +1463,31 @@ def get_tx_indices(tx):
 
     """
     chrom, strand = tx.chromosome, tx.strand
-    splice_seq = tx.spliced_sequence
-    if strand == "-":
-        idx = np.concatenate([
-            np.array(list(range(ex.start, ex.start + len(ex)))) for ex in reversed(tx.exon)
-        ])[::-1]
+    if sequence_type == 'spliced_sequence':
+        splice_seq = tx.spliced_sequence
+        if strand == "-":
+            idx = np.concatenate([
+                np.array(list(range(ex.start, ex.start + len(ex)))) for ex in reversed(tx.exon)
+            ])[::-1]
+        else:
+            idx = np.concatenate([
+                np.array(list(range(ex.start, ex.start + len(ex)))) for ex in tx.exon
+            ])
+        idx0 = np.array([(a - b - 1) for a, b in pairwise(idx)]) if strand == "-" else np.array(
+            [b - a - 1 for a, b in pairwise(idx)])
+    elif sequence_type == 'rna_sequence':
+        splice_seq = tx.rna_sequence
+        idx = np.array(list(range(tx.start, tx.start + len(tx))))
+        if strand == "-":
+            idx = idx[::-1]
+        idx0 = np.array([0] * len(tx))
     else:
-        idx = np.concatenate([
-            np.array(list(range(ex.start, ex.start + len(ex)))) for ex in tx.exon
-        ])
-    idx0 = np.array([(a - b - 1) for a, b in pairwise(idx)]) if strand == "-" else np.array(
-        [b - a - 1 for a, b in pairwise(idx)])
+        raise ValueError(f"Invalid sequence type: {sequence_type}")
     return splice_seq, idx, idx0
 
 
-def get_aligned_blocks(tx, spliced_seq_start: int, spliced_seq_end: int, splice_seq=None, idx=None, idx0=None):
+def get_aligned_blocks(tx, spliced_seq_start: int, spliced_seq_end: int, splice_seq=None, idx=None, idx0=None,
+                       sequence_type='spliced_sequence'):
     """
         Return the aligned blocks of a read sequence to the genomic sequence.
         The read sequence is defined by the passed transcript and the spliced_seq_start and spliced_seq_end indices.
@@ -1479,30 +1523,227 @@ def get_aligned_blocks(tx, spliced_seq_start: int, spliced_seq_end: int, splice_
 
     chrom, strand = tx.chromosome, tx.strand
     if splice_seq is None or idx is None or idx0 is None:
-        splice_seq, idx, idx0 = get_tx_indices(tx)
+        splice_seq, idx, idx0 = get_tx_indices(tx, sequence_type=sequence_type)
     read_seq = splice_seq[spliced_seq_start:spliced_seq_end]
     if len(read_seq) < spliced_seq_end - spliced_seq_start:
         return None, None
     read_idx = idx[spliced_seq_start:spliced_seq_end]
     read_idx0 = idx0[spliced_seq_start:spliced_seq_end]
-    blocks = []
-    start = read_idx[0]
-    if len(np.where(read_idx0 != 0)) > 0:
-        for splice_off in np.where(read_idx0 != 0)[0]:
-            if splice_off + 1 >= len(read_idx):
-                break  # special case: SJ at the end of the read
-            end = read_idx[splice_off]
-            if strand == "-":
-                start, end = end, start
-            blocks.append(rna.gi(chrom, start, end, strand))
-            start = read_idx[splice_off + 1]
-    end = read_idx[-1]
-    if strand == "-":
-        start, end = end, start
-    blocks.append(rna.gi(chrom, start, end, strand))
-    if strand == "-":
-        blocks = blocks[::-1]
+    if sequence_type == 'spliced_sequence':
+        blocks = []
+        start = read_idx[0]
+        if len(np.where(read_idx0 != 0)) > 0:
+            for splice_off in np.where(read_idx0 != 0)[0]:
+                if splice_off + 1 >= len(read_idx):
+                    break  # special case: SJ at the end of the read
+                end = read_idx[splice_off]
+                if strand == "-":
+                    start, end = end, start
+                blocks.append(rna.gi(chrom, start, end, strand))
+                start = read_idx[splice_off + 1]
+        end = read_idx[-1]
+        if strand == "-":
+            start, end = end, start
+        blocks.append(rna.gi(chrom, start, end, strand))
+        if strand == "-":
+            blocks = blocks[::-1]
+    else:
+        start, end = read_idx[0], read_idx[-1]
+        if strand == "-":
+            start, end = end, start
+        blocks = [rna.gi(chrom, start, end, strand)]
     return read_seq, blocks
+
+
+class MismatchProfile(Counter):
+    """
+        Mismatch profile for sequence error handling.
+    """
+
+    def __init__(self, d: dict = None, alpha=None, *args, **kwargs):
+        super().__init__(d, *args, **kwargs)
+        if alpha is None:
+            alpha = {'A', 'C', 'G', 'T'}  # supported alp
+        self.alpha = alpha
+
+    @classmethod
+    def get_flat_profile(cls, seq_err=0.1 / 100, alpha=None):
+        """Returns a flat sequencing error profile with the given mismatch error probability.
+        """
+        scale = 1 / (seq_err / 12)
+        se = cls(d=None, alpha=alpha)
+        for strand in ['+', '-']:
+            for ref in se.alpha:
+                for alt in se.alpha:
+                    if ref != alt:
+                        se[(ref, alt, strand)] = 1  # 12 cases -> seq_err / 12 = 1
+                    else:
+                        se[(ref, alt, strand)] = int((1 - seq_err) / 4 * scale)  # 4 cases
+        return se
+
+    def add(self, ref: str, alt: str, strand: str):
+        """ Adds a reference/alternative pair to the profile.
+            Converts the passed reference/alternative pair to upper case and checks if they are valid.
+        """
+        ref = ref.upper()
+        alt = alt.upper()
+        assert ref in self.alpha and alt in self.alpha, f"Invalid ref/alt pair: {ref}/{alt}"
+        self[(ref, alt, strand)] += 1
+
+    def __str__(self):
+        return "\n".join([f"{ref}>{alt}: {v} ({s})" for (ref, alt, s), v in self.items()])
+
+    def __repr__(self):
+        return self.__str__()
+
+    def get_prob(self, ref: str, alt: set = None, strand: str = "+", revcomp=True):
+        """Returns the probability for observing the passed reference/alternative pair.
+            if alt is None, any of the other bases is assumed.
+        """
+        if strand == '-' and revcomp:
+            ref = rna.reverse_complement(ref)
+        if alt is None:
+            alt = self.alpha - set(ref)
+        else:
+            if strand == '-' and revcomp:
+                alt = {rna.reverse_complement(a) for a in alt}
+        tot = sum([c for (r, a, s), c in self.items() if r == ref and s == strand])
+        if tot == 0:
+            return 0
+        return sum([c for (r, a, s), c in self.items() if r == ref and a in alt and s == strand]) / tot
+
+    def get_mismatch_prob(self, strand: str):
+        """Returns the probability of observing a mismatch."""
+        tot = sum([c for (r, a, s), c in self.items() if s == strand])
+        if tot == 0:
+            return 0
+        return sum([c for (r, a, s), c in self.items() if r != a and s == strand]) / tot
+
+    def get_n_mismatches(self):
+        """Returns the number of mismatches."""
+        return sum([c for (r, a, s), c in self.items() if r != a])
+
+    def to_dataframe(self):
+        """Converts the mismatch profile to a DataFrame."""
+        return pd.DataFrame.from_records([(a, b, s, c) for (a, b, s), c in self.items()],
+                                         columns=['ref', 'alt', 'strand', 'count'])
+
+    def plot_mm_profile(self, ax=None, prob=True):
+        if prob:
+            dat = pd.DataFrame.from_records(
+                [(f"{ref}>{alt}", strand, self.get_prob(ref, alt, strand)) for (ref, alt, strand), c in self.items() if
+                 ref !=
+                 alt],
+                columns=['mm', 'strand', 'mm_prob'])
+            return sns.barplot(dat.sort_values(['strand', 'mm']), x='mm', y='mm_prob', hue='strand', ax=ax)
+        else:
+            dat = pd.DataFrame.from_records(
+                [(f"{ref}>{alt}", strand, c) for (ref, alt, strand), c in self.items() if ref != alt],
+                columns=['mm', 'strand', 'mm_count'])
+            return sns.barplot(dat.sort_values(['strand', 'mm']), x='mm', y='mm_count', hue='strand', ax=ax)
+
+    def save(self, file):
+        """Saves the mismatch profile to a file."""
+        self.to_dataframe().to_csv(file, sep="\t", index=False)
+
+    def add_seq_err(self, seq, strand: str = '+'):
+        """Adds a sequencing error according to the profile to the passed sequence.
+            By convention, the passed sequence should always be in 5'->3' direction (as written in a BAM file).
+            If strand is '-', the probabilities are calculated for the reverse complement of the sequence.
+        """
+        alpha = list(self.alpha)
+        ret, n_seqerr = [], 0
+        for r in seq:
+            a = np.random.choice(alpha, 1, p=[self.get_prob(r, a, strand=strand) for a in alpha])[0]
+            if a != r:
+                n_seqerr += 1
+            ret.append(a)
+        return ''.join(ret), n_seqerr
+
+    @classmethod
+    def load(cls, file):
+        """Loads the mismatch profile from a file."""
+        se = cls()
+        df = pd.read_csv(file, sep="\t")
+        for r in df.itertuples():
+            se[r.ref, r.alt, r.strand] = r.count
+        return se
+
+    @classmethod
+    def from_bam(cls, bam_file, features, min_cov=10, max_mm_frac=0.1, max_sample=1e6, strand_specific=True,
+                 alpha=None, fasta_file=None, disable_progressbar=False):
+        """Creates a mismatch profile from a BAM file.
+            The mismatch profile is created by analyzing the passed regions in the BAM file.
+            Only positions with a minimum coverage of min_cov are considered.
+            Positions with a mismatch fraction > max_mm_frac are skipped.
+            The analysis stops after max_mm_cnt mismatches have been counted.
+
+            Parameters
+            ----------
+            bam_file : str
+                The input BAM file.
+            features : list
+                List of genomic features to analyze (e.g., genes). The features will be randomly permutated and
+                analyzed in this order. They must have an associated sequence attribute in order to calculate the
+                reference base. If None, all covered regions in the BAM file will be analyzed (slow) and "N" will be
+                used as reference base.
+            min_cov : int
+                The minimum coverage required for a position to be considered.
+            max_mm_frac : float
+                The maximum mismatch fraction allowed for a position to be considered.
+            max_sample : int
+                The maximum number of mismatches to count.
+            strand_specific : bool
+                If True, a strand-specific profile is created.
+            alpha : set
+                The set of valid nucleotides.
+            disable_progressbar : bool
+                If True, the progress bar is disabled.
+        """
+        se = cls(alpha=alpha)
+        if features is None:
+            reg = list()
+            for c in rna.get_covered_regions(bam_file):
+                reg += c.split_by_maxwidth(1000)
+        else:
+            reg = features.copy()
+        assert len(reg) > 0, "No features to analyze"
+        random.shuffle(reg)
+        bam_refdict = rna.RefDict.load(bam_file)
+        fit = None if fasta_file is None else rna.it(fasta_file).file
+        if fit is None and not hasattr(reg[0], 'sequence'):
+            logging.warning("No reference genome file provided. Using 'N' as reference base.")
+        stats = Counter()
+        for g in tqdm(reg, desc="analyzing regions", total=len(reg), disable=disable_progressbar):
+            if g.chromosome not in bam_refdict:
+                logging.warning(f"Skipping region {g}: chromosome not found in BAM file")
+                continue
+            stats["analysed_regions"] += 1
+            # TODO: progressbar should show the number of analyzed mismatches until max_sample is reached
+            seq = g.sequence if hasattr(g, 'sequence') else fit.fetch(g.chromosome, g.start - 1, g.end) \
+                if fit is not None else 'N' * len(g)  # get sequence
+            for loc, ac_ss in rna.it(bam_file, style='pileup', strand_specific=True, region=g):
+                stats["iterated_columns"] += 1
+                if ac_ss.total() > min_cov:
+                    ref = seq[loc.start - g.start]
+                    mm_frac = sum([c for (b, strand), c in ac_ss.items() if b != ref]) / ac_ss.total()
+                    if mm_frac > max_mm_frac:
+                        stats["potential _SNP_columns"] += 1
+                        continue
+                    stats["analysed_columns"] += 1
+                    strand = '+' if loc.strand == '+' else '-'
+                    for (b, s), c in ac_ss.items():
+                        strand = "+" if not strand_specific else s
+                        if b in se.alpha:
+                            se[(ref, b, strand)] += c
+                else:
+                    stats["lowcov_columns"] += 1
+            if se.get_n_mismatches() >= max_sample:
+                break
+        if fit is not None:
+            fit.close()
+        print(stats)
+        return se
 
 
 class BamWriter:
@@ -1573,7 +1814,8 @@ class BamWriter:
         r.cigar = tuple(cigar)
         if tags is None:
             tags = []
-        tags += [('NM', NM)]
+        # if mm is not None:
+        #     tags += [('NM', NM)]
         r.tags = tags
         self.write_read(r)
 
@@ -1811,6 +2053,7 @@ def calc_3end(tx, width=200):
     """
     Utility function that returns a (sorted) list of genomic intervals containing the last <width> bases
     of the passed transcript or None if not possible (e.g., if transcript is too short).
+    TODO: should report a "Feature" with parent tx so that, e.g., sequence slicing works
 
     Parameters
     ----------
@@ -2046,6 +2289,7 @@ def random_intervals(chromosomes=['1'], start_range=range(0, 1000), len_range=ra
     starts = random.choices(start_range, k=n)
     lens = random.choices(len_range, k=n)
     return rna.GI.sort([rna.gi(c, s, s + l) for c, s, l in zip(chroms, starts, lens)], refdict)
+
 
 def execute_screencast(
         command_file,
