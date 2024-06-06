@@ -148,9 +148,13 @@ class GI(NamedTuple):
     def sort(intervals, refdict, reverse: bool = False):
         """Returns a chromosome + coordinate sorted iterable over the passed intervals. Chromosome order is defined by
         the passed reference dict."""
-        return sorted(
-            intervals, key=lambda x: (refdict.index(x.chromosome), x), reverse=reverse
-        )
+        try:
+            return sorted(
+                intervals, key=lambda x: (refdict.index(x.chromosome), x), reverse=reverse
+            )
+        except TypeError as e:
+            logging.error(f"Error sorting intervals, are all interval chromosomes defined in the refdict?: {e}")
+            raise e
 
     def __repr__(self):
         if self.is_empty():

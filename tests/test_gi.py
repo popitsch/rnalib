@@ -289,7 +289,9 @@ def test_sort():
     assert sorted(locs, key=lambda x: (refdict.index(x.chromosome), x)), [
         locs[x] for x in [4, 5, 0, 2, 6, 3, 1]
     ]
-
+    locs += [gi("chrX", 1, 10)]
+    with pytest.raises(TypeError):
+        print( GI.sort(locs, refdict=refdict) )
 
 def test_len():
     assert len(gi("chr1", 1, 2)) == 2  # interval
