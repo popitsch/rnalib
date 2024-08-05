@@ -6,11 +6,12 @@ from IPython.core.display import Markdown
 CANONICAL_CHROMOSOMES = {
     "GRCh38": [f"chr{c}" for c in list(range(1, 23)) + ["X", "Y", "M"]],
     "GRCm38": [f"chr{c}" for c in list(range(1, 20)) + ["X", "Y", "MT"]],
+    "mm39": [f"chr{c}" for c in list(range(1, 20)) + ["X", "Y", "MT"]],
     "dmel": ["2L", "2R", "3L", "3R", "4", "X", "Y"],
 }
 
 #: maximum integer value, assuming 32-bit ints
-MAX_INT = 2**31 - 1
+MAX_INT = 2 ** 31 - 1
 
 #: Maps valid sub-feature types (e.g., 'exon', 'CDS') types to SO terms (e.g., '3UTR' -> 'three_prime_UTR')
 FTYPE_TO_SO = {
@@ -38,7 +39,7 @@ FTYPE_TO_SO = {
     "UTR5": "five_prime_UTR",
 }
 
-#: Maps info field names for various GFF fto feature types.
+#: Maps info field names for various GFF flavours
 GFF_FLAVOURS = {
     ("gencode", "gff"): {
         "gid": "ID",
@@ -47,6 +48,7 @@ GFF_FLAVOURS = {
         "feat_tid": "Parent",
         "gene_name": "gene_name",
         "ftype_to_SO": FTYPE_TO_SO,
+        "copied_fields": ["source", "gene_type"]
     },
     ("gencode", "gtf"): {
         "gid": "gene_id",
@@ -55,6 +57,7 @@ GFF_FLAVOURS = {
         "feat_tid": "transcript_id",
         "gene_name": "gene_name",
         "ftype_to_SO": FTYPE_TO_SO,
+        "copied_fields": ["source", "gene_type"]
     },
     ("ensembl", "gff"): {
         "gid": "ID",
@@ -62,8 +65,9 @@ GFF_FLAVOURS = {
         "tx_gid": "Parent",
         "feat_tid": "Parent",
         "gene_name": "Name",
-        "ftype_to_SO": FTYPE_TO_SO | {"pseudogene": "gene"}
-        # 'pseudogene': maps to 'gene' in ensembl but to tx in flybase
+        "ftype_to_SO": FTYPE_TO_SO | {"pseudogene": "gene"},  # 'pseudogene': maps to 'gene' in ensembl but to tx in
+        # flybase
+        "copied_fields": ["source", "gene_type"]
     },
     ("flybase", "gtf"): {
         "gid": "gene_id",
@@ -71,8 +75,22 @@ GFF_FLAVOURS = {
         "tx_gid": "gene_id",
         "feat_tid": "transcript_id",
         "gene_name": "gene_symbol",
-        "ftype_to_SO": FTYPE_TO_SO | {"pseudogene": "transcript"}
-        # 'pseudogene': maps to 'gene' in ensembl but to tx in flybase
+        "ftype_to_SO": FTYPE_TO_SO | {"pseudogene": "transcript"},  # 'pseudogene': maps to 'gene' in ensembl but to
+        # tx in flybase
+        "copied_fields": ["source", "gene_type"]
+    },
+    ("wormbase", "gff"): {
+        "gid": "ID",
+        "tid": "ID",
+        "tx_gid": "Parent",
+        "feat_tid": "Parent",
+        "gene_name": "Name",
+        "ftype_to_SO": FTYPE_TO_SO | {"pseudogenic_transcript": None, "snRNA": None},
+        # 'pseudogene': maps to 'gene' in ensembl but to tx in wormbase
+        # NOTE that some wormbase files contain 'pseudogenic_transcript' features that are not enveloped by the
+        # referenced genes, so we map them to None (which skips them).
+        # Also, snRNA features have no associated 'Parent' id and are therefore skipped.
+        "copied_fields": ["source", "biotype", "so_term_name"]
     },
     ("ucsc", "gtf"): {
         "gid": None,
@@ -81,6 +99,7 @@ GFF_FLAVOURS = {
         "feat_tid": "transcript_id",
         "gene_name": "gene_name",
         "ftype_to_SO": FTYPE_TO_SO,
+        "copied_fields": ["source", "gene_type"]
     },
     ("chess", "gff"): {
         "gid": None,
@@ -89,6 +108,7 @@ GFF_FLAVOURS = {
         "feat_tid": "Parent",
         "gene_name": "gene_name",
         "ftype_to_SO": FTYPE_TO_SO,
+        "copied_fields": ["source", "gene_type"]
     },
     ("chess", "gtf"): {
         "gid": None,
@@ -97,6 +117,7 @@ GFF_FLAVOURS = {
         "feat_tid": "transcript_id",
         "gene_name": "gene_name",
         "ftype_to_SO": FTYPE_TO_SO,
+        "copied_fields": ["source", "gene_type"]
     },
     ("mirgenedb", "gff"): {
         "gid": None,
@@ -105,6 +126,7 @@ GFF_FLAVOURS = {
         "feat_tid": None,
         "gene_name": "Alias",
         "ftype_to_SO": {"pre_miRNA": "transcript", "miRNA": "transcript"},
+        "copied_fields": ["source", "Alias"]
     },
     ("generic", "gff"): {
         "gid": "ID",
@@ -113,6 +135,7 @@ GFF_FLAVOURS = {
         "feat_tid": "Parent",
         "gene_name": "gene_name",
         "ftype_to_SO": FTYPE_TO_SO,
+        "copied_fields": []  # should be passed via constructor
     },
     ("generic", "gtf"): {
         "gid": "gene_id",
@@ -121,6 +144,7 @@ GFF_FLAVOURS = {
         "feat_tid": "transcript_id",
         "gene_name": "gene_name",
         "ftype_to_SO": FTYPE_TO_SO,
+        "copied_fields": []  # should be passed via constructor
     },
 }
 
@@ -144,11 +168,11 @@ class BamFlag(IntEnum):
 
 #: default BAM flag filter (int 3844); comparable to samtools view -F 3844; also used as default filter in IGV.
 DEFAULT_FLAG_FILTER = (
-    BamFlag.BAM_FUNMAP
-    | BamFlag.BAM_FSECONDARY
-    | BamFlag.BAM_FQCFAIL
-    | BamFlag.BAM_FDUP
-    | BamFlag.BAM_SUPPLEMENTARY
+        BamFlag.BAM_FUNMAP
+        | BamFlag.BAM_FSECONDARY
+        | BamFlag.BAM_FQCFAIL
+        | BamFlag.BAM_FDUP
+        | BamFlag.BAM_SUPPLEMENTARY
 )
 
 #: Markdown separator for jupyter notebooks; `display(SEP)`

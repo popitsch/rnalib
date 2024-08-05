@@ -205,6 +205,24 @@ def tag_tc(
     return profile, out_bam_file, out_tsv_file
 
 
+def quantise_values(values, bins=10):
+    """
+    Quantise values into bins.
+
+    Parameters
+    ----------
+    values : list
+        list of values to be quantised
+    bins : int
+        number of bins
+
+    Returns
+    -------
+    list
+        list of quantised values
+    """
+    return pd.cut(values, bins, labels=False)
+
 def filter_tc(bam_file, out_file=None, min_tc=1, tags=None):
     """
     Filters a T/C annotated BAM file for reads with at least min_tc T/C conversions.

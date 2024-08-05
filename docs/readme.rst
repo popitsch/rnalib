@@ -220,6 +220,7 @@ There exists a broad range of python libraries for working with genomics data th
 * `RNAlysis <https://guyteichman.github.io/RNAlysis/build/index.html>`__ Python based RNA-seq analysis software
 * `biocantor <https://biocantor.readthedocs.io/en/latest/>`__ Another API targeted at transcriptomics analyses but it
   is unclear whether it is still supported.
+* `OmicVerse <https://github.com/Starlitnightly/omicverse>`__ A python library for multi omics included bulk, single cell and spatial RNA-seq analysis
 
 We are **happy to include other libraries in this list**. Please open an issue or a pull request.
 

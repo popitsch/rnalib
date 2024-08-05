@@ -23,7 +23,7 @@ from rnalib import (
     TranscriptomeIterator,
     print_dir_tree,
     TranscriptFilter,
-    AbstractFeatureFilter,
+    AbstractFeatureFilter, FTYPE_TO_SO,
 )
 from rnalib.testdata import get_resource
 
@@ -559,6 +559,19 @@ def test_gff_flavours():
     assert Counter([f.feature_type for f in t.anno]) == {"gene": 483, "transcript": 483}
     # No CDS annotations!
 
+    # wormbase
+    config = {
+        "annotation_gff": get_resource("wormbase_gff"),
+        "annotation_flavour": "wormbase",
+        "calc_introns": False, # contained in wormbase gff already
+    }
+    t = Transcriptome(**config)
+    assert len(t.genes), len(t.transcripts) == (127, 278)
+    assert sum([len(tx.intron) for tx in t.transcripts]), sum([len(tx.exon) for tx in t.transcripts]) == (712, 2107)
+    # Let's count the annoated biotypes for all entries that stem from WormBase (as the gff file contains data from
+    # multiple sources, see https://downloads.wormbase.org/releases/WS293/letter.WS293)
+    assert Counter([g.biotype for g in t.genes if g.source == 'WormBase']) == {'protein_coding': 36}
+
     # flybase
     config = {
         "genome_fa": get_resource("dmel_genome"),
@@ -572,15 +585,11 @@ def test_gff_flavours():
     t = Transcriptome(**config)
     print(t.log)
     assert len(t.genes) == 2 and len(t.transcripts) == 12
-    assert Counter([f.feature_type for f in t.anno]) == {
-        "exon": 107,
-        "intron": 95,
-        "CDS": 84,
-        "five_prime_UTR": 32,
-        "transcript": 12,
-        "three_prime_UTR": 11,
-        "gene": 2,
-    }
+    assert Counter([f.feature_type for f in t.anno]) == {'exon': 13,
+         'transcript': 12,
+         'three_prime_UTR': 11,
+         'gene': 2,
+         'intron': 1}
     assert Counter([tx.gff_feature_type for tx in t.transcripts]) == {
         "mRNA": 11,
         "pseudogene": 1,
@@ -588,22 +597,6 @@ def test_gff_flavours():
     assert {loc.chromosome for loc in t.transcripts} == {"2L"}
     for tx in t.transcripts:
         assert len(tx.translated_sequence) % 3 == 0
-
-    # Generic
-    config = {
-        "genome_fa": get_resource("dmel_genome"),
-        "annotation_gff": get_resource("generic_gff3"),
-        "annotation_flavour": "generic",
-        "copied_fields": ["Alias", "ID"],
-    }
-    t = Transcriptome(**config)
-    assert "feature_type" in t.genes[0].__dict__, "Did not copy feature_type field"
-    # NOTE there should be *no* intron as the exons are directly adjacent to each other
-    assert Counter([f.feature_type for f in t.anno]) == {
-        "exon": 2,
-        "gene": 1,
-        "transcript": 1,
-    }  # , 'intron': 1}
 
     # Chess 3 GFF/GTF
     config = {
@@ -638,6 +631,47 @@ def test_gff_flavours():
         "GENCODE": 1,
         "MANE": 1,
     }
+
+
+def test_generic_flavours():
+    # Generic
+    config = {
+        "genome_fa": get_resource("dmel_genome"),
+        "annotation_gff": get_resource("generic_gff3"),
+        "annotation_flavour": "generic",
+    }
+    t = Transcriptome(**config)
+    assert "feature_type" in t.genes[0].__dict__, "Did not copy feature_type field"
+    # NOTE there should be *no* intron as the exons are directly adjacent to each other
+    assert Counter([f.feature_type for f in t.anno]) == {
+        "exon": 2,
+        "gene": 1,
+        "transcript": 1,
+    }  # , 'intron': 1}
+
+    # custom format dict
+    fmt = {
+        "gid": "ID",
+        "tid": "ID",
+        "tx_gid": "Parent",
+        "feat_tid": "Parent",
+        "gene_name": "gene_name",
+        "ftype_to_SO": FTYPE_TO_SO,
+        "copied_fields": ['Parent']
+    }
+    config = {
+        "genome_fa": get_resource("dmel_genome"),
+        "annotation_gff": get_resource("generic_gff3"),
+        "annotation_flavour": fmt,
+        "copied_fields": ["Alias", "ID"],
+    }
+    t = Transcriptome(**config)
+    assert Counter([f.feature_type for f in t.anno]) == {
+        "exon": 2,
+        "gene": 1,
+        "transcript": 1,
+    }  # , 'intron': 1}
+    assert t.genes[0].transcript[0].Parent == "gene_a"
 
 
 def test_iterator():

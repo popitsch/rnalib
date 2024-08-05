@@ -68,6 +68,23 @@ test_resources = {
         "regions": ["2L:1-100000"],
         "filename": "gff/flybase_dmel-2L-r6.36.gtf.gz",
     },
+    "wormbase_gff": {
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/wormbase_cele_WS293.head.gff3.gz",
+        "filename": "gff/wormbase_cele_WS293.head.gff3.gz",
+        "description": """
+            wormbase gff was preprocessed with:
+            with open("c_elegans.PRJEB28388.WS293.annotations.fixed.gff3", 'wt') as out:
+                with open("c_elegans.PRJEB28388.WS293.annotations.gff3") as file:
+                    while line := file.readline():
+                        tok = line.rstrip().split('\t')
+                        if len(tok) == 8:
+                            tok+=['.']
+                        if not tok[0].startswith("#"):
+                            assert len(tok) == 9, f"Wrong nuber of tokens: {tok}"
+                        print('\t'.join(tok), file=out)
+            and then sorted with bedtools sort -faidx c_elegans.PRJEB28388.WS293.genomic.fa.fai -i ... , bgzipped and tabixed
+        """
+    },
     "ensembl_gff": {
         "uri": "https://ftp.ensembl.org/pub/release-110/gff3/homo_sapiens/Homo_sapiens.GRCh38.110.chr.gff3.gz",
         "regions": ["3:181711825-181714536", "7:5526309-5564002"],
@@ -204,6 +221,11 @@ test_resources = {
         # a bedops-converted gencode_gff file: gff2bed -d < gencode_44.ACTB+SOX2.gff3 | cut -f1-6 | bgzip > gencode_44.ACTB+SOX2.bed.gz
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/gencode_44.ACTB+SOX2.bed.gz",
         "filename": "bed/gencode_44.ACTB+SOX2.bed.gz",
+    },
+    "example_bedgraph": {
+        # small example bedgraph file
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/example.bedgraph.gz",
+        "filename": "bed/example.bedgraph.gz",
     },
     # -------------- BEDGRAPH --------------------------
     "test_bedgraph": {

@@ -195,7 +195,7 @@ def powerset(it):
     Returns all possible subsets of the passed iterable.
     Parameters
     ----------
-    iterable
+    it: iterable
 
     Returns
     -------
@@ -669,16 +669,20 @@ def find_gpos(genome_fa, kmers, included_chrom=None) -> defaultdict[list]:
 
 def parse_gff_attributes(info, fmt="gff3"):
     """parses GFF3/GTF info sections"""
-    if "#" in info:  # remove optional comment section (e.g., in flybase gtf)
-        info = info.split("#")[0].strip()
-    if fmt.lower() == "gtf":
+    try:
+        if "#" in info:  # remove optional comment section (e.g., in flybase gtf)
+            info = info.split("#")[0].strip()
+        if fmt.lower() == "gtf":
+            return {
+                k: v.translate({ord(c): None for c in '"'})
+                for k, v in [a.strip().split(" ", 1) for a in info.split(";") if " " in a.strip()]
+            }
         return {
-            k: v.translate({ord(c): None for c in '"'})
-            for k, v in [a.strip().split(" ", 1) for a in info.split(";") if " " in a]
+            k.strip(): v for k, v in [a.split("=") for a in info.split(";") if "=" in a]
         }
-    return {
-        k.strip(): v for k, v in [a.split("=") for a in info.split(";") if "=" in a]
-    }
+    except ValueError as e:
+        logging.error(f"Error parsing GFF3/GTF info section: {info}", e)
+        raise e
 
 
 def bgzip_and_tabix(
@@ -1035,8 +1039,10 @@ def plot_times(
         n=None,
         reference_method=None,
         show_speed=True,
+        show_fastest=False,
         ax=None,
         orientation="h",
+        highlight_bar=None
 ):
     """
     Helper method to plot a dict with timings (seconds).
@@ -1056,31 +1062,37 @@ def plot_times(
             a = (reference_method, n / times[reference_method])
             b = (fastest_other, n / times_other[fastest_other])
             a, b = (a, b) if a[1] > b[1] else (b, a)  # a: fastest, b: 2nd/reference
-            ax.set_title(
-                f"{title}\n{a[0]} is the fastest method and {(a[1] / b[1] - 1) * 100}%\nfaster than {b[0]}",
-                fontsize=10,
-            )
+            if show_fastest:
+                ax.set_title(
+                    f"{title}\n{a[0]} is the fastest method and {(a[1] / b[1] - 1) * 100}%\nfaster than {b[0]}",
+                    fontsize=10,
+                )
+            else:
+                ax.set_title(f"{title}",fontsize=10,)
         else:
             ax.set_title(f"{title}")
         data_lab = "it/s"
     else:
         ax.set_title(f"{title}")
         data_lab = "seconds"
-
     if orientation.startswith("h"):
-        ax.barh(
+        barlst = ax.barh(
             range(len(labels)),
             values,
             0.8,
         )
+        if highlight_bar is not None:
+            barlst[labels.index(highlight_bar)].set_color('r')
         ax.set_yticks(range(len(labels)), labels, rotation=0)
         ax.set_xlabel(data_lab)
     else:
-        ax.bar(
+        barlst = ax.bar(
             range(len(labels)),
             values,
             0.8,
         )
+        if highlight_bar is not None:
+            barlst[labels.index(highlight_bar)].set_color('r')
         ax.set_xticks(range(len(labels)), labels, rotation=90)
         ax.set_ylabel(data_lab)
 
@@ -1807,6 +1819,7 @@ class BamWriter:
             cigar = [(0, len(aligned_blocks[0]))]
         else:  # more than one block
             cigar = list()
+            b = None
             for a, b in pairwise(aligned_blocks):
                 cigar.append((0, len(a)))  # M-block
                 cigar.append((3, a.distance(b) - 1))  # N-block
@@ -2049,7 +2062,7 @@ def geneid2symbol(gene_ids):
     return id2sym
 
 
-def calc_3end(tx, width=200):
+def calc_3end(tx, width=200, report_partial=True, na_value=None):
     """
     Utility function that returns a (sorted) list of genomic intervals containing the last <width> bases
     of the passed transcript or None if not possible (e.g., if transcript is too short).
@@ -2061,6 +2074,11 @@ def calc_3end(tx, width=200):
         The transcript to calculate the 3' end for.
     width : int
         The number of bases to return. Default is 200.
+    report_partial:
+        If True, 3'ends shorter than width will be reported, otherwise the na_value will be returned in this case.
+    na_value : any
+        The value to return if the 3# end could not be calculated (e.g., if the transcript is too short. Default is
+        None.)
     """
     ret = []
     for ex in tx.exon[::-1]:
@@ -2076,7 +2094,7 @@ def calc_3end(tx, width=200):
             ret.append(rna.gi(ex.chromosome, s, e, ex.strand))
             width = 0
             break
-    return sorted(ret) if width == 0 else None
+    return sorted(ret) if report_partial or (width == 0) else na_value
 
 
 # --------------------------------------------------------------
@@ -2268,7 +2286,7 @@ def random_sample(conf_str, rng=np.random.default_rng(seed=None)):
     return eval(f"rng.{conf_str}")
 
 
-def random_intervals(chromosomes=['1'], start_range=range(0, 1000), len_range=range(1, 100), n=10):
+def random_intervals(chromosomes=('1',), start_range=range(0, 1000), len_range=range(1, 100), n=10):
     """ Generates random genomic intervals.
     Parameters
     ----------

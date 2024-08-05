@@ -2,7 +2,7 @@
     Rnalib is a python utilities library for handling genomics data with a focus on transcriptomics.
 
     It implements a transcriptome model that can be instantiated from various popular
-    GFF 'flavours' as published in encode, ensembl, ucsc, chess, mirgendb and flybase databases.
+    GFF 'flavours' as published in encode, ensembl, ucsc, chess, mirgendb, wormbase and flybase databases.
     Several filtering options are available to filter transcripts by gene type, biotype, etc.
 
     The transcriptome model is implemented as a hierarchical tree of frozen dataclasses
@@ -355,13 +355,13 @@ class GI(NamedTuple):
             # a    |    a | a a |     |
             if s1 < s2:
                 if e1 <= e2:
-                    return gi(self.chromosome, s1, s2-1, self.strand)
+                    return gi(self.chromosome, s1, s2 - 1, self.strand)
                 else:
                     return [gi(self.chromosome, s1, s2 - 1, self.strand),
                             gi(self.chromosome, e2 + 1, e1, self.strand)]
-            else: # s1 >= s2
+            else:  # s1 >= s2
                 if e1 > e2:
-                    return gi(self.chromosome, e2+1, e1, self.strand)
+                    return gi(self.chromosome, e2 + 1, e1, self.strand)
                 else:
                     return gi(self.chromosome, 0, -1, self.strand)  # return empty interval
         return self.copy()
@@ -396,8 +396,6 @@ class GI(NamedTuple):
                 last = loc
         if last is not None:
             yield last
-
-
 
     @classmethod
     def merge(cls, loc):
@@ -467,7 +465,7 @@ class GI(NamedTuple):
             return None
 
     def get_extended(self, width=100):
-        """Returns an genomic interval that is extended up- and downstream by width nt"""
+        """Returns a genomic interval that is extended up- and downstream by width nt"""
         return gi(self.chromosome, self.start - width, self.end + width, self.strand)
 
     def split_by_maxwidth(self, maxwidth):
@@ -638,6 +636,10 @@ class GI_dataclass:  # noqa
     overlaps = GI.overlaps
     overlap = GI.overlap
     split_coordinates = GI.split_coordinates
+    __add__ = GI.__add__
+    __radd__ = GI.__radd__
+    __sub__ = GI.__sub__
+    join = GI.join
     merge = GI.merge
     is_adjacent = GI.is_adjacent
     get_downstream = GI.get_downstream
@@ -798,9 +800,12 @@ class Transcriptome:
     * | The current implementation does not implement the full GFF3 format as specified in
       | https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
       | but currently supports various popular gff 'flavours' as published in
-      | encode, ensembl, ucsc, chess, mirgendb and flybase databases (see
+      | encode, ensembl, ucsc, chess, mirgendb, wormbase and flybase databases (see
       | :func:`GFF_FLAVOURS <rnalib.constants.GFF_FLAVOURS>`). As such this implementation will likely be extended
       | in the future.
+    * Limitations: Currently, subfeatures can have only one parent feature which must envelop the subfeature
+        location. Otherwise, the subfeature will not be added to the transcriptome.
+
 
     @see the `README.ipynb <https://github.com/popitsch/rnalib/blob/main/notebooks/README.ipynb>`_ jupyter
     notebook for various querying and iteration examples
@@ -810,8 +815,9 @@ class Transcriptome:
     annotation_gff : str
         Path to a GFF/GTF file containing the transcriptome annotations.
     annotation_flavour : str
-        The annotation flavour of the GFF/GTF file. Currently supported: encode, ensembl, ucsc, chess, mirgendb and
-        flybase.
+        The annotation flavour of the GFF/GTF file.
+        Currently built-in formats: encode, ensembl, ucsc, chess, mirgendb, wormbase and flybase.
+        If a custom format is used, pass a dict with the format specification, see GFF_FLAVOURS for examples.
     genome_fa : str
         Path to a FASTA file containing the reference genome. If provided, sequences will be loaded and can be
         accessed via get_sequence().
@@ -821,8 +827,9 @@ class Transcriptome:
         Name of a function that will be used to alias gene names.
         The function must be defined in the global namespace and must accept a gene name and return the alias.
         If provided, gene symbols will be normalized using the alias function.
-    copied_fields : tuple
-        List of GFF/GTF fields that will be copied to the respective feature annotations.
+    copied_fields : set
+        Set of additional GFF/GTF info field namess that will be copied to the respective feature annotations beyond
+        the ones specified in the 'copied_fields' section of the annotation flavour format.
     calc_introns : bool
         If true, intron features will be added to transcripts that do not have them.
     load_sequence_data : bool
@@ -872,11 +879,11 @@ class Transcriptome:
     def __init__(
             self,
             annotation_gff: str,
-            annotation_flavour: str,
+            annotation_flavour: str | dict,
             genome_fa: str = None,
             gene_name_alias_file: str = None,
             annotation_fun_alias: Callable = None,
-            copied_fields: tuple = (),
+            copied_fields: set = None,
             load_sequence_data: bool = False,
             calc_introns: bool = True,
             disable_progressbar: bool = False,
@@ -890,29 +897,29 @@ class Transcriptome:
             self.annotation_gff
         ), f"Annotation file {self.annotation_gff} not found."
         self.file_format = guess_file_format(self.annotation_gff)
-        self.annotation_flavour = annotation_flavour.lower()
-        assert (
-                   self.annotation_flavour,
-                   self.file_format,
-               ) in GFF_FLAVOURS, (f"Unsupported annotation flavour {self.annotation_flavour}/{self.file_format}. "
-                                   f"Supported:\n") + ", ".join([f"{k}/{v}" for k, v in GFF_FLAVOURS])
+        if isinstance(annotation_flavour, dict):  # custom format passed
+            self.annotation_flavour = 'custom'
+            self.fmt = annotation_flavour
+        else:
+            self.annotation_flavour = annotation_flavour.lower()
+            assert (
+                       self.annotation_flavour,
+                       self.file_format,
+                   ) in GFF_FLAVOURS, (f"Unsupported annotation flavour {self.annotation_flavour}/{self.file_format}. "
+                                       f"Supported:\n") + ", ".join([f"{k}/{v}" for k, v in GFF_FLAVOURS])
+            self.fmt = GFF_FLAVOURS[self.annotation_flavour, self.file_format]
         self.genome_fa = genome_fa
         self.gene_name_alias_file = gene_name_alias_file
         self.annotation_fun_alias = annotation_fun_alias
         # get GFF aliasing function
         if self.annotation_fun_alias is not None:
-            assert self.annotation_fun_alias in globals(), (
-                f"fun_alias func {self.annotation_fun_alias} undefined in " f"globals()"
-            )
+            assert self.annotation_fun_alias in globals(), \
+                f"fun_alias func {self.annotation_fun_alias} undefined in globals()"
             self.annotation_fun_alias = globals()[self.annotation_fun_alias]
-            logging.info(
-                f"Using aliasing function for annotation_gff: {self.annotation_fun_alias}"
-            )
-        self.copied_fields = (
-            {"source", "gene_type"}
-            if copied_fields is None
-            else set(copied_fields) | {"source", "gene_type"}
-        )  # ensure source and gene_type are copied
+            logging.info(f"Using aliasing function for annotation_gff: {self.annotation_fun_alias}")
+        self.copied_fields = set(self.fmt['copied_fields'])
+        if copied_fields is not None:
+            self.copied_fields = self.copied_fields | set(copied_fields)
         self.load_sequence_data = load_sequence_data
         self.calc_introns = calc_introns
         self.disable_progressbar = disable_progressbar
@@ -967,8 +974,6 @@ class Transcriptome:
                 self.gene_name_alias_file, disable_progressbar=self.disable_progressbar
             )
         )
-        fmt = GFF_FLAVOURS[self.annotation_flavour, self.file_format]
-
         # estimate valid chromosomes
         rd = (
             []
@@ -1000,23 +1005,20 @@ class Transcriptome:
                     self.annotation_gff, chrom, fun_alias=self.annotation_fun_alias
             ) as lit:
                 try:
+                    info = None
                     for line_number, (loc, info) in enumerate(lit):
                         self.log["parsed_gff_lines"] += 1
-                        feature_type = fmt["ftype_to_SO"].get(
-                            info["feature_type"], None
-                        )
+                        feature_type = self.fmt["ftype_to_SO"].get(info["feature_type"], None)
                         if feature_type == "gene":  # build gene object
                             # filter...
                             filtered, filter_message = self.feature_filter.filter(
                                 loc, info
                             )
                             if filtered:
-                                self.log[
-                                    f"filtered_{info['feature_type']}_{filter_message}"
-                                ] += 1
-                                filtered_gene_ids.add(info.get(fmt["gid"], "None"))
+                                self.log[f"filtered_{info['feature_type']}_{filter_message}"] += 1
+                                filtered_gene_ids.add(info.get(self.fmt["gid"], "None"))
                                 continue
-                            gid = info.get(fmt["gid"], "None")
+                            gid = info.get(self.fmt["gid"], "None")
                             if gid is None:
                                 warnings.warn(
                                     f"Skipping {self.annotation_flavour} {self.file_format} line "
@@ -1035,7 +1037,7 @@ class Transcriptome:
                             for cf in self.copied_fields:
                                 genes[gid].anno[cf] = info.get(cf, None)
                             genes[gid].anno["gene_name"] = norm_gn(
-                                info.get(fmt["gene_name"], gid),
+                                info.get(self.fmt["gene_name"], gid),
                                 current_symbols,
                                 aliases,
                             )  # normalized gene symbol/name
@@ -1048,14 +1050,10 @@ class Transcriptome:
                     raise exc
             # PASS 2: build transcript objects and add missing gene annotations
             missing_genes = {}
-            with GFF3Iterator(
-                    self.annotation_gff, chrom, fun_alias=self.annotation_fun_alias
-            ) as lit:
+            with GFF3Iterator(self.annotation_gff, chrom, fun_alias=self.annotation_fun_alias) as lit:
                 try:
                     for line_number, (loc, info) in enumerate(lit):
-                        feature_type = fmt["ftype_to_SO"].get(
-                            info["feature_type"], None
-                        )
+                        feature_type = self.fmt["ftype_to_SO"].get(info["feature_type"], None)
                         if feature_type == "transcript":  # build tx object
                             # filter...
                             filtered, filter_message = self.feature_filter.filter(
@@ -1067,30 +1065,35 @@ class Transcriptome:
                                 ] += 1
                                 continue
                             # get transcript and gene id
-                            tid = info.get(fmt["tid"], None)
+                            tid = info.get(self.fmt["tid"], None)
                             if tid is None:
                                 warnings.warn(
                                     f"Skipping {self.annotation_flavour} {self.file_format} line "
                                     f" {line_number + 1} ({info['feature_type']}), info:\n\t{info} as  no"
-                                    f" {fmt['tid']} field found."
+                                    f" {self.fmt['tid']} field found."
                                 )
                                 continue
                             gid = (
                                 f"gene_{tid}"
-                                if fmt["tx_gid"] is None
-                                else info.get(fmt["tx_gid"], None)
+                                if self.fmt["tx_gid"] is None
+                                else info.get(self.fmt["tx_gid"], None)
                             )
                             if gid is None:
                                 warnings.warn(
                                     f"Skipping {self.annotation_flavour} {self.file_format} line "
                                     f"{line_number + 1} {info['feature_type']}), info:\n\t{info} as no "
-                                    f" {fmt['tx_gid']} field found."
+                                    f" {self.fmt['tx_gid']} field found."
                                 )
                                 continue
                             if gid in filtered_gene_ids:
                                 self.log[
                                     f"filtered_{info['feature_type']}_parent_gene_filtered"
                                 ] += 1
+                                continue
+                            parent_gene = genes.get(gid, None)
+                            if parent_gene and not parent_gene.loc.envelops(loc):
+                                warnings.warn(f"Gene {gid} does not envelop transcript {tid}, skipping tx")
+                                self.log[f"filtered_{info['feature_type']}_not_enveloped_by_gene_filtered"] += 1
                                 continue
                             # create transcript object
                             transcripts[tid] = _Feature(
@@ -1101,7 +1104,7 @@ class Transcriptome:
                                 parent=genes.get(gid, None),
                                 children={
                                     k: []
-                                    for k in set(fmt["ftype_to_SO"].values()) - {"gene", "transcript"}
+                                    for k in set(self.fmt["ftype_to_SO"].values()) - {"gene", "transcript", None}
                                 },
                             )
                             for cf in self.copied_fields:
@@ -1117,6 +1120,7 @@ class Transcriptome:
                                         # special case, e.g., in Chess annotation/tx CHS.40038.9 is annotated on the
                                         # opposite strand. We skip this tx and keep the gene annotation.
                                         # In chess 3.0.1 there are 3 such entries, all pseudo genes.
+                                        # This happens also in RefSeq annotations, e.g., human Gene Q9Y6F8
                                         warnings.warn(
                                             f"Gene {gid} has tx with incompatible coordinates! "
                                             f"{missing_genes[gid].loc} vs {loc}, skipping tx {tid}"
@@ -1148,7 +1152,7 @@ class Transcriptome:
                                         missing_genes[gid].anno[cf] = info.get(cf, None)
                                     missing_genes[gid].anno["gene_id"] = gid
                                     missing_genes[gid].anno["gene_name"] = norm_gn(
-                                        info.get(fmt["gene_name"], gid),
+                                        info.get(self.fmt["gene_name"], gid),
                                         current_symbols,
                                         aliases,
                                     )
@@ -1166,32 +1170,27 @@ class Transcriptome:
                     )
                     raise exc
             # PASS 3: add features
-            allowed_feature_types = set(fmt["ftype_to_SO"].values()) - {
+            allowed_feature_types = set(self.fmt["ftype_to_SO"].values()) - {
                 "gene",
                 "transcript",
+                None
             }
             # {'CDS', 'exon', 'five_prime_UTR', 'intron', 'three_prime_UTR'}
-            with GFF3Iterator(
-                    self.annotation_gff, chrom, fun_alias=self.annotation_fun_alias
-            ) as lit:
+            with GFF3Iterator(self.annotation_gff, chrom, fun_alias=self.annotation_fun_alias) as lit:
                 try:
                     for line_number, (loc, info) in enumerate(lit):
-                        feature_type = fmt["ftype_to_SO"].get(
-                            info["feature_type"], None
-                        )
-                        if (
-                                feature_type in allowed_feature_types
-                        ):  # supported feature types
+                        feature_type = self.fmt["ftype_to_SO"].get(info["feature_type"], None)
+                        if feature_type in allowed_feature_types:  # supported feature types
                             # filter...
-                            filtered, filter_message = self.feature_filter.filter(
-                                loc, info
-                            )
-                            if filtered:
+                            filtered, filter_message = self.feature_filter.filter(loc, info)
+                            # feature types that are mapped to None are filtered (e.g., wormbase pseudogenic_transcript)
+                            if filtered or feature_type is None:
                                 self.log[
                                     f"filtered_{info['feature_type']}_{filter_message}"
                                 ] += 1
+                                continue
                             # get transcript and gene id
-                            tid = info.get(fmt["feat_tid"], None)
+                            tid = info.get(self.fmt["feat_tid"], None)
                             if (tid is None) or (
                                     tid not in transcripts
                             ):  # no parent tx found
@@ -1227,15 +1226,14 @@ class Transcriptome:
                         for line_number, (loc, info) in enumerate(lit):
                             feature_type = info["feature_type"]
                             # filter...
-                            filtered, filter_message = self.feature_filter.filter(
-                                loc, info
-                            )
+                            filtered, filter_message = self.feature_filter.filter(loc, info)
                             if filtered:
                                 self.log[
                                     f"filtered_{info['feature_type']}_{filter_message}"
                                 ] += 1
+                                continue
                             # get feature id (uses same GFF attribute as for genes)
-                            feature_id = info.get(fmt["gid"], None)
+                            feature_id = info.get(self.fmt["gid"], None)
                             if feature_id is None:
                                 self.log[
                                     f"filtered_{info['feature_type']}_no_feature_id"
@@ -1250,7 +1248,7 @@ class Transcriptome:
                                 children={},
                             )
                             logging.debug(
-                                "fAdding custom feature of type {feature_type}"
+                                f"Adding custom feature of type {feature_type}"
                             )
                             for cf in self.copied_fields:
                                 customs[feature_id].anno[cf] = info.get(cf, None)
@@ -1330,7 +1328,7 @@ class Transcriptome:
             if f.parent is not None:
                 assert f.parent.envelops(
                     f
-                ), f"parents intervals must envelop their child intervals: {f.parent}.envelops({f})==False"
+                ), f"parent intervals must envelop their child intervals: {f.parent}.envelops({f})==False"
         # build some auxiliary dicts
         self.transcripts = [f for f in all_features if f.feature_type == "transcript"]
         self.gene = {f.feature_id: f for f in all_features if f.feature_type == "gene"}
@@ -2091,7 +2089,7 @@ class Feature(GI_dataclass):
                 return self.transcriptome.get_sequence(self, mode="translated")
             if attr in self.transcriptome.anno[self]:
                 return self.transcriptome.anno[self][attr]
-        if self.parent and self.parent.feature_type == attr:  # e.g., tx.gene
+        if self.parent and self.parent.feature_type == attr:  # e.g., tx.gene # noqa
             return self.parent
         raise AttributeError(
             f"{self.feature_type} has no attribute/magic function {attr}"
@@ -2145,6 +2143,8 @@ class Feature(GI_dataclass):
         """Create a subclass of feature with additional fields (as defined in the annotations dict)
         and child tuples
         """
+        assert feature_type is not None, (f"feature_type must not be None: {cls}, {feature_type}, {annotations}, "
+                                          f"{child_feature_types}")
         fields = [
             ("feature_id", str, field(default=None)),
             ("feature_type", str, field(default=feature_type)),
@@ -2290,11 +2290,18 @@ class TranscriptFilter(AbstractFeatureFilter):
     TODO
 
     * add greater, smaller than filters for feature type specific info fields
+    * add gene name filtering
     * redesign?
     """
 
     def __init__(self, config=None):
         self.config = AutoDict() if config is None else config
+        self.included_ftypes = get_config(
+            self.config, ["location", "included", "feature_types"], default_value=None
+        )
+        self.excluded_ftypes = get_config(
+            self.config, ["location", "excluded", "feature_types"], default_value=None
+        )
         self.included_chrom = get_config(
             self.config, ["location", "included", "chromosomes"], default_value=None
         )
@@ -2310,6 +2317,10 @@ class TranscriptFilter(AbstractFeatureFilter):
         self.included_tids = get_config(
             self.config, ["location", "included", "transcript_ids"], default_value=None
         )
+        if self.included_ftypes is not None:
+            self.included_ftypes = set(self.included_ftypes)
+        if self.excluded_ftypes is not None:
+            self.excluded_ftypes = set(self.excluded_ftypes)
         if self.included_chrom is not None:
             self.included_chrom = set(self.included_chrom)
         if self.excluded_chrom is not None:
@@ -2323,10 +2334,7 @@ class TranscriptFilter(AbstractFeatureFilter):
 
     def filter(self, loc, info):
         # location filtering
-        if (
-                self.included_chrom is not None
-                and loc.chromosome not in self.included_chrom
-        ):
+        if self.included_chrom is not None and loc.chromosome not in self.included_chrom:
             return True, "included_chromosome"
         if self.excluded_chrom is not None and loc.chromosome in self.excluded_chrom:
             return True, "excluded_chromosome"
@@ -2341,6 +2349,10 @@ class TranscriptFilter(AbstractFeatureFilter):
         # feature type specific info field filtering
         if "feature_type" not in info:
             return False, "no_feature_type"
+        if self.excluded_ftypes is not None and info["feature_type"] in self.excluded_ftypes:
+            return True, "excluded_ftypes"
+        if self.included_ftypes is not None and info["feature_type"] not in self.included_ftypes:
+            return True, "included_ftypes"
         if info["feature_type"] == "transcript" and self.included_tids is not None:
             if (
                     self.included_tids is not None
@@ -2388,6 +2400,16 @@ class TranscriptFilter(AbstractFeatureFilter):
     def __repr__(self):
         """Returns a string representation of the filter"""
         return json.dumps(self.config, indent=4)
+
+    def include_feature_types(self, ftypes: set):
+        """Convenience method to add ftypes to the included_ftypes set"""
+        ftypes = to_set(ftypes)
+        if self.included_ftypes is None:
+            self.included_ftypes = ftypes
+        else:
+            self.included_ftypes.update(ftypes)
+        self.config["location"]["included"]["feature_types"] = list(self.included_ftypes)
+        return self
 
     def include_chromosomes(self, chromosomes: set):
         """Convenience method to add chromosomes to the included_chrom set"""
@@ -5000,7 +5022,7 @@ class FastPileupIterator(LocationIterator):
             if not isinstance(region, (GI, Feature)):
                 region = gi(region)
             assert not region.is_unbounded(), "region must be bounded"
-            assert len(region)<1e7, f"region {region} is too large for pileup"
+            assert len(region) < 1e7, f"region {region} is too large for pileup"
             reported_positions = {p.start for p in region}  # a set of positions
             chromosome = region.chromosome
         else:
@@ -5078,7 +5100,7 @@ class FastPileupIterator(LocationIterator):
                                 if not self.count_dict[gpos]:
                                     self.count_dict[gpos] = Counter()
                                 if self.strand_specific:
-                                    self.count_dict[gpos][None, strand]
+                                    self.count_dict[gpos][None, strand] += 1
                                 else:
                                     self.count_dict[gpos][None] += 1
                         gpos += 1
