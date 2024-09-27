@@ -368,7 +368,7 @@ class GI(NamedTuple):
 
     @classmethod
     def join(cls, *locs, refdict):
-        """joins two lists of intervals. Overlapping intervals are merged.
+        """joins lists of intervals. Overlapping intervals are merged.
 
             Parameters
             ----------
@@ -380,8 +380,9 @@ class GI(NamedTuple):
             Examples
             --------
             >>> intervals = [gi("1:3-9"), gi("1:2-6"), gi("1:8-10"), gi("1:15-18")]
-            >>> assert list(GI.join(intervals, refdict=refdict)) == [gi("1:2-10"), gi("1:15-18")]
-
+            >>> assert list(GI.join(intervals, refdict=rna.RefDict({'1':None}))) == [gi("1:2-10"), gi("1:15-18")]
+            >>> intervals = [[gi("1:3-9"), gi("1:2-6")], [gi("1:8-10"), gi("1:15-18")]]
+            >>> assert list(GI.join(*intervals, refdict=rna.RefDict({'1':None}))) == [gi("1:2-10"), gi("1:15-18")]
         """
         lst = GI.sort(sum(locs, []), refdict)
         last = None
@@ -3923,14 +3924,17 @@ class BigWigIterator(LocationIterator):
                     yield Item(self.location, value)
             else:
                 # use pyBigWig's interval fetcher
-                for s, e, value in self.file.intervals(chromosome, start - 1, end):
-                    self.location = gi(
-                        self.refdict.alias(chromosome), s + 1, e, strand=self.strand
-                    )
-                    self._stats["iterated_items", self.location.chromosome] += 1
-                    if math.isnan(value):
-                        value = None
-                    yield Item(self.location, value)
+                ivals = self.file.intervals(chromosome, start - 1, end) # returns None if no intervals in the given
+                # range
+                if ivals is not None:
+                    for s, e, value in ivals:
+                        self.location = gi(
+                            self.refdict.alias(chromosome), s + 1, e, strand=self.strand
+                        )
+                        self._stats["iterated_items", self.location.chromosome] += 1
+                        if math.isnan(value):
+                            value = None
+                        yield Item(self.location, value)
 
     def header(self):
         """Returns the header of the underlying BigWig file."""

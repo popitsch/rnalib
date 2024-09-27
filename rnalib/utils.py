@@ -2125,7 +2125,7 @@ def gt2zyg(gt) -> (int, int):
     return 2 if len(set(dat_clean)) == 1 else 1, 1
 
 
-#: A read in a FASTQ file
+#: A read in a FASTQ file. Print in FASTQ format, e.g., like this: print('\n'.join([r.name, r.seq, '+', r.qual]))
 FastqRead = namedtuple("FastqRead", "name seq qual")
 
 
