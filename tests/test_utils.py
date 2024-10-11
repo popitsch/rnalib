@@ -423,3 +423,19 @@ def test_SeqErrProfile():
            [('N', 'A', "-"), ('N', 'T', "-"), ('N', 'G',  "-"), ('N',  'C',  "-")]],
         b=[0.28, 0.31, 0.21, 0.20],
         atol=0.02)
+
+
+def test_is_paired():
+    assert rna.is_paired(rna.get_resource("small_Actb_PE_bam"))
+    assert not rna.is_paired(rna.get_resource("small_ACTB+SOX2_clean_MD_bam"))
+    assert rna.is_paired(rna.get_resource("small_example_bam"))
+
+def test_extract_aligned_reads_from_fastq():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert rna.extract_aligned_reads_from_fastq(bam_file =rna.get_resource("small_remapped_bam"),
+                                                    fastq1_file=rna.get_resource("small_remapped_fastq1"),
+                                                    fastq2_file=rna.get_resource("small_remapped_fastq2"),
+                                                    out_file_prefix=tmp + "/test") [0] == 66
+        rna.print_dir_tree(tmp)
+        rna.print_small_file(tmp + "/test.r1.fq.gz", False,8)
+        rna.print_small_file(tmp + "/test.r2.fq.gz", False,8)

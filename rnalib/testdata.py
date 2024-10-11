@@ -140,6 +140,16 @@ test_resources = {
         "regions": 20,
         "filename": "fastq/Test01_L001_R2_001.top20.fastq",
     },
+    "small_remapped_fastq1": {
+        # example FASTQ file with remapped reads, mate1
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small_remapped.r1.fq.gz",
+        "filename": "fastq/small_remapped.r1.fq.gz",
+    },
+    "small_remapped_fastq2": {
+        # example FASTQ file with remapped reads, mate2
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small_remapped.r1.fq.gz",
+        "filename": "fastq/small_remapped.r2.fq.gz",
+    },
     # -------------- BAM -------------------------------
     "rogue_read_bam": {
         # example BAM file with a rogue read
@@ -175,6 +185,11 @@ test_resources = {
         # small example BAM file containing paired-end reads for mouse Actb
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/GSM3185042.Actb.bam",
         "filename": "bam/GSM3185042.Actb.bam"
+    },
+    "small_remapped_bam": {
+        # small example BAM file with remapped reads
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small_remapped.bam",
+        "filename": "bam/small_remapped.bam"
     },
     # -------------- VCF -------------------------------
     "dmel_multisample_vcf": {

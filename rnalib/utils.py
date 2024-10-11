@@ -1068,7 +1068,7 @@ def plot_times(
                     fontsize=10,
                 )
             else:
-                ax.set_title(f"{title}",fontsize=10,)
+                ax.set_title(f"{title}", fontsize=10, )
         else:
             ax.set_title(f"{title}")
         data_lab = "it/s"
@@ -1449,6 +1449,77 @@ def downsample_per_chrom(bam_file, max_reads, out_file_bam=None):
         pysam.index(out_file_bam)  # @UndefinedVariable
     except Exception as e:
         print("error sorting+indexing bam: %s" % e)
+
+
+def is_paired(bam_file, n=10000):
+    """Returns True if the BAM contains PE reads.
+    The method samples the first n reads and checks if any of them are paired."""
+    assert guess_file_format(bam_file) == "bam", "Input file must be a BAM file."
+    for i, (loc, r) in enumerate(rna.it(bam_file)):
+        if r.is_paired:
+            return True
+        if i > n:
+            break
+    return False
+
+
+def extract_aligned_reads_from_fastq(bam_file, fastq1_file, fastq2_file=None, region=None,
+                                     out_file_prefix=None, max_reads=None):
+    """ Extracts reads from one (SE) or two (PE) FASTQ files that are mapped in a BAM file at the provided region.
+    If region is None, all reads are considered, if max_reads is set, only the first max_reads reads are extracted.
+    Returns the filename(s) of the FASTQ file(s).
+
+    Parameters
+    ----------
+    bam_file : str
+        The input BAM file.
+    fastq1_file : str
+        The input FASTQ file for the first read.
+    fastq2_file : str or None
+        The input FASTQ file for the second read (for PE data)
+    region : str or None
+        The region to extract reads from. If None, all reads are considered.
+    out_file_prefix : str or None
+        The prefix for the output FASTQ file(s). If None, it will be set to bam_file + '.<region>.<fastq1/2>.fq'.
+    max_reads : int or None
+        The maximum number of reads to extract. If None, all reads are considered.
+
+    Returns
+    -------
+    tuple
+        The number of written reads (sum if PE reads) and the filename of the FASTQ file if single-end data,
+        or both filenames if paired-end data.
+    """
+    is_paired = fastq2_file is not None
+    if out_file_prefix is None:
+        out_file_prefix = f"{os.path.splitext(bam_file)[0]}.{rna.slugify(region)}"
+    print("prefix", out_file_prefix)
+    read_names = {r.query_name for _, r in rna.it(bam_file, region=region)}
+    if max_reads is not None:
+        read_names = {x for i, x in enumerate(read_names) if i < max_reads}
+    ret = []
+    wr1, wr2 = 0, 0
+    f1_out = f"{out_file_prefix}.R1.fq" if is_paired else f"{out_file_prefix}.fq"
+    with open(f1_out, 'wt') as out:
+        for r in tqdm(rna.it(fastq1_file)):
+            name = r.name.replace('/', ' ').split(" ")[0][1:]
+            if name in read_names:
+                print(f"{r.name}\n{r.seq}\n+\n{r.qual}", file=out)
+                wr1 += 1
+    ret.append(rna.bgzip_and_tabix(f1_out, create_index=False))
+    if is_paired:
+        f2_out = f"{out_file_prefix}.R2.fq"
+        with open(f2_out, 'wt') as out:
+            for r in tqdm(rna.it(fastq2_file)):
+                name = r.name.replace('/', ' ').split(" ")[0][1:]
+                if name in read_names:
+                    print(f"{r.name}\n{r.seq}\n+\n{r.qual}", file=out)
+                    wr2 += 1
+        ret.append(rna.bgzip_and_tabix(f2_out, create_index=False))
+        print(f"Written {wr1} reads to {f1_out} and {wr2} reads to {f2_out}")
+    else:
+        print(f"Written {wr1} reads to {f1_out}")
+    return (wr1, ret[0]) if len(ret) == 1 else (wr1, ret[0], ret[1])
 
 
 def get_tx_indices(tx, sequence_type='spliced_sequence'):
