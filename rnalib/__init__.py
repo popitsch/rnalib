@@ -376,6 +376,8 @@ class GI(NamedTuple):
                 List of lists of GenomicIntervals to be joined.
             refdict: RefDict
                 Reference dictionary to sort the intervals by chromosome and coordinate.
+            join_adjacent: bool
+                If True, adjacent intervals are joined as well.
 
             Examples
             --------
