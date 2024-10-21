@@ -210,6 +210,10 @@ def test_join():
     # see https://stackoverflow.com/questions/43600878/merging-overlapping-intervals
     intervals=from_str("1:1-3,1:4-10,1:5-12,1:6-8,1:20-33,1:30-35")
     assert list(GI.join(intervals, refdict=refdict)) == from_str("1:1-3,1:4-12,1:20-35")
+    # join adjacent
+    intervals=from_str("1:1-3,1:4-10,1:11-12")
+    assert list(GI.join(intervals, refdict=refdict, join_adjacent=False)) == intervals
+    assert list(GI.join(intervals, refdict=refdict, join_adjacent=True)) == from_str("1:1-12")
 
 def test_distance():
     a = from_str("1:1-10,1:1-10,1:10-20,1:25-30,1:1-10,2:1-10,2:11-12")

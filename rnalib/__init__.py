@@ -367,7 +367,7 @@ class GI(NamedTuple):
         return self.copy()
 
     @classmethod
-    def join(cls, *locs, refdict):
+    def join(cls, *locs, refdict, join_adjacent=False):
         """joins lists of intervals. Overlapping intervals are merged.
 
             Parameters
@@ -391,6 +391,8 @@ class GI(NamedTuple):
                 last = loc
                 continue
             if last.overlaps(loc):
+                last = last + loc
+            elif join_adjacent and last.is_adjacent(loc):
                 last = last + loc
             else:
                 yield last

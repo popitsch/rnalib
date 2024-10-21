@@ -1334,7 +1334,7 @@ def count_reads(in_file):
         raise NotImplementedError(f"Cannot count reads in file of type {ftype}.")
 
 
-def get_softclip_seq(read: pysam.AlignedSegment) -> tuple[Optional[int], Optional[int]]:
+def get_softclip_seq(read: pysam.AlignedSegment, report_seq=False) -> tuple[Optional[int], Optional[int]]:
     """
     Extracts soft-clipped sequences from the passed read.
 
@@ -1342,12 +1342,14 @@ def get_softclip_seq(read: pysam.AlignedSegment) -> tuple[Optional[int], Optiona
     ----------
     read : pysam.AlignedSegment
         The read to extract soft-clipped sequences from.
+    report_seq : bool
+        If True, the soft-clipped sequences will be returned, otherwise their length is returned.
 
     Returns
     -------
     Tuple[Optional[int], Optional[int]]
-        A tuple containing the left and right soft-clipped sequences, respectively. If no soft-clipped sequence is
-        found, the corresponding value in the tuple is None.
+        A tuple containing the left and right soft-clipped sequences/lengths, respectively. If no soft-clipped
+        sequence is found, the corresponding value in the tuple is None.
 
     Examples
     --------
@@ -1357,19 +1359,17 @@ def get_softclip_seq(read: pysam.AlignedSegment) -> tuple[Optional[int], Optiona
     (5, None)
     """
     left, right = None, None
-    pos = 0
     for i, (op, l) in enumerate(read.cigartuples):
         if (i == 0) & (op == 4):
-            left = l
+            left = read.query_sequence[:l] if report_seq else l
         if (i == len(read.cigartuples) - 1) & (op == 4):
-            right = l
-        pos += l
+            right = read.query_sequence[l:] if report_seq else l
     return left, right
 
 
 def get_softclipped_seq_and_qual(read):
     """
-        Returns the softclipped sequence+qualities of this read
+        Returns the sequence+qualities of this read w/o softclipped bases
     """
     seq, qual = read.query_sequence, read.query_qualities
     if read.cigartuples is not None:
