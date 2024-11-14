@@ -1,8 +1,8 @@
+![versions](https://img.shields.io/pypi/pyversions/pybadges.svg)
+
 # rnalib: a Python-based transcriptomics library
 [<img alt="rnalib" src="docs/_static/rnalib_logo.png" align="right" width="200"/>](https://rnalib.readthedocs.io/en/latest/)
 
-[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
-[![Python 3.12](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
 
 Rnalib is a python library for handling transcriptomics data.
 
