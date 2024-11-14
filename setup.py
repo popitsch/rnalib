@@ -60,6 +60,7 @@ setup(
         "intervaltree",
         "ipython",
         "matplotlib",
+        "seaborn",
         "more_itertools",
         "mygene",
         "numpy",
