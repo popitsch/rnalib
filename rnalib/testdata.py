@@ -331,13 +331,13 @@ large_test_resources = {
     },
     # -------------- Full chess annotation -------------------------------
     "full_chess_gtf": {
-        "uri": "https://github.com/chess-genome/chess/raw/master/chess3.0.1.gtf.gz",
+        "uri": "https://github.com/chess-genome/chess/releases/download/v.3.0.1/chess3.0.1.gtf.gz",
         "filename": "bigfiles/chess3.0.1.gtf.gz",
         "recreate": False,
     },
     # -------------- Gene name aliases -------------------------------
     "gene_aliases": {
-        "uri": "https://ftp.ebi.ac.uk/pub/databases/genenames/hgnc/tsv/hgnc_complete_set.txt",
+        "uri": "https://ftp.ebi.ac.uk/pub/databases/genenames/out_of_date_hgnc/tsv/hgnc_complete_set.txt",
         "filename": "bigfiles/hgnc_complete_set.txt",
         "recreate": False,
     },
