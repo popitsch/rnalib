@@ -115,10 +115,14 @@ You can get final test data files in **one of the following ways**:
 
 * A zipped version (~260M) of the files can be downloaded from the `GitHub release page <https://github.com/popitsch/rnalib/releases>`__
   of the *rnalib* repository (or from the respective *most recent release* with an attached ZIP file).
-* The files can also be created by running :code:`rnalib create_testdata` from the commandline.
+* The files can also be created by running :code:`rnalib create_testdata -a -o testdata` from the commandline.
   This will download the source files from public sources and creates the test files by slicing,
-  sorting, compressing and indexing the files. For this to work, however, you need some external tools (bedtools, bgzip,
-  tabix and samtools) to be installed.
+  sorting, compressing and indexing the files. For this to work, however, you need the following external tools
+  to be installed:
+  * `bedtools <https://bedtools.readthedocs.io/en/latest/content/installation.html>`
+  * `bgzip and tabix <https://www.htslib.org/download/>`
+  * `samtools <https://www.htslib.org/download/>`
+  Recreation of the test dataset requires around 260 MB of disk space and takes around 1h on a modern machine.
 * The tutorial notebooks provide code snippets for creating the test files via :code:`rna.testdata.create_testdata()` which
   does the same as `rnalib create_testdata`. Again, this is only possible if you have the required external tools
   installed.
