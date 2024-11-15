@@ -124,7 +124,7 @@ You can get final test data files in **one of the following ways**:
    * `bgzip and tabix <https://www.htslib.org/download/>`__ (contained in *htslib*)
    * `samtools <https://www.htslib.org/download/>`__
 
-  Recreation of the test dataset requires around 260 MB of disk space and takes around 45min on a modern machine.
+  Recreation of the complete test dataset requires around 260 MB of disk space and takes around 45min on a modern machine.
 * The tutorial notebooks provide code snippets for creating the test files via :code:`rna.testdata.create_testdata()` which
   does the same as `rnalib create_testdata`. Again, this is only possible if you have the required external tools
   installed.
