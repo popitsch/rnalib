@@ -4021,9 +4021,11 @@ class VcfRecord:
         else:  # INDELs
             self.is_indel = True
             self.is_sv = False
-            if len(self.ref) > len(self.alt):  # deletion
-                start, end = pysam_var.pos + 1, pysam_var.pos + len(self.ref)
-            else:  # insertion
+            if len(self.ref) > len(self.alt):
+                # deletion: the returned location contains all deleted bases
+                start, end = pysam_var.pos + 2, pysam_var.pos + len(self.ref)
+            else:
+                # insertion: the returned location selects the reference nucleotide before the insertion
                 start, end = pysam_var.pos + 1, pysam_var.pos + 1
         self.pos = start
         self.location = gi(
