@@ -4004,6 +4004,8 @@ class VcfRecord:
         self.id = pysam_var.id if pysam_var.id != "." else None
         self.ref = pysam_var.ref
         self.alt = pysam_var.alt.split(",")[0] if "," in pysam_var.alt else pysam_var.alt  # use first alt only for now
+        if self.alt == "<*>": # treat as homozygous reference site
+            self.alt = self.ref
         self.filter = None if pysam_var.filter in ['.', 'PASS'] else pysam_var.filter
         self.qual = pysam_var.qual if pysam_var.qual != "." else None
         self.info = parse_info(pysam_var.info)
