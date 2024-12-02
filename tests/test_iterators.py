@@ -939,6 +939,17 @@ def test_VcfIterator():
             assert (v.GT, v.zyg, v.DP) == (None, None, "3")
 
 
+def test_VcfIterator2():
+    with rna.VcfIterator(get_resource("HG003_GIAB_benchmark_vcf")) as it:
+        indel_status = [v.is_indel for _, v in it]
+        assert  indel_status == [False, False, True, True, False]
+        alt_alleles = [v.alt for _, v in it]
+        assert alt_alleles == ['C', 'A', 'A', 'TA', 'C'] # the last pos has 2 alt alleles, we should parse only the 1st
+
+        #for loc, v in it: # check indel parsing and multiple alt alleles
+        #    print(loc, v)
+
+
 def test_BedIterator():
     # simple test
     assert len(rna.BedIterator(get_resource("test_bed")).to_list()) == 3

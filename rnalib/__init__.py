@@ -1190,15 +1190,14 @@ class Transcriptome:
                             filtered, filter_message = self.feature_filter.filter(loc, info)
                             # feature types that are mapped to None are filtered (e.g., wormbase pseudogenic_transcript)
                             if filtered or feature_type is None:
-                                self.log[
-                                    f"filtered_{info['feature_type']}_{filter_message}"
-                                ] += 1
+                                self.log[f"filtered_{info['feature_type']}_{filter_message}"] += 1
                                 continue
                             # get transcript and gene id
                             tid = info.get(self.fmt["feat_tid"], None)
                             if (tid is None) or (
                                     tid not in transcripts
                             ):  # no parent tx found
+                                self.log[f"filtered_{info['feature_type']}_no_tx_found"] += 1
                                 continue
                             feature_id = f"{tid}_{feature_type}_{len(transcripts[tid].children[feature_type])}"
                             feature = _Feature(
@@ -3928,7 +3927,7 @@ class BigWigIterator(LocationIterator):
                     yield Item(self.location, value)
             else:
                 # use pyBigWig's interval fetcher
-                ivals = self.file.intervals(chromosome, start - 1, end) # returns None if no intervals in the given
+                ivals = self.file.intervals(chromosome, start - 1, end)  # returns None if no intervals in the given
                 # range
                 if ivals is not None:
                     for s, e, value in ivals:
@@ -4004,27 +4003,28 @@ class VcfRecord:
 
         self.id = pysam_var.id if pysam_var.id != "." else None
         self.ref = pysam_var.ref
-        self.alt = pysam_var.alt
+        self.alt = pysam_var.alt.split(",")[0] if "," in pysam_var.alt else pysam_var.alt  # use first alt only for now
         self.filter = None if pysam_var.filter in ['.', 'PASS'] else pysam_var.filter
         self.qual = pysam_var.qual if pysam_var.qual != "." else None
         self.info = parse_info(pysam_var.info)
-        if (len(pysam_var.ref) == 1) and (len(pysam_var.alt) == 1):
+        if (len(self.ref) == 1) and (len(self.alt) == 1):
             self.is_indel = False
             self.is_sv = False
             start, end = pysam_var.pos + 1, pysam_var.pos + 1  # 0-based in pysam
-        elif pysam_var.alt[0] == "<":  # SV
+        elif self.alt[0] == "<":  # SV (structural variant)
             self.is_indel = False
             self.is_sv = True
             self.svtype = self.info.get("SVTYPE", "UNK")
             start, end = pysam_var.pos + 1, int(
                 self.info.get("END", -1)
             )  # TODO: support complex SVs, CHR2, etc.
-        else:  # INDEL
+        else:  # INDELs
             self.is_indel = True
             self.is_sv = False
-            start, end = pysam_var.pos + 2, pysam_var.pos + len(
-                pysam_var.alt
-            )  # 0-based in pysam
+            if len(self.ref) > len(self.alt):  # deletion
+                start, end = pysam_var.pos + 1, pysam_var.pos + len(self.ref)
+            else:  # insertion
+                start, end = pysam_var.pos + 1, pysam_var.pos + 1
         self.pos = start
         self.location = gi(
             refdict.alias(pysam_var.contig), start, end, None
@@ -4144,7 +4144,7 @@ class VcfIterator(TabixIterator):
             if chromosome not in self.file.contigs:
                 self.stats["empty_chromosomes", "all"] += 1
                 continue
-            for pysam_var in self.file.fetch(
+            for pysam_var in self.file.fetch(  # NOTE that we use a pysam Tabixfile here for performance purposes
                     reference=chromosome,
                     start=(self.region.start - 1) if (self.region.start > 0) else None,
                     # 0-based coordinates in pysam!

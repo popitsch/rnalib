@@ -42,12 +42,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pybedtools
+import pysam
 from tqdm.auto import tqdm
 
 import rnalib as rna
 
 """
     Predefined test resources.
+    Each resource is defined by a dictionary with the following keys: 
+    - uri: the source URI, either an http(s) URL for remote data or a file URL for (static) test resources
+    - regions: a list of genomic regions to slice from the source file. If not set, the whole file is used.
+        make sure that this list is sorted by genomic coordinates.
+    - filename: the target filename in the testdata directory
+    - recreate: if set to True, the resource will be recreated even if the target file already exists. Default: False  
 """
 test_resources = {
     # -------------- GTF/GFF -------------------------------
@@ -55,13 +62,11 @@ test_resources = {
         "uri": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_44/gencode.v44.annotation.gff3.gz",
         "regions": ["chr3:181711825-181714536", "chr7:5526309-5564002"],  # sox2 + actb
         "filename": "gff/gencode_44.ACTB+SOX2.gff3.gz",
-        "recreate": False,
     },
     "gencode_gtf": {
         "uri": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_44/gencode.v44.annotation.gtf.gz",
         "regions": ["chr3:181711825-181714536", "chr7:5526309-5564002"],  # sox2 + actb
         "filename": "gff/gencode_44.ACTB+SOX2.gtf.gz",
-        "recreate": False,
     },
     "flybase_gtf": {
         "uri": "ftp://ftp.flybase.net/genomes/Drosophila_melanogaster/dmel_r6.36_FB2020_05/gtf/dmel-all-r6.36.gtf.gz",
@@ -208,6 +213,17 @@ test_resources = {
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/test_snps.vcf.gz",
         "filename": "vcf/test_snps.vcf.gz",
     },
+    "HG003_GIAB_benchmark_vcf": {
+        "uri": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG003_NA24149_father/latest/GRCh38/HG003_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+        "regions": [
+            "chr1:31647596-31647635",  # MNV
+            "chr1:31653729-31653768",  # DEL
+            "chr1:31654457-31654496",  # INS
+            "chr1:31670549-31670588",  # SNP, 2 ALTs
+
+        ],
+        "filename": "vcf/HG003_GIAB_benchmark.vcf.gz",
+    },
     # -------------- FAST5 -------------------------------
     "nanoseq_fast5_raw": {
         "uri": "https://github.com/nf-core/test-datasets/raw/nanoseq/fast5/barcoded/003c04de-f704-491e-8d0c-33ffa269423d.fast5",
@@ -327,32 +343,27 @@ large_test_resources = {
     "full_gencode_gff": {
         "uri": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_39/gencode.v39.annotation.gff3.gz",
         "filename": "bigfiles/gencode_39.gff3.gz",
-        "recreate": False,
     },
     # -------------- Full chess annotation -------------------------------
     "full_chess_gtf": {
         "uri": "https://github.com/chess-genome/chess/releases/download/v.3.0.1/chess3.0.1.gtf.gz",
         "filename": "bigfiles/chess3.0.1.gtf.gz",
-        "recreate": False,
     },
     # -------------- Gene name aliases -------------------------------
     "gene_aliases": {
         "uri": "https://ftp.ebi.ac.uk/pub/databases/genenames/out_of_date_hgnc/tsv/hgnc_complete_set.txt",
         "filename": "bigfiles/hgnc_complete_set.txt",
-        "recreate": False,
     },
     # -------------- GRCh38 chr20 -------------------------------
     "grch38_chr20": {
         "uri": "https://hgdownload.cse.ucsc.edu/goldenpath/hg38/chromosomes/chr20.fa.gz",
         "filename": "bigfiles/grch38_chr20.fa.gz",
-        "recreate": False,
     },
     # -------------- GRCh38 mappability scores -------------------------------
     "grch38_umap": {
         "uri": "https://bismap.hoffmanlab.org/raw/hg38/k24.umap.bed.gz",
         "filename": "bigfiles/GRCh38.k24.umap.bed.gz",
         "tabix_options": "-p bed -S 1",  # this is a bedgraph file. Skip header.
-        "recreate": False,
     },
     # -------------- SLAM-seq example data -------------------------------
     "slamseq_example_tp0": {
@@ -505,9 +516,16 @@ def download_bgzip_slice(
                 subprocess.call(f"samtools index {f}", shell=True)  # index
             # slice and copy result files
             if ff in ["gff", "gtf", "bed", "bedgraph", "vcf"]:
+                if ff == "vcf":
+                    # copy header of VCF file
+                    vcf_header = pysam.VariantFile(f, "r").header
                 if res.get("regions", None) is not None:
                     logging.debug(f"Slicing {ff}")
                     tmpfile = f"{tempdirname}/sliced.{ff}"
+                    if ff == "vcf":  # copy header of VCF file
+                        vcf_header = str(pysam.VariantFile(f, "r").header).strip()
+                        with open(tmpfile, "wt") as out:
+                            print(vcf_header, file=out)
                     for reg in res.get("regions"):  # TODO: ensure regions are sorted
                         subprocess.call(f"tabix {f} {reg} >> {tmpfile}", shell=True)
                     subprocess.call(f"bgzip {tmpfile}", shell=True)
