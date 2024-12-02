@@ -1153,7 +1153,7 @@ default_file_extensions = {
     "tsv": (".tsv", ".tsv.gz"),
     "bed": (".bed", ".bed.gz"),
     "bedgraph": (".bedgraph", ".bedgraph.gz"),
-    "vcf": (".vcf", ".vcf.gz"),
+    "vcf": (".vcf", ".vcf.gz", ".gvcf", ".gvcf.gz"),
     "bcf": (".bcf",),
     "gff": (".gff3", ".gff3.gz"),
     "gtf": (".gtf", ".gtf.gz"),
