@@ -363,13 +363,14 @@ def print_bam_file(bam_file):
 
 def test_bam_writer():
     # load transcriptome
-    t = rna.Transcriptome(genome_fa="/Users/niko/Desktop/data/ref/genomes/GRCh38/GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna",
-                          annotation_gff=rna.get_resource("gencode_gff"),
-                          annotation_flavour="gencode",
-                          load_sequence_data=True,
-                          feature_filter = rna.TranscriptFilter(config={"gene": {"included": {"gene_type": [
-                              "protein_coding"]}}})
-                          )
+    t = rna.Transcriptome(
+        genome_fa="/Users/niko/Desktop/data/ref/genomes/GRCh38/GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna",
+        annotation_gff=rna.get_resource("gencode_gff"),
+        annotation_flavour="gencode",
+        load_sequence_data=True,
+        feature_filter=rna.TranscriptFilter(config={"gene": {"included": {"gene_type": [
+            "protein_coding"]}}})
+        )
     with tempfile.TemporaryDirectory(dir=rna.__RNALIB_TESTDATA__) as tmpdir:
         #tmpdir="/Users/niko/Desktop/data/projects/Ameres/slamlib/data/delme"
         out_bam = f"{tmpdir}/test.bam"
@@ -378,23 +379,25 @@ def test_bam_writer():
             read_len = 200
             for tx in [t.transcripts[0], t.transcripts[1]]:
                 splice_seq, idx, idx0 = rna.get_tx_indices(tx)
-                for start in range(0, len(splice_seq)-read_len, 50):
+                for start in range(0, len(splice_seq) - read_len, 50):
                     read_seq, blocks = rna.get_aligned_blocks(tx, start, start + read_len, splice_seq, idx, idx0)
                     if blocks is None:
                         continue
                     # add T/C mismatches
                     read_tpos = np.array([i for (i, x) in enumerate(read_seq) if x == 'T'])
-                    read_tc_pos = np.array([i for i, p in zip(read_tpos, rna.random_sample(f'uniform(0,1,{len(read_tpos)})')) if p <= cr])
+                    read_tc_pos = np.array(
+                        [i for i, p in zip(read_tpos, rna.random_sample(f'uniform(0,1,{len(read_tpos)})')) if p <= cr])
                     for i in read_tc_pos:
-                        read_seq = read_seq[:i] + 'C' + read_seq[i+1:]
+                        read_seq = read_seq[:i] + 'C' + read_seq[i + 1:]
                     query_sequence = rna.reverse_complement(read_seq) if tx.strand == "-" else read_seq
-                    wout.write(aligned_blocks = blocks, query_sequence = query_sequence)
+                    wout.write(aligned_blocks=blocks, query_sequence=query_sequence)
         #print_bam_file(out_bam)
 
 
 def test_get_covered_regions():
     assert list(rna.get_covered_regions(rna.get_resource("small_example_bam"))) == \
-        [rna.gi("1:22376052-22474991 (+)")]
+           [rna.gi("1:22376052-22474991 (+)")]
+
 
 def test_SeqErrProfile():
     se = rna.MismatchProfile({('T', 'C', '+'): 10, ('T', 'T', '+'): 990, ('T', 'A', '+'): 0, ('T', 'G', '+'): 0})
@@ -410,17 +413,17 @@ def test_SeqErrProfile():
     assert se.get_prob('T', 'C', "-") == 0.1 / 3
     se = rna.MismatchProfile.from_bam(rna.get_resource("small_example_bam"), features=None, min_cov=1, max_mm_frac=1)
     print([se.get_prob(ref, alt, strand) for (ref, alt, strand) in \
-           [('N', 'A', "+"), ('N', 'T', "+"), ('N', 'G',  "+"), ('N',  'C',  "+")]])
+           [('N', 'A', "+"), ('N', 'T', "+"), ('N', 'G', "+"), ('N', 'C', "+")]])
     print([se.get_prob(ref, alt, strand) for (ref, alt, strand) in \
-           [('N', 'A', "-"), ('N', 'T', "-"), ('N', 'G',  "-"), ('N',  'C',  "-")]])
+           [('N', 'A', "-"), ('N', 'T', "-"), ('N', 'G', "-"), ('N', 'C', "-")]])
     assert np.allclose(
         a=[se.get_prob(ref, alt, strand, revcomp=False) for (ref, alt, strand) in \
-           [('N', 'A', "+"), ('N', 'T', "+"), ('N', 'G',  "+"), ('N',  'C',  "+")]],
+           [('N', 'A', "+"), ('N', 'T', "+"), ('N', 'G', "+"), ('N', 'C', "+")]],
         b=[0.28, 0.31, 0.21, 0.20],
         atol=0.02)
     assert np.allclose(
         a=[se.get_prob(ref, alt, strand, revcomp=False) for (ref, alt, strand) in \
-           [('N', 'A', "-"), ('N', 'T', "-"), ('N', 'G',  "-"), ('N',  'C',  "-")]],
+           [('N', 'A', "-"), ('N', 'T', "-"), ('N', 'G', "-"), ('N', 'C', "-")]],
         b=[0.28, 0.31, 0.21, 0.20],
         atol=0.02)
 
@@ -430,12 +433,25 @@ def test_is_paired():
     assert not rna.is_paired(rna.get_resource("small_ACTB+SOX2_clean_MD_bam"))
     assert rna.is_paired(rna.get_resource("small_example_bam"))
 
+
 def test_extract_aligned_reads_from_fastq():
     with tempfile.TemporaryDirectory() as tmp:
-        assert rna.extract_aligned_reads_from_fastq(bam_file =rna.get_resource("small_remapped_bam"),
+        assert rna.extract_aligned_reads_from_fastq(bam_file=rna.get_resource("small_remapped_bam"),
                                                     fastq1_file=rna.get_resource("small_remapped_fastq1"),
                                                     fastq2_file=rna.get_resource("small_remapped_fastq2"),
-                                                    out_file_prefix=tmp + "/test") [0] == 66
+                                                    out_file_prefix=tmp + "/test")[0] == 66
         rna.print_dir_tree(tmp)
-        rna.print_small_file(tmp + "/test.r1.fq.gz", False,8)
-        rna.print_small_file(tmp + "/test.r2.fq.gz", False,8)
+        rna.print_small_file(tmp + "/test.r1.fq.gz", False, 8)
+        rna.print_small_file(tmp + "/test.r2.fq.gz", False, 8)
+
+
+def test_compact_bedgraph_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        bgf = rna.compact_bedgraph_file(rna.get_resource("human_umap_k24"),
+                                        out_file=tmp + "/test.bedgraph")
+        all_loc = [loc for loc, _ in rna.BedGraphIterator(bgf)]
+        assert rna.gi("chr7:5529166-5529166") in all_loc  # assert some interval
+        assert rna.gi("chr7:5529202-5529205") in all_loc  # assert merged interval
+        assert rna.gi("chr7:5530527-5530549") in all_loc  # assert merged interval
+        assert rna.gi("chr7:5530551-5531863") in all_loc  # assert last interval
+        rna.print_small_file(bgf, True, 400)

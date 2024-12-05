@@ -685,6 +685,30 @@ def parse_gff_attributes(info, fmt="gff3"):
         raise e
 
 
+def compact_bedgraph_file(bedgraph_file, out_file=None):
+    """
+        Compacts a bedgraph file by merging adjacent entries with the same value.
+    """
+    out_file = bedgraph_file + ".compact.bedgraph" if out_file is None else out_file
+    written = False
+    with open(out_file, "wt") as f:
+        last_loc, last_dat = None, None
+        for loc, dat in rna.it(bedgraph_file, style="bedgraph"):
+            if last_loc is None:
+                last_loc, last_dat = loc, dat
+                written = False
+                continue
+            if (last_loc.end == loc.start-1) and (last_dat == dat):
+                last_loc = rna.gi(last_loc.chromosome, last_loc.start, loc.end, last_loc.strand)
+                #print("Merged", last_loc, last_dat)
+                written = False
+                continue
+            print(to_str(last_loc.chromosome, last_loc.start-1, last_loc.end, last_dat, sep="\t"), file=f)
+            written = True
+            last_loc, last_dat = loc, dat
+        print(to_str(last_loc.chromosome, last_loc.start - 1, last_loc.end, last_dat, sep="\t"), file=f)
+    return bgzip_and_tabix(out_file)
+
 def bgzip_and_tabix(
         in_file,
         out_file=None,
