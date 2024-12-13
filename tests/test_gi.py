@@ -338,3 +338,7 @@ def test_toXXX():
     )
     assert iv.to_htseq() == iv2
     assert len(iv) == iv2.length
+    # BED
+    assert iv.to_bed(name="test") == "chr1\t0\t10\ttest"
+    assert iv.to_bed12(name="test", score=1000, rgb="1,2,3") == \
+              "chr1\t0\t10\ttest\t1000\t.\t0\t10\t1,2,3\t0\t10\t0"

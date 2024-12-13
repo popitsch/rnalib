@@ -512,6 +512,16 @@ class GI(NamedTuple):
                 return 0
             return other.start - self.end if other > self else other.end - self.start
         return None
+    def to_bed(self, name=None):
+        """Returns a corresponding bed4 string representation"""
+        name = self.to_file_str() if name is None else name
+        return f"{self.chromosome}\t{self.start-1}\t{self.end}\t{name}"
+    def to_bed12(self, name=None, score=0, rgb="0,0,0"):
+        """Returns a corresponding bed12 string representation:
+            chrom, start, end, name, score, strand, thickStart, thickEnd, itemRgb, blockCount, blockSizes, blockStarts
+        """
+        strand = "." if self.strand is None else self.strand
+        return f"{self.to_bed(name)}\t{score}\t{strand}\t{self.start-1}\t{self.end}\t{rgb}\t0\t{len(self)}\t0"
 
     def to_pybedtools(self):
         """
@@ -1405,6 +1415,13 @@ class Transcriptome:
             raise TypeError(
                 f"Index must be a GI or a feature id string, not {type(key).__name__}"
             )
+
+    def get(self, key, default=None):
+        """Returns the feature with the passed feature_id or the default value if not found"""
+        try:
+            return self[key]
+        except KeyError:
+            return default
 
     def add(
             self,

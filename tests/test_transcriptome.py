@@ -838,3 +838,23 @@ def test_annotate_with_mygene():
     assert "hsa04015" in [a["id"] for a in t["ACTB"].pathway_kegg]
 
 
+
+def test_get():
+    # Ensembl with chrom aliasing
+    config = {
+        "genome_fa": get_resource(
+            "ACTB+SOX2_genome"
+        ),  # get_resource('ACTB+SOX2_genome'),
+        "genome_offsets": {"chr3": 181711825, "chr7": 5526309},
+        "annotation_gff": get_resource("ensembl_gff"),
+        "annotation_flavour": "ensembl",
+        "annotation_fun_alias": "toggle_chr",
+        "load_sequence_data": True,
+    }
+    t = Transcriptome(**config)
+    assert t.get("gene:ENSG00000181449", "NA") == t["gene:ENSG00000181449"]
+    assert t.get("gene:ENSG00000181450", "NA") =="NA"
+    assert t.get("transcript:ENST00000660576", "NA") == t["transcript:ENST00000660576"]
+    assert t.get('SOX2-OT', "NA").gene_name == 'SOX2-OT'
+    assert t.get('SOX2-OT2', "NA") == "NA"
+
