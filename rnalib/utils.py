@@ -48,12 +48,15 @@ import rnalib as rna
 # --------------------------------------------------------------
 
 GeneSymbol = namedtuple("GeneSymbol", "symbol name taxid")
-GeneSymbol.__doc__ = "A named tuple representing a gene symbol with symbol, name, and taxid fields."
+GeneSymbol.__doc__ = (
+    "A named tuple representing a gene symbol with symbol, name, and taxid fields."
+)
 
 
 # --------------------------------------------------------------
 # Commandline and config handling
 # --------------------------------------------------------------
+
 
 def ensure_outdir(outdir=None) -> os.PathLike:
     """Ensures that the configured output dir exists (will use current dir if none provided)"""
@@ -135,10 +138,10 @@ def split_list(lst, n, is_chunksize=False) -> list:
     if not isinstance(lst, list):
         lst = list(lst)
     if is_chunksize:
-        return [lst[i * n: (i + 1) * n] for i in range((len(lst) + n - 1) // n)]
+        return [lst[i * n : (i + 1) * n] for i in range((len(lst) + n - 1) // n)]
     else:
         k, m = divmod(len(lst), n)
-        return (lst[i * k + min(i, m): (i + 1) * k + min(i + 1, m)] for i in range(n))
+        return (lst[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
 
 
 def intersect_lists(*lists, check_order=False) -> list:
@@ -163,8 +166,8 @@ def intersect_lists(*lists, check_order=False) -> list:
     for lst in lists:
         if check_order:
             assert [
-                       x for x in lst if x in isec
-                   ] == isec, f"Input lists have differing order of shared elements {isec}"
+                x for x in lst if x in isec
+            ] == isec, f"Input lists have differing order of shared elements {isec}"
         elif [x for x in lst if x in isec] != isec:
             warnings.warn(f"Input lists have differing order of shared elements {isec}")
     return isec
@@ -207,7 +210,9 @@ def powerset(it):
 
     """
     s = list(it)
-    return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s) + 1))
+    return itertools.chain.from_iterable(
+        itertools.combinations(s, r) for r in range(len(s) + 1)
+    )
 
 
 def grouper(iterable, n, fill_value=None):
@@ -288,17 +293,17 @@ def to_str(*args, sep=",", na="NA") -> str:
     if args is None:
         return na
     if (
-            hasattr(args, "__len__")
-            and callable(getattr(args, "__len__"))
-            and len(args) == 0
+        hasattr(args, "__len__")
+        and callable(getattr(args, "__len__"))
+        and len(args) == 0
     ):
         return na
     if isinstance(args, str):
         return args
     if (
-            hasattr(args, "__len__")
-            and hasattr(args, "__iter__")
-            and callable(getattr(args, "__iter__"))
+        hasattr(args, "__len__")
+        and hasattr(args, "__iter__")
+        and callable(getattr(args, "__iter__"))
     ):
         return sep.join([to_str(x, sep=sep, na=na) for x in args])
     return str(args)
@@ -319,7 +324,7 @@ def write_data(dat, out=None, sep="\t", na="NA"):
 
 def format_fasta(string, ncol=80) -> str:
     """Format a string for FASTA files"""
-    return "\n".join(string[i: i + ncol] for i in range(0, len(string), ncol))
+    return "\n".join(string[i : i + ncol] for i in range(0, len(string), ncol))
 
 
 def convert_size(size_bytes):
@@ -335,15 +340,15 @@ def convert_size(size_bytes):
 
 
 def dir_tree(
-        root: Path,
-        prefix: str = "",
-        space="    ",
-        branch="│   ",
-        tee="├── ",
-        last="└── ",
-        max_lines=10,
-        glob=None,
-        show_size=True,
+    root: Path,
+    prefix: str = "",
+    space="    ",
+    branch="│   ",
+    tee="├── ",
+    last="└── ",
+    max_lines=10,
+    glob=None,
+    show_size=True,
 ):
     """A recursive generator yielding a visual tree structure line by line.
 
@@ -447,8 +452,8 @@ def slugify(value, allow_unicode=False) -> str:
 
 def remove_extension(p, remove_gzip=True) -> str:
     """Returns a string representation of a resolved PosixPath of the passed path with removed file extension.
-        Will also remove '.gz' extensions if remove_gzip is True.
-        example remove_extension('b/c.txt.gz') -> '<pwd>/b/c'
+    Will also remove '.gz' extensions if remove_gzip is True.
+    example remove_extension('b/c.txt.gz') -> '<pwd>/b/c'
     """
     p = Path(p).resolve()
     if remove_gzip and ".gz" in p.suffixes:
@@ -463,8 +468,15 @@ class UrlretrieveTqdm:
 
     def __call__(self, block_num, block_size, total_size):
         if not self.pbar:
-            self.pbar = tqdm(total=total_size, desc=f"Downloading {self.filename}", unit="B",
-                             unit_scale=True, unit_divisor=1024, position=0, leave=True)
+            self.pbar = tqdm(
+                total=total_size,
+                desc=f"Downloading {self.filename}",
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+                position=0,
+                leave=True,
+            )
         downloaded = block_num * block_size
         if downloaded < total_size:
             self.pbar.update(block_size)
@@ -675,7 +687,9 @@ def parse_gff_attributes(info, fmt="gff3"):
         if fmt.lower() == "gtf":
             return {
                 k: v.translate({ord(c): None for c in '"'})
-                for k, v in [a.strip().split(" ", 1) for a in info.split(";") if " " in a.strip()]
+                for k, v in [
+                    a.strip().split(" ", 1) for a in info.split(";") if " " in a.strip()
+                ]
             }
         return {
             k.strip(): v for k, v in [a.split("=") for a in info.split(";") if "=" in a]
@@ -687,7 +701,7 @@ def parse_gff_attributes(info, fmt="gff3"):
 
 def compact_bedgraph_file(bedgraph_file, out_file=None):
     """
-        Compacts a bedgraph file by merging adjacent entries with the same value.
+    Compacts a bedgraph file by merging adjacent entries with the same value.
     """
     out_file = bedgraph_file + ".compact.bedgraph" if out_file is None else out_file
     written = False
@@ -698,30 +712,51 @@ def compact_bedgraph_file(bedgraph_file, out_file=None):
                 last_loc, last_dat = loc, dat
                 written = False
                 continue
-            if (last_loc.end == loc.start-1) and (last_dat == dat):
-                last_loc = rna.gi(last_loc.chromosome, last_loc.start, loc.end, last_loc.strand)
-                #print("Merged", last_loc, last_dat)
+            if (last_loc.end == loc.start - 1) and (last_dat == dat):
+                last_loc = rna.gi(
+                    last_loc.chromosome, last_loc.start, loc.end, last_loc.strand
+                )
+                # print("Merged", last_loc, last_dat)
                 written = False
                 continue
-            print(to_str(last_loc.chromosome, last_loc.start-1, last_loc.end, last_dat, sep="\t"), file=f)
+            print(
+                to_str(
+                    last_loc.chromosome,
+                    last_loc.start - 1,
+                    last_loc.end,
+                    last_dat,
+                    sep="\t",
+                ),
+                file=f,
+            )
             written = True
             last_loc, last_dat = loc, dat
-        print(to_str(last_loc.chromosome, last_loc.start - 1, last_loc.end, last_dat, sep="\t"), file=f)
+        print(
+            to_str(
+                last_loc.chromosome,
+                last_loc.start - 1,
+                last_loc.end,
+                last_dat,
+                sep="\t",
+            ),
+            file=f,
+        )
     return bgzip_and_tabix(out_file)
 
+
 def bgzip_and_tabix(
-        in_file,
-        out_file=None,
-        sort=False,
-        create_index=True,
-        del_uncompressed=True,
-        preset="auto",
-        seq_col=0,
-        start_col=1,
-        end_col=1,
-        meta_char=ord("#"),
-        line_skip=0,
-        zerobased=False,
+    in_file,
+    out_file=None,
+    sort=False,
+    create_index=True,
+    del_uncompressed=True,
+    preset="auto",
+    seq_col=0,
+    start_col=1,
+    end_col=1,
+    meta_char=ord("#"),
+    line_skip=0,
+    zerobased=False,
 ):
     """
     BGZIP the input file and create a tabix index with the given parameters if create_index is True.
@@ -846,14 +881,14 @@ def bgzip_and_tabix(
 
 
 def _fast5_tree(
-        h5node,
-        prefix: str = "",
-        space="    ",
-        branch="│   ",
-        tee="├── ",
-        last="└── ",
-        max_lines=10,
-        show_attrs=True,
+    h5node,
+    prefix: str = "",
+    space="    ",
+    branch="│   ",
+    tee="├── ",
+    last="└── ",
+    max_lines=10,
+    show_attrs=True,
 ):
     """Recursively yielding strings describing the structure of an h5 file"""
     if hasattr(h5node, "keys"):
@@ -890,7 +925,7 @@ def print_fast5_tree(fast5_file, max_lines=10, n_reads=1, show_attrs=True):
     with h5py.File(fast5_file, "r") as f:
         for cnt, rn in enumerate(f.keys()):
             for line in _fast5_tree(
-                    f[rn], prefix=rn + " ", max_lines=max_lines, show_attrs=show_attrs
+                f[rn], prefix=rn + " ", max_lines=max_lines, show_attrs=show_attrs
             ):
                 print(line)
             print("---")
@@ -1017,10 +1052,10 @@ def display_help(obj, icon="help_icon.png", bg_color="#dcf6fa"):
         )
     )
     msg = (
-            f"<h1>{title}</h1>"
-            + "<p style='font-family:Courier New; font-size: 14px;'>"
-            + msg
-            + "</p>"
+        f"<h1>{title}</h1>"
+        + "<p style='font-family:Courier New; font-size: 14px;'>"
+        + msg
+        + "</p>"
     )
     display(
         Javascript(
@@ -1058,15 +1093,15 @@ def head_counter(cnt, non_empty=True):
 
 
 def plot_times(
-        title,
-        times,
-        n=None,
-        reference_method=None,
-        show_speed=True,
-        show_fastest=False,
-        ax=None,
-        orientation="h",
-        highlight_bar=None
+    title,
+    times,
+    n=None,
+    reference_method=None,
+    show_speed=True,
+    show_fastest=False,
+    ax=None,
+    orientation="h",
+    highlight_bar=None,
 ):
     """
     Helper method to plot a dict with timings (seconds).
@@ -1092,7 +1127,10 @@ def plot_times(
                     fontsize=10,
                 )
             else:
-                ax.set_title(f"{title}", fontsize=10, )
+                ax.set_title(
+                    f"{title}",
+                    fontsize=10,
+                )
         else:
             ax.set_title(f"{title}")
         data_lab = "it/s"
@@ -1299,17 +1337,18 @@ def toggle_chr(s):
 # genomics helpers :: SAM/BAM specific
 # --------------------------------------------------------------
 
+
 def yield_unaligned_reads(dat_file: str):
     """
-        Convenience method that yields FastqRead items representing unaligned reads from either a FASTQ or
-        an unaligned BAM file.
+    Convenience method that yields FastqRead items representing unaligned reads from either a FASTQ or
+    an unaligned BAM file.
 
-        Examples
-        --------
-        >>> for r in yield_unaligned_reads('unaligned_reads.bam'):
-        >>>     print(r)
-        >>> for r in yield_unaligned_reads('unaligned_reads.fastq.gz'):
-        >>>     print(r)
+    Examples
+    --------
+    >>> for r in yield_unaligned_reads('unaligned_reads.bam'):
+    >>>     print(r)
+    >>> for r in yield_unaligned_reads('unaligned_reads.fastq.gz'):
+    >>>     print(r)
     """
     if rna.guess_file_format(dat_file) == 'fastq':  # FASTQ file input
         for read in tqdm(rna.it(dat_file)):
@@ -1317,27 +1356,30 @@ def yield_unaligned_reads(dat_file: str):
     elif rna.guess_file_format(dat_file) == 'bam':  # unaligned BAM file input
         for _, read in tqdm(rna.it(dat_file, include_unmapped=True)):
             if not read.is_mapped:
-                yield rna.FastqRead(read.query_name, read.query_sequence, ''.join(map(lambda x: chr(x + 33),
-                                                                                      read.query_qualities)))
+                yield rna.FastqRead(
+                    read.query_name,
+                    read.query_sequence,
+                    ''.join(map(lambda x: chr(x + 33), read.query_qualities)),
+                )
     else:
         raise NotImplementedError(f"unsupported format for {dat_file}")
 
 
 def aligns_to(anno_blocks, read_blocks, min_overlap=0.95):
     """Calculates the fraction of aligned read bases that overlap with the passed annotation and returns True if >= min_frac
-        Parameters
-        ----------
-        anno_blocks : list
-            List of annotation blocks (e.g., exons)
-        read_blocks : list
-            List of read blocks (e.g., [rna.gi(read.reference_name,a+1,b) for a,b in read.get_blocks()])
-        min_overlap : float
-            The minimum overlap fraction required for a positive result
+    Parameters
+    ----------
+    anno_blocks : list
+        List of annotation blocks (e.g., exons)
+    read_blocks : list
+        List of read blocks (e.g., [rna.gi(read.reference_name,a+1,b) for a,b in read.get_blocks()])
+    min_overlap : float
+        The minimum overlap fraction required for a positive result
 
-        Returns
-        -------
-        bool
-            True if the fraction of aligned read bases that overlap with the passed annotation is >= min_frac
+    Returns
+    -------
+    bool
+        True if the fraction of aligned read bases that overlap with the passed annotation is >= min_frac
     """
     rblen, overlap = 0, 0
     for sb in read_blocks:
@@ -1358,7 +1400,9 @@ def count_reads(in_file):
         raise NotImplementedError(f"Cannot count reads in file of type {ftype}.")
 
 
-def get_softclip_seq(read: pysam.AlignedSegment, report_seq=False) -> tuple[Optional[int], Optional[int]]:
+def get_softclip_seq(
+    read: pysam.AlignedSegment, report_seq=False
+) -> tuple[Optional[int], Optional[int]]:
     """
     Extracts soft-clipped sequences from the passed read.
 
@@ -1393,7 +1437,7 @@ def get_softclip_seq(read: pysam.AlignedSegment, report_seq=False) -> tuple[Opti
 
 def get_softclipped_seq_and_qual(read):
     """
-        Returns the sequence+qualities of this read w/o softclipped bases
+    Returns the sequence+qualities of this read w/o softclipped bases
     """
     seq, qual = read.query_sequence, read.query_qualities
     if read.cigartuples is not None:
@@ -1441,24 +1485,26 @@ def get_covered_regions(bam_file):
 
 
 def downsample_per_chrom(bam_file, max_reads, out_file_bam=None):
-    """ Simple convenience method that randomly subsamples reads to ensure max_reads per chromosome.
-        The resulting BAM file will be sorted and indexed.
+    """Simple convenience method that randomly subsamples reads to ensure max_reads per chromosome.
+    The resulting BAM file will be sorted and indexed.
 
-        Parameters
-        ----------
-        bam_file : str
-            The input BAM file.
-        max_reads : int
-            The maximum number of reads to keep per chromosome.
-        out_file_bam : str
-            The output file name. If None, it will be set to bam_file + '.subsampled_max<max_reads>.bam'.
+    Parameters
+    ----------
+    bam_file : str
+        The input BAM file.
+    max_reads : int
+        The maximum number of reads to keep per chromosome.
+    out_file_bam : str
+        The output file name. If None, it will be set to bam_file + '.subsampled_max<max_reads>.bam'.
     """
     samfile = pysam.AlignmentFile(bam_file, "rb", check_sq=False)  # @UndefinedVariable
     if out_file_bam is None:
         out_file_bam = bam_file + '.subsampled_max%i.bam' % max_reads
     samout = pysam.AlignmentFile(out_file_bam, "wb", template=samfile)
-    read_indices = {i.contig: random.sample(range(i.mapped), min(max_reads, i.mapped)) for i in
-                    samfile.get_index_statistics()}
+    read_indices = {
+        i.contig: random.sample(range(i.mapped), min(max_reads, i.mapped))
+        for i in samfile.get_index_statistics()
+    }
     for c in samfile.references:
         idx = 0
         ri = set(read_indices[c])
@@ -1487,9 +1533,15 @@ def is_paired(bam_file, n=10000):
     return False
 
 
-def extract_aligned_reads_from_fastq(bam_file, fastq1_file, fastq2_file=None, region=None,
-                                     out_file_prefix=None, max_reads=None):
-    """ Extracts reads from one (SE) or two (PE) FASTQ files that are mapped in a BAM file at the provided region.
+def extract_aligned_reads_from_fastq(
+    bam_file,
+    fastq1_file,
+    fastq2_file=None,
+    region=None,
+    out_file_prefix=None,
+    max_reads=None,
+):
+    """Extracts reads from one (SE) or two (PE) FASTQ files that are mapped in a BAM file at the provided region.
     If region is None, all reads are considered, if max_reads is set, only the first max_reads reads are extracted.
     Returns the filename(s) of the FASTQ file(s).
 
@@ -1573,15 +1625,21 @@ def get_tx_indices(tx, sequence_type='spliced_sequence'):
     if sequence_type == 'spliced_sequence':
         splice_seq = tx.spliced_sequence
         if strand == "-":
-            idx = np.concatenate([
-                np.array(list(range(ex.start, ex.start + len(ex)))) for ex in reversed(tx.exon)
-            ])[::-1]
+            idx = np.concatenate(
+                [
+                    np.array(list(range(ex.start, ex.start + len(ex))))
+                    for ex in reversed(tx.exon)
+                ]
+            )[::-1]
         else:
-            idx = np.concatenate([
-                np.array(list(range(ex.start, ex.start + len(ex)))) for ex in tx.exon
-            ])
-        idx0 = np.array([(a - b - 1) for a, b in pairwise(idx)]) if strand == "-" else np.array(
-            [b - a - 1 for a, b in pairwise(idx)])
+            idx = np.concatenate(
+                [np.array(list(range(ex.start, ex.start + len(ex)))) for ex in tx.exon]
+            )
+        idx0 = (
+            np.array([(a - b - 1) for a, b in pairwise(idx)])
+            if strand == "-"
+            else np.array([b - a - 1 for a, b in pairwise(idx)])
+        )
     elif sequence_type == 'rna_sequence':
         splice_seq = tx.rna_sequence
         idx = np.array(list(range(tx.start, tx.start + len(tx))))
@@ -1593,39 +1651,46 @@ def get_tx_indices(tx, sequence_type='spliced_sequence'):
     return splice_seq, idx, idx0
 
 
-def get_aligned_blocks(tx, spliced_seq_start: int, spliced_seq_end: int, splice_seq=None, idx=None, idx0=None,
-                       sequence_type='spliced_sequence'):
+def get_aligned_blocks(
+    tx,
+    spliced_seq_start: int,
+    spliced_seq_end: int,
+    splice_seq=None,
+    idx=None,
+    idx0=None,
+    sequence_type='spliced_sequence',
+):
     """
-        Return the aligned blocks of a read sequence to the genomic sequence.
-        The read sequence is defined by the passed transcript and the spliced_seq_start and spliced_seq_end indices.
+    Return the aligned blocks of a read sequence to the genomic sequence.
+    The read sequence is defined by the passed transcript and the spliced_seq_start and spliced_seq_end indices.
 
-        Examples
-        --------
-        >>> t = rna.Transcriptome(...)
-        >>> rs, bl = get_aligned_blocks(t['ENST00000674681.1'], 0, 100)
+    Examples
+    --------
+    >>> t = rna.Transcriptome(...)
+    >>> rs, bl = get_aligned_blocks(t['ENST00000674681.1'], 0, 100)
 
-        Parameters
-        ----------
-        tx : rnalib.Transcript
-            The transcript object
-        spliced_seq_start : int
-            The start index of the read in the spliced transcript sequence
-        spliced_seq_end : int
-            The end index of the read in the spliced transcript sequence
-        splice_seq : str
-            The spliced transcript sequence. If None, tx.spliced_sequence is used.
-        idx : np.array
-            The genomic indices of the respective nucleotides in the genome. If None, it is calculated from the transcript.
-        idx0 : np.array
-            The distances to the next consecutive nucleotide in the genome for each nucleotide in the transcript.
-            If None, it is calculated from the transcript.
+    Parameters
+    ----------
+    tx : rnalib.Transcript
+        The transcript object
+    spliced_seq_start : int
+        The start index of the read in the spliced transcript sequence
+    spliced_seq_end : int
+        The end index of the read in the spliced transcript sequence
+    splice_seq : str
+        The spliced transcript sequence. If None, tx.spliced_sequence is used.
+    idx : np.array
+        The genomic indices of the respective nucleotides in the genome. If None, it is calculated from the transcript.
+    idx0 : np.array
+        The distances to the next consecutive nucleotide in the genome for each nucleotide in the transcript.
+        If None, it is calculated from the transcript.
 
-        Returns
-        -------
-        read_seq : str
-            The read sequence
-        blocks : list
-            The (sorted) aligned blocks of the read sequence to the genomic sequence
+    Returns
+    -------
+    read_seq : str
+        The read sequence
+    blocks : list
+        The (sorted) aligned blocks of the read sequence to the genomic sequence
     """
 
     chrom, strand = tx.chromosome, tx.strand
@@ -1664,7 +1729,7 @@ def get_aligned_blocks(tx, spliced_seq_start: int, spliced_seq_end: int, splice_
 
 class MismatchProfile(Counter):
     """
-        Mismatch profile for sequence error handling.
+    Mismatch profile for sequence error handling.
     """
 
     def __init__(self, d: dict = None, alpha=None, *args, **kwargs):
@@ -1675,8 +1740,7 @@ class MismatchProfile(Counter):
 
     @classmethod
     def get_flat_profile(cls, seq_err=0.1 / 100, alpha=None):
-        """Returns a flat sequencing error profile with the given mismatch error probability.
-        """
+        """Returns a flat sequencing error profile with the given mismatch error probability."""
         scale = 1 / (seq_err / 12)
         se = cls(d=None, alpha=alpha)
         for strand in ['+', '-']:
@@ -1685,27 +1749,33 @@ class MismatchProfile(Counter):
                     if ref != alt:
                         se[(ref, alt, strand)] = 1  # 12 cases -> seq_err / 12 = 1
                     else:
-                        se[(ref, alt, strand)] = int((1 - seq_err) / 4 * scale)  # 4 cases
+                        se[(ref, alt, strand)] = int(
+                            (1 - seq_err) / 4 * scale
+                        )  # 4 cases
         return se
 
     def add(self, ref: str, alt: str, strand: str):
-        """ Adds a reference/alternative pair to the profile.
-            Converts the passed reference/alternative pair to upper case and checks if they are valid.
+        """Adds a reference/alternative pair to the profile.
+        Converts the passed reference/alternative pair to upper case and checks if they are valid.
         """
         ref = ref.upper()
         alt = alt.upper()
-        assert ref in self.alpha and alt in self.alpha, f"Invalid ref/alt pair: {ref}/{alt}"
+        assert (
+            ref in self.alpha and alt in self.alpha
+        ), f"Invalid ref/alt pair: {ref}/{alt}"
         self[(ref, alt, strand)] += 1
 
     def __str__(self):
-        return "\n".join([f"{ref}>{alt}: {v} ({s})" for (ref, alt, s), v in self.items()])
+        return "\n".join(
+            [f"{ref}>{alt}: {v} ({s})" for (ref, alt, s), v in self.items()]
+        )
 
     def __repr__(self):
         return self.__str__()
 
     def get_prob(self, ref: str, alt: set = None, strand: str = "+", revcomp=True):
         """Returns the probability for observing the passed reference/alternative pair.
-            if alt is None, any of the other bases is assumed.
+        if alt is None, any of the other bases is assumed.
         """
         if strand == '-' and revcomp:
             ref = rna.reverse_complement(ref)
@@ -1717,7 +1787,16 @@ class MismatchProfile(Counter):
         tot = sum([c for (r, a, s), c in self.items() if r == ref and s == strand])
         if tot == 0:
             return 0
-        return sum([c for (r, a, s), c in self.items() if r == ref and a in alt and s == strand]) / tot
+        return (
+            sum(
+                [
+                    c
+                    for (r, a, s), c in self.items()
+                    if r == ref and a in alt and s == strand
+                ]
+            )
+            / tot
+        )
 
     def get_mismatch_prob(self, strand: str):
         """Returns the probability of observing a mismatch."""
@@ -1732,22 +1811,44 @@ class MismatchProfile(Counter):
 
     def to_dataframe(self):
         """Converts the mismatch profile to a DataFrame."""
-        return pd.DataFrame.from_records([(a, b, s, c) for (a, b, s), c in self.items()],
-                                         columns=['ref', 'alt', 'strand', 'count'])
+        return pd.DataFrame.from_records(
+            [(a, b, s, c) for (a, b, s), c in self.items()],
+            columns=['ref', 'alt', 'strand', 'count'],
+        )
 
     def plot_mm_profile(self, ax=None, prob=True):
         if prob:
             dat = pd.DataFrame.from_records(
-                [(f"{ref}>{alt}", strand, self.get_prob(ref, alt, strand)) for (ref, alt, strand), c in self.items() if
-                 ref !=
-                 alt],
-                columns=['mm', 'strand', 'mm_prob'])
-            return sns.barplot(dat.sort_values(['strand', 'mm']), x='mm', y='mm_prob', hue='strand', ax=ax)
+                [
+                    (f"{ref}>{alt}", strand, self.get_prob(ref, alt, strand))
+                    for (ref, alt, strand), c in self.items()
+                    if ref != alt
+                ],
+                columns=['mm', 'strand', 'mm_prob'],
+            )
+            return sns.barplot(
+                dat.sort_values(['strand', 'mm']),
+                x='mm',
+                y='mm_prob',
+                hue='strand',
+                ax=ax,
+            )
         else:
             dat = pd.DataFrame.from_records(
-                [(f"{ref}>{alt}", strand, c) for (ref, alt, strand), c in self.items() if ref != alt],
-                columns=['mm', 'strand', 'mm_count'])
-            return sns.barplot(dat.sort_values(['strand', 'mm']), x='mm', y='mm_count', hue='strand', ax=ax)
+                [
+                    (f"{ref}>{alt}", strand, c)
+                    for (ref, alt, strand), c in self.items()
+                    if ref != alt
+                ],
+                columns=['mm', 'strand', 'mm_count'],
+            )
+            return sns.barplot(
+                dat.sort_values(['strand', 'mm']),
+                x='mm',
+                y='mm_count',
+                hue='strand',
+                ax=ax,
+            )
 
     def save(self, file):
         """Saves the mismatch profile to a file."""
@@ -1755,13 +1856,15 @@ class MismatchProfile(Counter):
 
     def add_seq_err(self, seq, strand: str = '+'):
         """Adds a sequencing error according to the profile to the passed sequence.
-            By convention, the passed sequence should always be in 5'->3' direction (as written in a BAM file).
-            If strand is '-', the probabilities are calculated for the reverse complement of the sequence.
+        By convention, the passed sequence should always be in 5'->3' direction (as written in a BAM file).
+        If strand is '-', the probabilities are calculated for the reverse complement of the sequence.
         """
         alpha = list(self.alpha)
         ret, n_seqerr = [], 0
         for r in seq:
-            a = np.random.choice(alpha, 1, p=[self.get_prob(r, a, strand=strand) for a in alpha])[0]
+            a = np.random.choice(
+                alpha, 1, p=[self.get_prob(r, a, strand=strand) for a in alpha]
+            )[0]
             if a != r:
                 n_seqerr += 1
             ret.append(a)
@@ -1777,35 +1880,45 @@ class MismatchProfile(Counter):
         return se
 
     @classmethod
-    def from_bam(cls, bam_file, features, min_cov=10, max_mm_frac=0.1, max_sample=1e6, strand_specific=True,
-                 alpha=None, fasta_file=None, disable_progressbar=False):
+    def from_bam(
+        cls,
+        bam_file,
+        features,
+        min_cov=10,
+        max_mm_frac=0.1,
+        max_sample=1e6,
+        strand_specific=True,
+        alpha=None,
+        fasta_file=None,
+        disable_progressbar=False,
+    ):
         """Creates a mismatch profile from a BAM file.
-            The mismatch profile is created by analyzing the passed regions in the BAM file.
-            Only positions with a minimum coverage of min_cov are considered.
-            Positions with a mismatch fraction > max_mm_frac are skipped.
-            The analysis stops after max_mm_cnt mismatches have been counted.
+        The mismatch profile is created by analyzing the passed regions in the BAM file.
+        Only positions with a minimum coverage of min_cov are considered.
+        Positions with a mismatch fraction > max_mm_frac are skipped.
+        The analysis stops after max_mm_cnt mismatches have been counted.
 
-            Parameters
-            ----------
-            bam_file : str
-                The input BAM file.
-            features : list
-                List of genomic features to analyze (e.g., genes). The features will be randomly permutated and
-                analyzed in this order. They must have an associated sequence attribute in order to calculate the
-                reference base. If None, all covered regions in the BAM file will be analyzed (slow) and "N" will be
-                used as reference base.
-            min_cov : int
-                The minimum coverage required for a position to be considered.
-            max_mm_frac : float
-                The maximum mismatch fraction allowed for a position to be considered.
-            max_sample : int
-                The maximum number of mismatches to count.
-            strand_specific : bool
-                If True, a strand-specific profile is created.
-            alpha : set
-                The set of valid nucleotides.
-            disable_progressbar : bool
-                If True, the progress bar is disabled.
+        Parameters
+        ----------
+        bam_file : str
+            The input BAM file.
+        features : list
+            List of genomic features to analyze (e.g., genes). The features will be randomly permutated and
+            analyzed in this order. They must have an associated sequence attribute in order to calculate the
+            reference base. If None, all covered regions in the BAM file will be analyzed (slow) and "N" will be
+            used as reference base.
+        min_cov : int
+            The minimum coverage required for a position to be considered.
+        max_mm_frac : float
+            The maximum mismatch fraction allowed for a position to be considered.
+        max_sample : int
+            The maximum number of mismatches to count.
+        strand_specific : bool
+            If True, a strand-specific profile is created.
+        alpha : set
+            The set of valid nucleotides.
+        disable_progressbar : bool
+            If True, the progress bar is disabled.
         """
         se = cls(alpha=alpha)
         if features is None:
@@ -1819,21 +1932,37 @@ class MismatchProfile(Counter):
         bam_refdict = rna.RefDict.load(bam_file)
         fit = None if fasta_file is None else rna.it(fasta_file).file
         if fit is None and not hasattr(reg[0], 'sequence'):
-            logging.warning("No reference genome file provided. Using 'N' as reference base.")
+            logging.warning(
+                "No reference genome file provided. Using 'N' as reference base."
+            )
         stats = Counter()
-        for g in tqdm(reg, desc="analyzing regions", total=len(reg), disable=disable_progressbar):
+        for g in tqdm(
+            reg, desc="analyzing regions", total=len(reg), disable=disable_progressbar
+        ):
             if g.chromosome not in bam_refdict:
-                logging.warning(f"Skipping region {g}: chromosome not found in BAM file")
+                logging.warning(
+                    f"Skipping region {g}: chromosome not found in BAM file"
+                )
                 continue
             stats["analysed_regions"] += 1
             # TODO: progressbar should show the number of analyzed mismatches until max_sample is reached
-            seq = g.sequence if hasattr(g, 'sequence') else fit.fetch(g.chromosome, g.start - 1, g.end) \
-                if fit is not None else 'N' * len(g)  # get sequence
-            for loc, ac_ss in rna.it(bam_file, style='pileup', strand_specific=True, region=g):
+            seq = (
+                g.sequence
+                if hasattr(g, 'sequence')
+                else fit.fetch(g.chromosome, g.start - 1, g.end)
+                if fit is not None
+                else 'N' * len(g)
+            )  # get sequence
+            for loc, ac_ss in rna.it(
+                bam_file, style='pileup', strand_specific=True, region=g
+            ):
                 stats["iterated_columns"] += 1
                 if ac_ss.total() > min_cov:
                     ref = seq[loc.start - g.start]
-                    mm_frac = sum([c for (b, strand), c in ac_ss.items() if b != ref]) / ac_ss.total()
+                    mm_frac = (
+                        sum([c for (b, strand), c in ac_ss.items() if b != ref])
+                        / ac_ss.total()
+                    )
                     if mm_frac > max_mm_frac:
                         stats["potential _SNP_columns"] += 1
                         continue
@@ -1854,14 +1983,17 @@ class MismatchProfile(Counter):
 
 
 class BamWriter:
-    """ A simple helper class for creating custom BAM files.
-        The BAM header is initialized from the passed genome FASTA file.
+    """A simple helper class for creating custom BAM files.
+    The BAM header is initialized from the passed genome FASTA file.
     """
 
     def __init__(self, genome_fa: str, out_file_bam: str, sort_and_index=True):
         self.fasta = pysam.Fastafile(genome_fa)  # @UndefinedVariable
         self.rd = rna.RefDict.load(self.fasta)
-        header = {'HD': {'VN': '1.0'}, 'SQ': [{'SN': chrom, 'LN': chrlen} for chrom, chrlen in self.rd.items()]}
+        header = {
+            'HD': {'VN': '1.0'},
+            'SQ': [{'SN': chrom, 'LN': chrlen} for chrom, chrlen in self.rd.items()],
+        }
         if not os.path.isdir(Path(out_file_bam).parent.absolute()):
             os.makedirs(Path(out_file_bam).parent.absolute())
         self.samout = pysam.AlignmentFile(out_file_bam, "wb", header=header)
@@ -1870,40 +2002,56 @@ class BamWriter:
         self._stats = Counter()
         print("Writing to ", out_file_bam)
 
-    def write(self,
-              aligned_blocks: list,
-              query_sequence: str = None,
-              query_qualities: str = None,
-              query_name: str = None,
-              mm: list[tuple] = None,
-              mapping_quality=255,
-              tags=None):
-        """ Writes a read to the BAM file."""
+    def write(
+        self,
+        aligned_blocks: list,
+        query_sequence: str = None,
+        query_qualities: str = None,
+        query_name: str = None,
+        mm: list[tuple] = None,
+        mapping_quality=255,
+        tags=None,
+    ):
+        """Writes a read to the BAM file."""
         if not isinstance(aligned_blocks, list):
             aligned_blocks = [aligned_blocks]
         read_span = rna.GI.merge(aligned_blocks)  # merge blocks
-        assert read_span is not None, f"Could not merge passed aligned blocks {aligned_blocks}"  # checks strand/chrom
-        assert read_span.chromosome in self.rd, f"Chromosome {read_span.chrom} not found in reference genome"
+        assert (
+            read_span is not None
+        ), f"Could not merge passed aligned blocks {aligned_blocks}"  # checks strand/chrom
+        assert (
+            read_span.chromosome in self.rd
+        ), f"Chromosome {read_span.chrom} not found in reference genome"
         assert read_span.strand is not None, f"Strand not set for read {read_span}"
         aligned_blocks_len = sum([len(b) for b in aligned_blocks])
         if query_sequence is None:
-            query_sequence = ''.join([self.fasta.fetch(read_span.chromosome, b.start - 1, b.end) for b in
-                                      aligned_blocks])
+            query_sequence = ''.join(
+                [
+                    self.fasta.fetch(read_span.chromosome, b.start - 1, b.end)
+                    for b in aligned_blocks
+                ]
+            )
         assert len(query_sequence) == aligned_blocks_len, (
             f"Sequence length {len(query_sequence)} does not match aligned "
-            f"blocks length {aligned_blocks_len}")
+            f"blocks length {aligned_blocks_len}"
+        )
         if query_qualities is None:
             query_qualities = "~" * len(query_sequence)  # max quality
         assert len(query_qualities) == aligned_blocks_len, (
             f"Quality length {len(query_qualities)} does not match aligned "
-            f"blocks length {aligned_blocks_len}")
+            f"blocks length {aligned_blocks_len}"
+        )
         NM = 0
         if mm is not None:
             for off, alt in mm:
-                query_sequence = query_sequence[:off] + alt + query_sequence[off + 1:]
+                query_sequence = query_sequence[:off] + alt + query_sequence[off + 1 :]
                 NM += 1
         r = pysam.AlignedSegment()
-        r.query_name = f"read{self._stats['reads']}_{read_span.to_file_str()}" if query_name is None else query_name
+        r.query_name = (
+            f"read{self._stats['reads']}_{read_span.to_file_str()}"
+            if query_name is None
+            else query_name
+        )
         r.query_sequence = query_sequence
         r.query_qualities = pysam.qualitystring_to_array(query_qualities)
         r.flag = 0 if read_span.strand == '+' else 16
@@ -1954,10 +2102,10 @@ def sort_and_index_bam(bam_file):
 
 
 def merge_bam_files(
-        out_file: str,
-        bam_files: list,
-        sort_output: bool = False,
-        del_in_files: bool = False,
+    out_file: str,
+    bam_files: list,
+    sort_output: bool = False,
+    del_in_files: bool = False,
 ):
     """Merge multiple BAM files, sort and index results.
 
@@ -1981,7 +2129,7 @@ def merge_bam_files(
         return None
     samfile = pysam.AlignmentFile(bam_files[0], "rb")  # @UndefinedVariable
     with pysam.AlignmentFile(
-            out_file + ".unsorted.bam", "wb", template=samfile
+        out_file + ".unsorted.bam", "wb", template=samfile
     ) as out:  # @UndefinedVariable
         for f in bam_files:
             samfile = None
@@ -2109,10 +2257,10 @@ def read_alias_file(gene_name_alias_file, disable_progressbar=False) -> (dict, s
             keep_default_na=False,
         )
         for r in tqdm(
-                tab.itertuples(),
-                desc="load gene aliases",
-                total=tab.shape[0],
-                disable=disable_progressbar,
+            tab.itertuples(),
+            desc="load gene aliases",
+            total=tab.shape[0],
+            disable=disable_progressbar,
         ):
             sym = r.symbol.strip()  # noqa
             current_symbols.add(sym)
@@ -2151,7 +2299,9 @@ def geneid2symbol(gene_ids):
     mg = mygene.MyGeneInfo()
     galias = mg.getgenes(set(gene_ids), filter="symbol,name,taxid")
     id2sym = {
-        x["query"]: GeneSymbol(x.get("symbol", x["query"]), x.get("name", None), x.get("taxid", None))
+        x["query"]: GeneSymbol(
+            x.get("symbol", x["query"]), x.get("name", None), x.get("taxid", None)
+        )
         for x in galias
     }
     return id2sym
@@ -2318,11 +2468,11 @@ def get_archs4_sample_dict(file="data/human_gene_v2.2.h5", remove_sc=True):
 
 
 def get_sample_metadata(
-        samples,
-        sample_dict=None,
-        keys=None,
-        file="data/human_gene_v2.2.h5",
-        disable_progressbar=False,
+    samples,
+    sample_dict=None,
+    keys=None,
+    file="data/human_gene_v2.2.h5",
+    disable_progressbar=False,
 ):
     if sample_dict is None:
         sample_dict = get_archs4_sample_dict(file)  # all samples (non sc)
@@ -2381,8 +2531,10 @@ def random_sample(conf_str, rng=np.random.default_rng(seed=None)):
     return eval(f"rng.{conf_str}")
 
 
-def random_intervals(chromosomes=('1',), start_range=range(0, 1000), len_range=range(1, 100), n=10):
-    """ Generates random genomic intervals.
+def random_intervals(
+    chromosomes=('1',), start_range=range(0, 1000), len_range=range(1, 100), n=10
+):
+    """Generates random genomic intervals.
     Parameters
     ----------
     chromosomes : list
@@ -2401,16 +2553,18 @@ def random_intervals(chromosomes=('1',), start_range=range(0, 1000), len_range=r
     chroms = random.choices(chromosomes, k=n)
     starts = random.choices(start_range, k=n)
     lens = random.choices(len_range, k=n)
-    return rna.GI.sort([rna.gi(c, s, s + l) for c, s, l in zip(chroms, starts, lens)], refdict)
+    return rna.GI.sort(
+        [rna.gi(c, s, s + l) for c, s, l in zip(chroms, starts, lens)], refdict
+    )
 
 
 def execute_screencast(
-        command_file,
-        col=True,
-        default_delay=1,
-        console_prompt=">>> ",
-        min_typing_delay=0.001,
-        max_typing_delay=0.05,
+    command_file,
+    col=True,
+    default_delay=1,
+    console_prompt=">>> ",
+    min_typing_delay=0.001,
+    max_typing_delay=0.05,
 ):
     """
     Executes the passed command file in a python shell.
@@ -2436,13 +2590,13 @@ def execute_screencast(
         print()
 
     def colored_cmd(
-            cmd,
-            comment,
-            col=True,
-            def_col="green",
-            eq_col="yellow",
-            comment_col="red",
-            banner_col="magenta",
+        cmd,
+        comment,
+        col=True,
+        def_col="green",
+        eq_col="yellow",
+        comment_col="red",
+        banner_col="magenta",
     ):
         """colorize a command string.
         Todo: use ast to parse and highlight the commands

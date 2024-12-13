@@ -23,7 +23,8 @@ from rnalib import (
     TranscriptomeIterator,
     print_dir_tree,
     TranscriptFilter,
-    AbstractFeatureFilter, FTYPE_TO_SO,
+    AbstractFeatureFilter,
+    FTYPE_TO_SO,
 )
 from rnalib.testdata import get_resource
 
@@ -437,13 +438,15 @@ def test_filter(default_testdata):
     t = Transcriptome(**config)
     assert (
         t.log
-        == {'parsed_gff_lines': 345,
-               'filtered_exon_no_tx_found': 108,
-               'filtered_transcript_parent_gene_filtered': 89,
-               'filtered_CDS_no_tx_found': 60,
-               'filtered_five_prime_UTR_no_tx_found': 33,
-               'filtered_three_prime_UTR_no_tx_found': 20,
-               'filtered_gene_missing_tags': 5}
+        == {
+            'parsed_gff_lines': 345,
+            'filtered_exon_no_tx_found': 108,
+            'filtered_transcript_parent_gene_filtered': 89,
+            'filtered_CDS_no_tx_found': 60,
+            'filtered_five_prime_UTR_no_tx_found': 33,
+            'filtered_three_prime_UTR_no_tx_found': 20,
+            'filtered_gene_missing_tags': 5,
+        }
         and len(t.transcripts) == 0
     )
     # filter for list of transcript ids.
@@ -451,13 +454,15 @@ def test_filter(default_testdata):
         ["ENST00000325404.3", "ENST00000674681.1"]
     )
     t = Transcriptome(**config)
-    assert t.log == {'parsed_gff_lines': 345,
-         'filtered_exon_no_tx_found': 101,
-         'filtered_transcript_not_in_id_list': 87,
-         'filtered_CDS_no_tx_found': 54,
-         'filtered_five_prime_UTR_no_tx_found': 30,
-         'filtered_three_prime_UTR_no_tx_found': 18,
-         'dropped_empty_genes': 3}
+    assert t.log == {
+        'parsed_gff_lines': 345,
+        'filtered_exon_no_tx_found': 101,
+        'filtered_transcript_not_in_id_list': 87,
+        'filtered_CDS_no_tx_found': 54,
+        'filtered_five_prime_UTR_no_tx_found': 30,
+        'filtered_three_prime_UTR_no_tx_found': 18,
+        'dropped_empty_genes': 3,
+    }
     assert len(t.transcripts) == 2 and len(t.genes) == 2
     assert {tx.feature_id for tx in t.transcripts} == {
         "ENST00000325404.3",
@@ -466,10 +471,12 @@ def test_filter(default_testdata):
     # filter for gene_type
     config["feature_filter"] = TranscriptFilter().include_gene_types(["protein_coding"])
     t = Transcriptome(**config)
-    assert t.log == {'parsed_gff_lines': 345,
-         'filtered_transcript_parent_gene_filtered': 65,
-         'filtered_gene_missing_gene_type_value': 3,
-         'filtered_exon_no_tx_found': 2}
+    assert t.log == {
+        'parsed_gff_lines': 345,
+        'filtered_transcript_parent_gene_filtered': 65,
+        'filtered_gene_missing_gene_type_value': 3,
+        'filtered_exon_no_tx_found': 2,
+    }
     assert len(t.transcripts) == 24 and len(t.genes) == 2
     # assert copied fields
     assert all([hasattr(tx, "gene_type") for tx in t.transcripts])
@@ -566,14 +573,18 @@ def test_gff_flavours():
     config = {
         "annotation_gff": get_resource("wormbase_gff"),
         "annotation_flavour": "wormbase",
-        "calc_introns": False, # contained in wormbase gff already
+        "calc_introns": False,  # contained in wormbase gff already
     }
     t = Transcriptome(**config)
     assert len(t.genes), len(t.transcripts) == (127, 278)
-    assert sum([len(tx.intron) for tx in t.transcripts]), sum([len(tx.exon) for tx in t.transcripts]) == (712, 2107)
+    assert sum([len(tx.intron) for tx in t.transcripts]), sum(
+        [len(tx.exon) for tx in t.transcripts]
+    ) == (712, 2107)
     # Let's count the annoated biotypes for all entries that stem from WormBase (as the gff file contains data from
     # multiple sources, see https://downloads.wormbase.org/releases/WS293/letter.WS293)
-    assert Counter([g.biotype for g in t.genes if g.source == 'WormBase']) == {'protein_coding': 36}
+    assert Counter([g.biotype for g in t.genes if g.source == 'WormBase']) == {
+        'protein_coding': 36
+    }
 
     # flybase
     config = {
@@ -588,11 +599,13 @@ def test_gff_flavours():
     t = Transcriptome(**config)
     print(t.log)
     assert len(t.genes) == 2 and len(t.transcripts) == 12
-    assert Counter([f.feature_type for f in t.anno]) == {'exon': 13,
-         'transcript': 12,
-         'three_prime_UTR': 11,
-         'gene': 2,
-         'intron': 1}
+    assert Counter([f.feature_type for f in t.anno]) == {
+        'exon': 13,
+        'transcript': 12,
+        'three_prime_UTR': 11,
+        'gene': 2,
+        'intron': 1,
+    }
     assert Counter([tx.gff_feature_type for tx in t.transcripts]) == {
         "mRNA": 11,
         "pseudogene": 1,
@@ -660,7 +673,7 @@ def test_generic_flavours():
         "feat_tid": "Parent",
         "gene_name": "gene_name",
         "ftype_to_SO": FTYPE_TO_SO,
-        "copied_fields": ['Parent']
+        "copied_fields": ['Parent'],
     }
     config = {
         "genome_fa": get_resource("dmel_genome"),
@@ -841,7 +854,6 @@ def test_annotate_with_mygene():
     assert "hsa04015" in [a["id"] for a in t["ACTB"].pathway_kegg]
 
 
-
 def test_get():
     # Ensembl with chrom aliasing
     config = {
@@ -856,8 +868,10 @@ def test_get():
     }
     t = Transcriptome(**config)
     assert t.get("gene:ENSG00000181449", "NA") == t["gene:ENSG00000181449"]
-    assert t.get("gene:ENSG00000181450", "NA") =="NA"
+    assert t.get("gene:ENSG00000181450", "NA") == "NA"
     assert t.get("transcript:ENST00000660576", "NA") == t["transcript:ENST00000660576"]
     assert t.get('SOX2-OT', "NA").gene_name == 'SOX2-OT'
     assert t.get('SOX2-OT2', "NA") == "NA"
-
+    assert (
+        not t.get('SOX2-OT', "NA") == "NA"
+    )  # check whether __eq__ is implemented properly

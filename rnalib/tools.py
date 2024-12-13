@@ -46,17 +46,17 @@ def prune_tags(bam_in, bam_out, kept_tags=("NH", "HI", "AS")):
 
 
 def tag_tc(
-        bam_file,
-        included_chrom=None,
-        snp_vcf_file=None,
-        out_prefix=None,
-        fractional_counts=False,
-        write_density_histogram=True,
-        tags=None,
-        min_mapping_quality=0,
-        flag_filter=DEFAULT_FLAG_FILTER,
-        min_base_quality=10,
-        reverse_strand=False,
+    bam_file,
+    included_chrom=None,
+    snp_vcf_file=None,
+    out_prefix=None,
+    fractional_counts=False,
+    write_density_histogram=True,
+    tags=None,
+    min_mapping_quality=0,
+    flag_filter=DEFAULT_FLAG_FILTER,
+    min_base_quality=10,
+    reverse_strand=False,
 ):
     """
     Determines the T/C status per read while masking SNP positions and create density histogram per chrom.
@@ -120,14 +120,14 @@ def tag_tc(
         )
     # print(f'Considered chromosomes: {refdict.keys()}')
     with rna.ReadIterator(
-            bam_file,
-            report_mismatches=False,
-            min_mapping_quality=min_mapping_quality,
-            flag_filter=flag_filter,
-            min_base_quality=min_base_quality,
+        bam_file,
+        report_mismatches=False,
+        min_mapping_quality=min_mapping_quality,
+        flag_filter=flag_filter,
+        min_base_quality=min_base_quality,
     ) as it:
         with pysam.AlignmentFile(
-                out_bam_file, "wb", template=it.file
+            out_bam_file, "wb", template=it.file
         ) as out:  # @UndefinedVariable
             with tqdm(total=it.max_items()) as pbar:
                 for chrom in refdict:
@@ -136,9 +136,14 @@ def tag_tc(
                     # get genomic positions of all T/C and A/G snps in the considered region
                     masked_pos = (
                         set(
-                            [loc.start for loc, snp in rna.VcfIterator(snp_vcf_file, region=reg) if
-                             ((snp.ref, snp.alt) == ("T", "C")) or ((snp.ref, snp.alt) == ("A", "G"))
-                             ]
+                            [
+                                loc.start
+                                for loc, snp in rna.VcfIterator(
+                                    snp_vcf_file, region=reg
+                                )
+                                if ((snp.ref, snp.alt) == ("T", "C"))
+                                or ((snp.ref, snp.alt) == ("A", "G"))
+                            ]
                         )
                         if snp_vcf_file is not None
                         else set()
@@ -158,8 +163,9 @@ def tag_tc(
                             for (off, pos, ref) in r.get_aligned_pairs(
                                 with_seq=True, matches_only=True
                             )
-                            if (ref.upper() == refc) and (r.query_qualities[off] >= it.min_base_quality) and
-                               (pos + 1 not in masked_pos)
+                            if (ref.upper() == refc)
+                            and (r.query_qualities[off] >= it.min_base_quality)
+                            and (pos + 1 not in masked_pos)
                         ]
                         mm_tc = [
                             (off, pos1, ref, alt)
@@ -176,8 +182,13 @@ def tag_tc(
                         # set bam tags, etc.
                         r.set_tag(tag=tags["ntt"], value=len(mm), value_type="i")
                         r.set_tag(tag=tags["ntc"], value=len(mm_tc), value_type="i")
-                        r.set_tag(tag=tags["mmtc"], value=','.join([str(off) for (off, pos1, ref, alt) in mm_tc]),
-                                  value_type="Z")
+                        r.set_tag(
+                            tag=tags["mmtc"],
+                            value=','.join(
+                                [str(off) for (off, pos1, ref, alt) in mm_tc]
+                            ),
+                            value_type="Z",
+                        )
                         if len(mm_tc) > 0:
                             ftc = len(mm_tc) / len(mm)
                             r.set_tag(
@@ -223,6 +234,7 @@ def quantise_values(values, bins=10):
     """
     return pd.cut(values, bins, labels=False)
 
+
 def filter_tc(bam_file, out_file=None, min_tc=1, tags=None):
     """
     Filters a T/C annotated BAM file for reads with at least min_tc T/C conversions.
@@ -246,14 +258,14 @@ def filter_tc(bam_file, out_file=None, min_tc=1, tags=None):
     if out_file is None:
         out_file = f"{Path(bam_file).stem}_tc-only.bam"
     with rna.ReadIterator(
-            bam_file,
-            report_mismatches=False,
-            min_mapping_quality=0,
-            flag_filter=0,
-            min_base_quality=0,
+        bam_file,
+        report_mismatches=False,
+        min_mapping_quality=0,
+        flag_filter=0,
+        min_base_quality=0,
     ) as it:
         with pysam.AlignmentFile(
-                out_file, "wb", template=it.file
+            out_file, "wb", template=it.file
         ) as out:  # @UndefinedVariable
             for loc, r in tqdm(it, total=it.max_items()):
                 if r.get_tag(tags["ntc"], 0) >= min_tc:
@@ -266,7 +278,7 @@ def filter_tc(bam_file, out_file=None, min_tc=1, tags=None):
 
 
 def build_amplicon_resources(
-        transcriptome_name, bed_file, fasta_file, out_dir, padding=100, amp_extension=100
+    transcriptome_name, bed_file, fasta_file, out_dir, padding=100, amp_extension=100
 ):
     """
     Builds resources for amplicon analyses from a bed file.
@@ -357,19 +369,21 @@ def build_amplicon_resources(
                 with open(out_file_gff3, "w") as out_gff3:
                     with open(out_file_bed, "w") as out_bed:
                         with pysam.FastaFile(
-                                fasta_file
+                            fasta_file
                         ) as genome:  # @UndefinedVariable
                             for loc, bed_item in rna.BedIterator(bed_file):
                                 if loc.chromosome not in refdict:
                                     continue  # skip
-                                gi = next(iter(ampcoords[loc.chromosome][loc.start: loc.end]))  # get amplicon
+                                gi = next(
+                                    iter(ampcoords[loc.chromosome][loc.start : loc.end])
+                                )  # get amplicon
                                 # interval (genomic coords)
                                 ampstart, ampend, ampchrom = gi.begin, gi.end, gi.data
                                 offset = padding + (loc.start - ampstart) + 1
                                 seq = (
-                                        "N" * padding
-                                        + genome.fetch(loc.chromosome, ampstart - 1, ampend)
-                                        + "N" * padding
+                                    "N" * padding
+                                    + genome.fetch(loc.chromosome, ampstart - 1, ampend)
+                                    + "N" * padding
                                 )
                                 ampchrom_len = len(seq)
                                 log["mean_amplicon_length"] += ampchrom_len
@@ -402,19 +416,45 @@ def build_amplicon_resources(
                                 # BED
                                 print(
                                     "\t".join(
-                                        [str(x) for x in [ampchrom, offset - 1, offset + loc.end - loc.start,
-                                                          bed_item.name, "." if bed_item.score is None else
-                                                          bed_item.score, "." if loc.strand is None else loc.strand, ]]
+                                        [
+                                            str(x)
+                                            for x in [
+                                                ampchrom,
+                                                offset - 1,
+                                                offset + loc.end - loc.start,
+                                                bed_item.name,
+                                                "."
+                                                if bed_item.score is None
+                                                else bed_item.score,
+                                                "."
+                                                if loc.strand is None
+                                                else loc.strand,
+                                            ]
+                                        ]
                                     ),
                                     file=out_bed,
                                 )
                                 # GFF3
                                 print(
                                     "\t".join(
-                                        [str(x) for x in [ampchrom, "transcriptome_tools", "transcript", offset,
-                                                          offset + loc.end - loc.start, "." if bed_item.score is None
-                                                          else bed_item.score, "." if loc.strand is None else
-                                                          loc.strand, 0, f"gene_name={bed_item.name}", ]]
+                                        [
+                                            str(x)
+                                            for x in [
+                                                ampchrom,
+                                                "transcriptome_tools",
+                                                "transcript",
+                                                offset,
+                                                offset + loc.end - loc.start,
+                                                "."
+                                                if bed_item.score is None
+                                                else bed_item.score,
+                                                "."
+                                                if loc.strand is None
+                                                else loc.strand,
+                                                0,
+                                                f"gene_name={bed_item.name}",
+                                            ]
+                                        ]
                                     ),
                                     file=out_gff3,
                                 )
@@ -451,15 +491,17 @@ def build_amplicon_resources(
     return log
 
 
-def calculate_mm_profile(bam_file,
-                         gff_file,
-                         fasta_file,
-                         annotation_flavour="gencode",
-                         min_cov=10,
-                         max_mm_frac=0.1,
-                         max_sample=1e6,
-                         strand_specific=True,
-                         out_file=None):
+def calculate_mm_profile(
+    bam_file,
+    gff_file,
+    fasta_file,
+    annotation_flavour="gencode",
+    min_cov=10,
+    max_mm_frac=0.1,
+    max_sample=1e6,
+    strand_specific=True,
+    out_file=None,
+):
     """
     Calculates the mismatch profile of a BAM file from random genes.
 
@@ -485,12 +527,21 @@ def calculate_mm_profile(bam_file,
         TSV file to write the mismatch profile to. Deafult: {bam_file}.mm.tsv
 
     """
-    t = rna.Transcriptome(annotation_gff=gff_file,
-                          annotation_flavour=annotation_flavour,
-                          genome_fa=fasta_file,
-                          load_sequence_data=True
-                          )
-    out_file = rna.remove_extension(bam_file)+'.mm.tsv' if out_file is None else out_file
-    se = rna.MismatchProfile.from_bam(bam_file, features=t.genes, min_cov=min_cov, max_mm_frac=max_mm_frac,
-                                      max_sample=max_sample, strand_specific=strand_specific)
+    t = rna.Transcriptome(
+        annotation_gff=gff_file,
+        annotation_flavour=annotation_flavour,
+        genome_fa=fasta_file,
+        load_sequence_data=True,
+    )
+    out_file = (
+        rna.remove_extension(bam_file) + '.mm.tsv' if out_file is None else out_file
+    )
+    se = rna.MismatchProfile.from_bam(
+        bam_file,
+        features=t.genes,
+        min_cov=min_cov,
+        max_mm_frac=max_mm_frac,
+        max_sample=max_sample,
+        strand_specific=strand_specific,
+    )
     se.to_tsv(out_file)

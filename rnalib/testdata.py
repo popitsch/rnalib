@@ -88,7 +88,7 @@ test_resources = {
                             assert len(tok) == 9, f"Wrong nuber of tokens: {tok}"
                         print('\t'.join(tok), file=out)
             and then sorted with bedtools sort -faidx c_elegans.PRJEB28388.WS293.genomic.fa.fai -i ... , bgzipped and tabixed
-        """
+        """,
     },
     "ensembl_gff": {
         "uri": "https://ftp.ensembl.org/pub/release-110/gff3/homo_sapiens/Homo_sapiens.GRCh38.110.chr.gff3.gz",
@@ -189,12 +189,12 @@ test_resources = {
     "small_Actb_PE_bam": {
         # small example BAM file containing paired-end reads for mouse Actb
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/GSM3185042.Actb.bam",
-        "filename": "bam/GSM3185042.Actb.bam"
+        "filename": "bam/GSM3185042.Actb.bam",
     },
     "small_remapped_bam": {
         # small example BAM file with remapped reads
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/small_remapped.bam",
-        "filename": "bam/small_remapped.bam"
+        "filename": "bam/small_remapped.bam",
     },
     # -------------- VCF -------------------------------
     "dmel_multisample_vcf": {
@@ -220,7 +220,6 @@ test_resources = {
             "chr1:31653729-31653768",  # DEL
             "chr1:31654457-31654496",  # INS
             "chr1:31670549-31670588",  # SNP, 2 ALTs
-
         ],
         "filename": "vcf/HG003_GIAB_benchmark.vcf.gz",
     },
@@ -282,7 +281,7 @@ test_resources = {
     },
     "dmel_randomvalues": {
         "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/dmel_randomvalues.bedgraph.gz",
-        "filename": "bed/dmel_randomvalues.bedgraph.gz"
+        "filename": "bed/dmel_randomvalues.bedgraph.gz",
     },
     # -------------- FASTA -------------------------------
     "ACTB+SOX2_genome": {
@@ -419,7 +418,7 @@ def get_resource(k, data_dir: Path = None, conf=None, create_resource=False):
         conf = test_resources
         conf.update(large_test_resources)
     if k.startswith("pybedtools::"):
-        k = k[len("pybedtools::"):]
+        k = k[len("pybedtools::") :]
         return pybedtools.filenames.example_filename(k)
     assert k in conf, f"No test resource with key {k} defined in passed config"
     resfile = str(data_dir) + f"/{conf[k]['filename']}"
@@ -429,13 +428,15 @@ def get_resource(k, data_dir: Path = None, conf=None, create_resource=False):
             download_bgzip_slice(conf, k, data_dir, view_tempdir=False)
         except Exception as ex:
             logging.debug(traceback.format_exc())
-            logging.error(f"Error creating resource {k}: {ex}. Some tests may not work...")
+            logging.error(
+                f"Error creating resource {k}: {ex}. Some tests may not work..."
+            )
             return None
     return resfile
 
 
 def download_bgzip_slice(
-        config, resource_name, outdir, view_tempdir=False, show_progress=True
+    config, resource_name, outdir, view_tempdir=False, show_progress=True
 ):
     """
     Download the resource with the passed name from the passed config dict.
@@ -498,9 +499,7 @@ def download_bgzip_slice(
                     f"bedtools sort -header -i {f} | bgzip > {tmpfile}", shell=True
                 )  # index
 
-                subprocess.call(
-                    f'tabix {tabix_options} {tmpfile}', shell=True
-                )  # index
+                subprocess.call(f'tabix {tabix_options} {tmpfile}', shell=True)  # index
                 f = tmpfile
             elif ff == "fasta":
                 if outfile.endswith(".gz"):

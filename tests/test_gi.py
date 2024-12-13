@@ -58,10 +58,10 @@ def test_loc_simple():
     # stranded
     d["a+"] = d["a"].get_stranded("+")
     assert (
-            (d["a+"] < d["b"])
-            and (d["d"] > d["a+"])
-            and (not d["a+"] == d["b"])
-            and (d["a+"] != d["b"])
+        (d["a+"] < d["b"])
+        and (d["d"] > d["a+"])
+        and (not d["a+"] == d["b"])
+        and (d["a+"] != d["b"])
     )
     # stranded
     a = gi("chr1", 1, 10)
@@ -203,17 +203,23 @@ def test_join():
     refdict = rna.RefDict({"1": None, "3": None})
     all = from_str("1:1-20, 1:50-100, 3:21-30")
     assert list(GI.join(list(d.values()), refdict=refdict)) == all
-    assert list(GI.join([d["a"], d["d"]], [d["b"], d["e"], d["c"]], refdict=refdict)) == all
+    assert (
+        list(GI.join([d["a"], d["d"]], [d["b"], d["e"], d["c"]], refdict=refdict))
+        == all
+    )
     # see https://stackoverflow.com/questions/49071081/merging-overlapping-intervals-in-python
     intervals = from_str("1:3-9, 1:2-6, 1:8-10, 1:15-18")
     assert list(GI.join(intervals, refdict=refdict)) == from_str("1:2-10, 1:15-18")
     # see https://stackoverflow.com/questions/43600878/merging-overlapping-intervals
-    intervals=from_str("1:1-3,1:4-10,1:5-12,1:6-8,1:20-33,1:30-35")
+    intervals = from_str("1:1-3,1:4-10,1:5-12,1:6-8,1:20-33,1:30-35")
     assert list(GI.join(intervals, refdict=refdict)) == from_str("1:1-3,1:4-12,1:20-35")
     # join adjacent
-    intervals=from_str("1:1-3,1:4-10,1:11-12")
+    intervals = from_str("1:1-3,1:4-10,1:11-12")
     assert list(GI.join(intervals, refdict=refdict, join_adjacent=False)) == intervals
-    assert list(GI.join(intervals, refdict=refdict, join_adjacent=True)) == from_str("1:1-12")
+    assert list(GI.join(intervals, refdict=refdict, join_adjacent=True)) == from_str(
+        "1:1-12"
+    )
+
 
 def test_distance():
     a = from_str("1:1-10,1:1-10,1:10-20,1:25-30,1:1-10,2:1-10,2:11-12")
@@ -232,8 +238,8 @@ def test_eq():
 def test_regexp():
     locs = "1:1-10(+),  1:1-10 (-), chr2:1-10, 1:30-40    (+),"
     assert (
-            str(from_str(locs))
-            == "[1:1-10 (+), 1:1-10 (-), chr2:1-10, 1:30-40 (+), :0-2147483647]"
+        str(from_str(locs))
+        == "[1:1-10 (+), 1:1-10 (-), chr2:1-10, 1:30-40 (+), :0-2147483647]"
     )
 
 
@@ -269,10 +275,10 @@ def test_add_sub():
     assert sum([d['a'], d['b'], d['c']]) == gi("1:1-50")
     assert (d['a'] - d['a']).is_empty()
     assert (d['a'] - d['b']) == d['a']
-    assert (d['a'] - d['d']) == [gi("1:1-1"),gi("1:10-10")] # split
+    assert (d['a'] - d['d']) == [gi("1:1-1"), gi("1:10-10")]  # split
     assert (d['a'] - d['e']) == gi("1:4-10")
     assert (d['e'] - d['a']).is_empty()
-    assert (d['a'] - (d['d']+1)) == gi("1:1-1")
+    assert (d['a'] - (d['d'] + 1)) == gi("1:1-1")
     assert (d['a'] - (d['d'] - -1)) == gi("1:1-1")
     # create 100 sets of unstranded random intervals from 1 single chrom and test whether this is equal to the sum
     # note that merge is as fast as sum in this scenario.
@@ -295,13 +301,14 @@ def test_sort():
     ]
     locs += [gi("chrX", 1, 10)]
     with pytest.raises(TypeError):
-        print( GI.sort(locs, refdict=refdict) )
+        print(GI.sort(locs, refdict=refdict))
+
 
 def test_len():
     assert len(gi("chr1", 1, 2)) == 2  # interval
     assert len(gi("chr1", 1, 1)) == 1  # point
     assert (
-            gi("chr1", 20, 10).is_empty() and len(gi("chr1", 20, 10)) == 0
+        gi("chr1", 20, 10).is_empty() and len(gi("chr1", 20, 10)) == 0
     )  # empty interval
     assert len(gi()) == rna.MAX_INT  # None:-inf-inf # unbounded intervals
     assert len(gi("chr1", 1)) == rna.MAX_INT  # chr1:1-inf
@@ -340,5 +347,7 @@ def test_toXXX():
     assert len(iv) == iv2.length
     # BED
     assert iv.to_bed(name="test") == "chr1\t0\t10\ttest"
-    assert iv.to_bed12(name="test", score=1000, rgb="1,2,3") == \
-              "chr1\t0\t10\ttest\t1000\t.\t0\t10\t1,2,3\t0\t10\t0"
+    assert (
+        iv.to_bed12(name="test", score=1000, rgb="1,2,3")
+        == "chr1\t0\t10\ttest\t1000\t.\t0\t10\t1,2,3\t0\t10\t0"
+    )
