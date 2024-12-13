@@ -437,11 +437,13 @@ def test_filter(default_testdata):
     t = Transcriptome(**config)
     assert (
         t.log
-        == {
-            "parsed_gff_lines": 345,
-            "filtered_transcript_parent_gene_filtered": 89,
-            "filtered_gene_missing_tags": 5,
-        }
+        == {'parsed_gff_lines': 345,
+               'filtered_exon_no_tx_found': 108,
+               'filtered_transcript_parent_gene_filtered': 89,
+               'filtered_CDS_no_tx_found': 60,
+               'filtered_five_prime_UTR_no_tx_found': 33,
+               'filtered_three_prime_UTR_no_tx_found': 20,
+               'filtered_gene_missing_tags': 5}
         and len(t.transcripts) == 0
     )
     # filter for list of transcript ids.
@@ -449,11 +451,13 @@ def test_filter(default_testdata):
         ["ENST00000325404.3", "ENST00000674681.1"]
     )
     t = Transcriptome(**config)
-    assert t.log == {
-        'parsed_gff_lines': 345,
-        'filtered_transcript_not_in_id_list': 87,
-        'dropped_empty_genes': 3,
-    }
+    assert t.log == {'parsed_gff_lines': 345,
+         'filtered_exon_no_tx_found': 101,
+         'filtered_transcript_not_in_id_list': 87,
+         'filtered_CDS_no_tx_found': 54,
+         'filtered_five_prime_UTR_no_tx_found': 30,
+         'filtered_three_prime_UTR_no_tx_found': 18,
+         'dropped_empty_genes': 3}
     assert len(t.transcripts) == 2 and len(t.genes) == 2
     assert {tx.feature_id for tx in t.transcripts} == {
         "ENST00000325404.3",
@@ -462,11 +466,10 @@ def test_filter(default_testdata):
     # filter for gene_type
     config["feature_filter"] = TranscriptFilter().include_gene_types(["protein_coding"])
     t = Transcriptome(**config)
-    assert t.log == {
-        "parsed_gff_lines": 345,
-        "filtered_transcript_parent_gene_filtered": 65,
-        "filtered_gene_missing_gene_type_value": 3,
-    }
+    assert t.log == {'parsed_gff_lines': 345,
+         'filtered_transcript_parent_gene_filtered': 65,
+         'filtered_gene_missing_gene_type_value': 3,
+         'filtered_exon_no_tx_found': 2}
     assert len(t.transcripts) == 24 and len(t.genes) == 2
     # assert copied fields
     assert all([hasattr(tx, "gene_type") for tx in t.transcripts])
