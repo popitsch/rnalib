@@ -762,6 +762,7 @@ def test_PairedReadIterator():
         assert it.stats["filtered_duplicates", "5"] == 9317
         assert it.stats["n_fil_flag", "5"] == 227
 
+
 def slow_pileup(bam, chrom, start, stop):
     """Runs pysam pileup for reference"""
     ac = Counter()
@@ -942,12 +943,12 @@ def test_VcfIterator():
 def test_VcfIterator2():
     with rna.VcfIterator(get_resource("HG003_GIAB_benchmark_vcf")) as it:
         indel_status = [v.is_indel for _, v in it]
-        assert  indel_status == [False, False, True, True, False]
+        assert indel_status == [False, False, True, True, False]
         alt_alleles = [v.alt for _, v in it]
-        assert alt_alleles == ['C', 'A', 'A', 'TA', 'C'] # the last pos has 2 alt alleles, we should parse only the 1st
-
-        #for loc, v in it: # check indel parsing and multiple alt alleles
-        #    print(loc, v)
+        assert alt_alleles == ['C', 'A', 'A', 'TA', 'C']  # the last pos has 2 alt alleles, we should parse only the 1st
+        locs = [loc for loc, v in it]
+        assert locs == [gi("chr1:31647615-31647615"), gi("chr1:31647616-31647616"), gi("chr1:31653747-31653750"),
+                        gi("chr1:31654476-31654476"), gi("chr1:31670567-31670567")]
 
 
 def test_BedIterator():
