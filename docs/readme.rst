@@ -11,8 +11,29 @@ rnalib: a python-based genomics library
 =========================================
 
 *Rnalib*  is a python library for handling transcriptomics data. It implements a transcriptome model and provides
-efficient iterators for the annotation of its features (genes, transcripts, exons, etc.).
+efficient iterators for the annotation of its features (genes, transcripts, exons, etc.) with large genomics datasets.
 It also provides a number of utility functions for working with genomics data.
+
+
+.. image:: https://github.com/popitsch/rnalib/raw/main/docs/_static/rnalib-visual_abstract.jpg
+   :alt: Introduction to rnalib
+   :align: center
+
+
+The figure above illustrates a typical application scenario for *rnalib*: (1) A Transcriptome, object is instantiated
+from a filtered GFF3 gene annotation file. The hierarchical relationships between genes, transcripts and sub-features
+(exons, introns, CDS, etc.) are explicitly modelled as Python objects. (2) Sequences for the instantiated gene intervals
+are loaded from a reference genome FASTA file and stored in an annotation dict.
+Sequences of sub-features are sliced from there on request. Thereby, *rnalib* avoids storing redundant information
+(i.e., explicit sub-feature sequences). The same mechanism can also be used for sliceable custom annotations.
+(3) Transcriptome features are sequentially annotated with genomics data using *rnalib* iterators that support a wide
+range of common data formats as well as any tabix-indexed data file. Gene annotations can directly be queried from
+MyGene.info which collates up-to-date annotation data from many large public databases including *Ensembl*, *UniProt*
+or *PharmGKB*. (4) Users can conveniently access the data, e.g., via interactive *Jupyter* notebooks.
+Efficient querying via standard Python list comprehension or (location based) intervaltree queries is supported.
+(5) Finally, data can be exported in various formats for downstream processing. This includes BED/GFF3 files but also
+*pandas* *DataFrames* with customisable columns that can then be further processed, e.g., plotted with
+*matplotlib*/*seaborn* or analysed with *bioframe*.
 
 Design
 ------
@@ -28,7 +49,7 @@ Here are our main *rnalib* design considerations:
   that store chromosome names, their order and (possibly) lengths.
   Reference dictionaries are used to **validate and merge** genomic datasets from different sources.
 
-* Associated annotation data are represented by **arbitrary, mutable objects** (e.g., dicts, *numpy* arrays or
+* Associated annotation data are represented by **arbitrary, mutable or immutable objects** (e.g., dicts, *numpy* arrays or
   *pandas* dataframes).
 
 * *Rnalib* implements a `Transcriptome <_api/rnalib.html#rnalib.Transcriptome>`_ class that explicitly models **genomic
@@ -58,6 +79,7 @@ Here are our main *rnalib* design considerations:
 
 *Rnalib*'s target audience are bioinformatics analysts and developers and its main design goal is to enable
 **fast, readable, reproducible and robust development of novel bioinformatics tools and methods**.
+
 
 Installation
 ------------
