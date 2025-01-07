@@ -41,3 +41,13 @@ We also provide a (growing) set of tutorials for demonstrating *rnalib* in real-
 * [Tutorial: A small analysis of shRNA targets](notebooks/Tutorial_shRNA_analysis.ipynb)
 
 * We also compare *rnalib* to other genomics libraries wrt. performance in this [RelatedWork](notebooks/RelatedWork_performance.ipynb) notebook.
+
+## Contributing
+
+We highly welcome contributions! Please see our [Contributing section](https://rnalib.readthedocs.io/en/latest/readme.html#contributing) 
+for more information.
+
+## Citing
+
+If you use *rnalib* in your research, please cite [our paper](https://doi.org/10.1093/bioinformatics/btae751).
+
