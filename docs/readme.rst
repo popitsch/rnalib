@@ -314,3 +314,11 @@ simulates user interactions with the *rnalib* API. Note that the current version
 with an indentation beyond the first line, see the existing examples. Note, that all python files in the screencasts
 directory are excluded from reformatting with black (see tox.ini)
 
+Citing
+------
+
+If you use *rnalib* in your research, please cite the following publication:
+
+Niko Popitsch, Stefan L Ameres, Rnalib: a Python library for custom transcriptomics analyses, Bioinformatics, 2024;
+btae751, https://doi.org/10.1093/bioinformatics/btae751.
+
