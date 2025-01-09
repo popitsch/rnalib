@@ -64,7 +64,7 @@ def main():
                    metavar="bam", help="BAM file")
     p.add_argument("-o", "--outfile", type=str, required=False, dest="outfile",
                    metavar="outfile", help="output file (default is {bam_file_name}_tc-only.bam)")
-    p.add_argument("-m", "--min_tc", type=int, required=False, dest="min_tc",
+    p.add_argument("-m", "--min_tc", type=int, required=False, dest="min_tc", default=1,
                    metavar="min_tc", help="minimum number of T/C conversions (default is 1)")
     p.add_argument("--tags", type=str, required=False, dest="tags", metavar="tags",
                    help="BAM tags to be used for the output BAM file. Default is {'ntc': 'xc', 'ntt': 'xt', 'col': 'YC'}")

@@ -255,6 +255,8 @@ def filter_tc(bam_file, out_file=None, min_tc=1, tags=None):
         tags = {"ntc": "xc", "ntt": "xt", "col": "YC"}  # Used BAM tags)
     elif isinstance(tags, str):
         tags = ast.literal_eval(tags)  # parse from string
+    if min_tc is None:
+        min_tc = 1
     if out_file is None:
         out_file = f"{Path(bam_file).stem}_tc-only.bam"
     with rna.ReadIterator(
