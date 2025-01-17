@@ -102,11 +102,6 @@ def check_list(lst, mode="inc1") -> bool:
     return None
 
 
-def all_equal(iterable):
-    g = groupby(iterable)
-    return next(g, True) and not next(g, False)
-
-
 def split_list(lst, n, is_chunksize=False) -> list:
     """
     Splits a list into sublists.
@@ -867,6 +862,72 @@ def bgzip_and_tabix(
     if del_uncompressed:
         os.remove(in_file)
     return out_file
+
+
+# --------------------------------------------------------------
+# genomics helpers :: coordinate mapping
+# --------------------------------------------------------------
+def get_rel_coord(feature, subfeature, query, strand_specific=False):
+    """
+        Returns a GI with coordinates that are relative to the passed feature by taking the specified
+        subfeature blocks into account. This method can, e.g., be used to map from genomic to transcriptomic
+        coordinates or to calculate codon numbers, see examples.
+
+        Parameters
+        ----------
+        feature : rna.GI
+            The feature to map to
+        subfeature : str
+            The subfeature type to consider (e.g., 'CDS', 'exon', 'UTR')
+        query : rna.GI
+            The query interval (genomic coordinates) to map
+        strand_specific : bool, optional
+            Whether to test for matching strand between feature and query. Default is False.
+
+        Returns
+        -------
+        rna.GI or None
+            The relative coordinates of the query interval in the feature or None if no overlap was found. The
+            chromosome of the returned GI will be set to the feature_id (e.g., the transcript id) of the feature.
+
+        Example
+        >>> get_rel_coord(t['ENST00000621592.8'], "CDS", rna.gi("chr8:127740698-127750856 (+)")))
+    """
+    if not feature.overlaps(query, strand_specific=strand_specific):
+        return None  # no overlap
+    strand = feature.location.strand
+    try:
+        blocks = getattr(feature, subfeature)
+        if strand == '-':
+            blocks = list(reversed(blocks))  # reverse to get blocks form left to right
+    except AttributeError as e:
+        logging.warning(f"no subfeatures of type {subfeature} found")
+        return None
+    feature_len = sum([len(b) for b in blocks])
+    off_left = 0
+    for b in blocks:
+        if query.start > b.end:
+            off_left += len(b)
+            continue
+        if query.start < b.start:
+            break
+        off_left += query.start - b.start
+        break
+    off_right = 0  # here we could also start at off_left and with the last (partial) block to save some time
+    for b in blocks:
+        if query.end > b.end:
+            off_right += len(b)
+            continue
+        if query.end < b.start:
+            off_right -= 1  # last position of previous block
+            break
+        off_right += query.end - b.start
+        break
+    if off_right >= feature_len:  # special case if we moved beyond the last block
+        off_right = feature_len - 1
+    if strand == '-':  # reverse
+        off_left, off_right = feature_len - off_right - 1, feature_len - off_left - 1
+    return rna.gi(feature.feature_id, off_left + 1, off_right + 1)
 
 
 # --------------------------------------------------------------

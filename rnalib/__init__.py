@@ -36,6 +36,7 @@ import pyranges
 from intervaltree import IntervalTree
 from more_itertools import pairwise, triplewise, windowed, peekable
 from sortedcontainers import SortedList, SortedSet
+import biotite.sequence as seq
 
 from .constants import *
 from .interfaces import Archs4Dataset
@@ -1544,12 +1545,11 @@ class Transcriptome:
           returned.
         - if mode is 'spliced', the fully spliced sequence of a transcript will be returned. This will always use
           'rna' mode and is valid only for containers of exons.
-        - if mode is 'translated' then the CDS sequence is reported. To, e.g., calculate the amino-acid
-          sequence of a transcript using biopython's Seq() implementation, you can do:
-          `Seq(t.transcript[my_tid].translated_sequence).translate()`
+        - if mode is 'translated' then the CDS sequence is reported. To access the amino-acid sequence,
+          `tx.get_protein_sequence(.)`can be used which will return a biotite ProteinSequence object.
         - else, the 5'-3' DNA sequence (as shown in a genome browser) of this feature is returned
 
-        show_exon_boundaries=True can be used to insert '*' characters at splicing boundaries of spliced/translated
+        `show_exon_boundaries=True` can be used to insert '*' characters at splicing junctions of spliced/translated
         sequences.
 
         """
@@ -2243,6 +2243,26 @@ class Feature(GI_dataclass):
         )
         return sub_class
 
+    def get_rel_coordinates(self, subfeature, query, strand_specific=False):
+        """Returns a GI with relative coordinates of the passed query in this feature"""
+        return rna.get_rel_coord(self, subfeature, query, strand_specific)
+
+    def get_protein_sequence(self, query=None):
+        """Returns the biotite ProteinSequence object describing the amino-acid sequence of this feature (if it is a
+        transcript, has a CDS and has a sequence). Otherwise, None is returned.
+        """
+        if (self.feature_type != "transcript") or ("CDS" not in self.subfeature_types):
+            return None
+        tseq = self.translated_sequence
+        if tseq is None:
+            return None
+        aa_seq = seq.NucleotideSequence(tseq).translate(complete=True)
+        if query is not None:
+            offsets = self.get_rel_coordinates("CDS", query)
+            if offsets is None:
+                return None
+            aa_seq = aa_seq[(offsets.start-1)//3: (offsets.end-1)//3+1]
+        return aa_seq
 
 class _Feature:
     """

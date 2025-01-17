@@ -78,16 +78,16 @@ def test_get_reference_dict():
         rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
     ).keys() == {"chr3", "chr7"}
     assert (
-        rna.RefDict.load(rna.get_resource("ensembl_gff")).orig.keys()
-        == rna.RefDict.load(
-            rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
-        ).orig.keys()
+            rna.RefDict.load(rna.get_resource("ensembl_gff")).orig.keys()
+            == rna.RefDict.load(
+        rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
+    ).orig.keys()
     )
     assert (
-        rna.RefDict.load(
-            rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
-        ).alias("1")
-        == "chr1"
+            rna.RefDict.load(
+                rna.get_resource("ensembl_gff"), fun_alias=rna.toggle_chr
+            ).alias("1")
+            == "chr1"
     )
     # compare 2 refdicts, one w/o chr prefix (ensembl) and one with (fasta file)
     assert rna.RefDict.merge_and_validate(
@@ -115,7 +115,7 @@ def test_kmer_search():
     res = rna.kmer_search(seq, ["TACGA", "ATCAG", "AACGC"])
     for k in res:
         for s in res[k]:
-            assert seq[s : s + len(k)], k
+            assert seq[s: s + len(k)], k
 
 
 def test_split_list():
@@ -133,7 +133,7 @@ def test_intersect_lists():
     assert rna.intersect_lists([1, 2, 3, 4], [1, 4]) == [1, 4]
     assert rna.intersect_lists([1, 2, 3], [3, 2, 1]) == [3, 2, 1]
     with pytest.raises(
-        AssertionError
+            AssertionError
     ) as e_info:  # assert that assertion error is raised
         rna.intersect_lists([1, 2, 3], [3, 2, 1], check_order=True)
     print(f"Expected assertion: {e_info}")
@@ -312,7 +312,7 @@ def test_calc_3end():
     # test whether returned 3'end intervals are in sum 200bp long or None (if tx too short)
     for tx in t.transcripts:
         assert (
-            rna.calc_3end(tx) is None or sum([len(x) for x in rna.calc_3end(tx)]) == 200
+                rna.calc_3end(tx) is None or sum([len(x) for x in rna.calc_3end(tx)]) == 200
         )
 
 
@@ -320,8 +320,8 @@ def test_geneid2symbol():  # needs internet connection
     res = rna.geneid2symbol(["ENSMUSG00000029580", 60])
     assert res["60"].symbol == "ACTB" and res["60"].taxid == 9606
     assert (
-        res["ENSMUSG00000029580"].symbol == "Actb"
-        and res["ENSMUSG00000029580"].taxid == 10090
+            res["ENSMUSG00000029580"].symbol == "Actb"
+            and res["ENSMUSG00000029580"].taxid == 10090
     )
 
 
@@ -347,10 +347,10 @@ def test_build_amplicon_resources():
             amp_extension=10,
             out_dir=tmpdir,
         ) == {
-            "mean_amplicon_length": 340.0,
-            "parsed_intervals": 3,
-            "written_amplicons": 2,
-        }
+                   "mean_amplicon_length": 340.0,
+                   "parsed_intervals": 3,
+                   "written_amplicons": 2,
+               }
         rna.print_dir_tree(tmpdir)
 
 
@@ -394,14 +394,14 @@ def test_bam_writer():
                         [
                             i
                             for i, p in zip(
-                                read_tpos,
-                                rna.random_sample(f'uniform(0,1,{len(read_tpos)})'),
-                            )
+                            read_tpos,
+                            rna.random_sample(f'uniform(0,1,{len(read_tpos)})'),
+                        )
                             if p <= cr
                         ]
                     )
                     for i in read_tc_pos:
-                        read_seq = read_seq[:i] + 'C' + read_seq[i + 1 :]
+                        read_seq = read_seq[:i] + 'C' + read_seq[i + 1:]
                     query_sequence = (
                         rna.reverse_complement(read_seq)
                         if tx.strand == "-"
@@ -450,22 +450,22 @@ def test_SeqErrProfile():
         [
             se.get_prob(ref, alt, strand)
             for (ref, alt, strand) in [
-                ('N', 'A', "+"),
-                ('N', 'T', "+"),
-                ('N', 'G', "+"),
-                ('N', 'C', "+"),
-            ]
+            ('N', 'A', "+"),
+            ('N', 'T', "+"),
+            ('N', 'G', "+"),
+            ('N', 'C', "+"),
+        ]
         ]
     )
     print(
         [
             se.get_prob(ref, alt, strand)
             for (ref, alt, strand) in [
-                ('N', 'A', "-"),
-                ('N', 'T', "-"),
-                ('N', 'G', "-"),
-                ('N', 'C', "-"),
-            ]
+            ('N', 'A', "-"),
+            ('N', 'T', "-"),
+            ('N', 'G', "-"),
+            ('N', 'C', "-"),
+        ]
         ]
     )
     assert np.allclose(
@@ -505,13 +505,13 @@ def test_is_paired():
 def test_extract_aligned_reads_from_fastq():
     with tempfile.TemporaryDirectory() as tmp:
         assert (
-            rna.extract_aligned_reads_from_fastq(
-                bam_file=rna.get_resource("small_remapped_bam"),
-                fastq1_file=rna.get_resource("small_remapped_fastq1"),
-                fastq2_file=rna.get_resource("small_remapped_fastq2"),
-                out_file_prefix=tmp + "/test",
-            )[0]
-            == 66
+                rna.extract_aligned_reads_from_fastq(
+                    bam_file=rna.get_resource("small_remapped_bam"),
+                    fastq1_file=rna.get_resource("small_remapped_fastq1"),
+                    fastq2_file=rna.get_resource("small_remapped_fastq2"),
+                    out_file_prefix=tmp + "/test",
+                )[0]
+                == 66
         )
         rna.print_dir_tree(tmp)
         rna.print_small_file(tmp + "/test.r1.fq.gz", False, 8)
@@ -529,3 +529,91 @@ def test_compact_bedgraph_file():
         assert rna.gi("chr7:5530527-5530549") in all_loc  # assert merged interval
         assert rna.gi("chr7:5530551-5531863") in all_loc  # assert last interval
         rna.print_small_file(bgf, True, 400)
+
+
+def test_get_rel_coord():
+    config = {
+        "genome_fa": rna.get_resource("ACTB+SOX2_genome"),
+        "genome_offsets": {"chr3": 181711825, "chr7": 5526309},
+        "annotation_gff": rna.get_resource(
+            "gencode_gff"
+        ),  # rna.get_resource('gencode_gff'),,
+        "annotation_flavour": "gencode",
+        "disable_progressbar": True,  # no progressbars
+        "feature_filter": {"gene": {"included": {"gene_type": ["protein_coding"]}}},
+        "load_sequence_data": True
+    }
+    t = rna.Transcriptome(**config)
+    tx = t['ENST00000674681.1']
+    tx_len = sum([len(e) for e in tx.exon])
+    # this should be the 1st nucleotide in this transcript
+    assert rna.get_rel_coord(tx, "exon", rna.gi("chr7:5530601-5530601")) == \
+           rna.gi(chromosome="ENST00000674681.1", start=1, end=1)
+    # this should be the last nucleotide in this transcript
+    assert rna.get_rel_coord(tx, "exon", rna.gi("chr7:5526409-5526409")) == \
+           rna.gi(chromosome="ENST00000674681.1", start=tx_len, end=tx_len)
+
+    # strand specificity
+    assert rna.get_rel_coord(tx, "exon", rna.gi("chr7:5530601-5530601"), True) is None
+    assert rna.get_rel_coord(tx, "exon", rna.gi("chr7:5530601-5530601 (-)"), True) == \
+           rna.gi(chromosome="ENST00000674681.1", start=1, end=1)
+
+    # codons that should translate to SKR
+    aa_seq = tx.get_protein_sequence(rna.gi("chr7:5529339-5529346"))
+    assert str(aa_seq) == "SKR"
+
+    # fly genome tests
+    config = {
+        "genome_fa": rna.get_resource('dmel_genome'),  # genome FASTA
+        "annotation_gff": rna.get_resource('flybase_gtf'),  # gene annotation GTF/GFF file
+        "annotation_flavour": 'flybase',  # flavour of the annotation file.
+        "load_sequence_data": True,  # load sequences from configured genome FASTA file
+        "disable_progressbar": True,  # no progressbars
+        "feature_filter": {'location': {'included': {'chromosomes': ['2L']}}}
+        # a simple filter that will include only annotations from 2L
+    }
+    t = rna.Transcriptome(**config)
+    # minus tx test
+    tx = t['FBtr0306591']
+    # overlapping tx end
+    rel = tx.get_rel_coordinates('exon', rna.gi("2L:21,372-21,411"))
+    assert tx.spliced_sequence[rel.start-1:rel.end] == "GCACA"
+    # start in intron
+    rel = tx.get_rel_coordinates('exon', rna.gi("2L:21,061-21,100"))
+    assert tx.spliced_sequence[rel.start-1:rel.end] == "CACCGCCTTAACCGTACAAACGGAAATACATAAAG"
+    # end in intron
+    rel = tx.get_rel_coordinates('exon', rna.gi("2L:9,825-9,864"))
+    assert tx.spliced_sequence[rel.start-1:rel.end] == "TTAATAAAACATGTATTTTATTTAAC"
+    # overlapping tx start
+    rel = tx.get_rel_coordinates('exon', rna.gi("2L:15,709-15,713"))
+    assert tx.spliced_sequence[rel.start-1:rel.end] == "ACG"
+
+    # plus strand tests
+    tx = t['FBtr0306539']
+    # overlapping tx start
+    rel = tx.get_rel_coordinates('exon', rna.gi("2L:66,449-66,488"))
+    assert tx.spliced_sequence[rel.start - 1:rel.end] == "GACAACT"
+    # over SJ
+    rel = tx.get_rel_coordinates('exon', rna.gi("2L:67,502-67,578"))
+    assert tx.spliced_sequence[rel.start - 1:rel.end] == "ACAAGACATGTTGGGC"
+    # both endpoints in introns - should return exon2
+    rel = tx.get_rel_coordinates('exon', rna.gi("2L:67,378-67,562"))
+    assert tx.spliced_sequence[rel.start - 1:rel.end] == tx.exon[2].sequence
+
+def test_get_protein_sequence():
+    config = {
+        "genome_fa": rna.get_resource('dmel_genome'),  # genome FASTA
+        "annotation_gff": rna.get_resource('flybase_gtf'),  # gene annotation GTF/GFF file
+        "annotation_flavour": 'flybase',  # flavour of the annotation file.
+        "load_sequence_data": True,  # load sequences from configured genome FASTA file
+        "disable_progressbar": True,  # no progressbars
+        "feature_filter": {'location': {'included': {'chromosomes': ['2L']}}}
+        # a simple filter that will include only annotations from 2L
+    }
+    t = rna.Transcriptome(**config)
+    # minus tx test
+    tx = t['FBtr0306591']
+    # CDS access
+    assert len(tx.get_rel_coordinates('CDS', rna.gi("2L:17,132-17,219"))) == 5
+    assert [str(tx.get_protein_sequence(rna.gi("2L", s, 17219))) for s in range(17130, 17137)] == \
+           ['MLK', 'ML', 'ML', 'ML', 'M', 'M', 'M']
