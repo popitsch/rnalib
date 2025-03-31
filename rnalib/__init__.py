@@ -4245,9 +4245,10 @@ class VcfIterator(TabixIterator):
             filter_nopass: bool = True,
             filter_nocalls: bool = True,
     ):
-        assert (
+        if isinstance(vcf_file, str):
+            assert (
                 guess_file_format(vcf_file) == "vcf"
-        ), f"expected VCF file but guessed file format is {guess_file_format(vcf_file)}"
+            ), f"expected VCF file but guessed file format is {guess_file_format(vcf_file)}"
         # pass refdict extracted from VCF header, otherwise it is read from tabix index which would contain only the
         # chroms that are contained in the actual file
         super().__init__(
