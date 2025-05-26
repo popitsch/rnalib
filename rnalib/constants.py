@@ -134,6 +134,15 @@ GFF_FLAVOURS = {
         "ftype_to_SO": {"pre_miRNA": "transcript", "miRNA": "transcript"},
         "copied_fields": ["source", "Alias"],
     },
+    ("mirbase", "gff"): {
+        "gid": None,
+        "tid": "ID",
+        "tx_gid": None,
+        "feat_tid": None,
+        "gene_name": "Alias",
+        "ftype_to_SO": {"miRNA_primary_transcript": "transcript", "miRNA": "transcript"},
+        "copied_fields": ["source", "Alias"],
+    },
     ("generic", "gff"): {
         "gid": "ID",
         "tid": "ID",

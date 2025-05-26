@@ -114,9 +114,13 @@ test_resources = {
         "filename": "gff/chess3.GRCh38.ACTB+SOX2.gtf.gz",
         "recreate": False,
     },
-    "mirgendb_dme_gff": {
+    "mirgenedb_dme_gff": {
         "uri": "https://mirgenedb.org/gff/dme?sort=pos&all=1",
         "filename": "gff/mirgenedb.dme.sorted.gff3.gz",
+    },
+    "mirbase_hsa_gff": {
+        "uri": f"file:///{os.path.dirname(os.path.realpath(__file__))}/static_test_files/mirbase_hsa.sorted.gff3.gz",
+        "filename": "gff/mirbase_hsa.sorted.gff3.gz",
     },
     "generic_gff3": {
         # small GFF file for testing the generic GFF parser

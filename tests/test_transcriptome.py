@@ -555,11 +555,20 @@ def test_gff_flavours():
     # Mirgenedb
     config = {
         "genome_fa": get_resource("dmel_genome"),
-        "annotation_gff": get_resource("mirgendb_dme_gff"),
+        "annotation_gff": get_resource("mirgenedb_dme_gff"),
         "annotation_flavour": "mirgenedb",
     }
     t = Transcriptome(**config)  # 322 miRNA entries, 161 pre_miRNA entries
     assert Counter([f.feature_type for f in t.anno]) == {"gene": 483, "transcript": 483}
+    # No CDS annotations!
+
+    # Mirbase
+    config = {
+        "annotation_gff": get_resource("mirbase_hsa_gff"),
+        "annotation_flavour": "mirbase",
+    }
+    t = Transcriptome(**config)  # 2883 miRNA entries, 1918 miRNA_primary_transcript entries
+    assert Counter([f.feature_type for f in t.anno]) == {"gene": 4801, "transcript": 4801}
     # No CDS annotations!
 
     # wormbase
@@ -640,6 +649,7 @@ def test_gff_flavours():
         "GENCODE": 1,
         "MANE": 1,
     }
+
 
 
 def test_generic_flavours():

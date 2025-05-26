@@ -2,7 +2,7 @@
     Rnalib is a python utilities library for handling genomics data with a focus on transcriptomics.
 
     It implements a transcriptome model that can be instantiated from various popular
-    GFF 'flavours' as published in encode, ensembl, ucsc, chess, mirgendb, wormbase and flybase databases.
+    GFF 'flavours' as published in encode, ensembl, ucsc, chess, mirgenedb, mirbase, wormbase and flybase databases.
     Several filtering options are available to filter transcripts by gene type, biotype, etc.
 
     The transcriptome model is implemented as a hierarchical tree of frozen dataclasses
@@ -842,7 +842,7 @@ class Transcriptome:
         Path to a GFF/GTF file containing the transcriptome annotations.
     annotation_flavour : str
         The annotation flavour of the GFF/GTF file.
-        Currently built-in formats: encode, ensembl, ucsc, chess, mirgendb, wormbase and flybase.
+        Currently built-in formats: encode, ensembl, ucsc, chess, mirgenedb, mirbase, wormbase and flybase.
         If a custom format is used, pass a dict with the format specification, see GFF_FLAVOURS for examples.
     genome_fa : str
         Path to a FASTA file containing the reference genome. If provided, sequences will be loaded and can be
