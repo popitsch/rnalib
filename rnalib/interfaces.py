@@ -9,6 +9,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import s3fs
+from collections import defaultdict
 from tqdm.auto import tqdm
 from datetime import datetime
 
@@ -42,8 +43,18 @@ class Archs4Dataset:
     >>>     df_cnt = a4.get_counts(samples = df_sample) # get counts for 10 random samples
     """
 
-    def __init__(self, location):
+    def __init__(self, location, transcript_specific=None):
         self.location = location
+        if transcript_specific is None:
+            if "_gene_" in location:
+                transcript_specific = False
+            elif "_tpm_" in location:
+                transcript_specific = True
+            else:
+                raise ValueError(
+                    "Could not determine whether gene or transcript data is used. Please set transcript_specific=True/False."
+                )
+        self.transcript_specific = transcript_specific
         if location.startswith("https://"):
             endpoint, d, f = location.rsplit("/", 2)
             s3_url = f"s3://{d}/{f}"
@@ -58,9 +69,15 @@ class Archs4Dataset:
         self.meta_keys = self.get_meta_keys()
         self.all_samples = self.get_sample_dict(remove_sc=False)
         self.nosc_samples = self.get_sample_dict(remove_sc=True)
-        self.genes = [
-            x.decode("UTF-8") for x in np.array(self.file["meta/genes/symbol"])
-        ]
+        if self.transcript_specific:
+            self.genes = np.array([x.decode("UTF-8") for x in np.array(self.file["meta/transcripts/symbol"])])
+            self.tids =  np.array([x.decode("UTF-8") for x in np.array(self.file["meta/transcripts/ensembl_id"])])
+            self.sym2tx = defaultdict(list)
+            for s, t in zip(self.genes, self.tids):
+                self.sym2tx[s].append(t)
+        else:
+            self.genes = np.array([x.decode("UTF-8") for x in np.array(self.file["meta/genes/symbol"])])
+
 
     def __enter__(self):
         return self
@@ -192,18 +209,23 @@ class Archs4Dataset:
         df = pd.concat(dts)
         return df
 
-    def get_counts(self, samples, gene_symbols=None, disable_progressbar=False):
+    def get_counts(self, samples, gene_symbols=None, disable_progressbar=False, row_encoding = None):
         """
-        Retrieve gene expression data from a specified file for the given sample and gene indices.
+        Retrieve gene/transcript expression data from a specified file for the given sample and gene/tid indices.
 
         Parameters
         ----------
         samples: list
             A list of sample ids to retrieve gene expression data for.
         gene_symbols: list
-            A list of gene symbols to retrieve gene expression data for (if None, all genes will be considered).
+            A list of gene symbols to retrieve gene expression data for (if None, all genes will be considered). If
+            this is a transcript specific dataset, then all transcript ids corresponding to this gene symbol are
+            returned.
         disable_progressbar: bool
             Whether to disable the progress bar.
+        row_encoding: str
+            The h5 path to the gene or transcript symbols (default depends on whether this is a transcript
+            specific dataset).
 
         Returns
         -------
@@ -211,16 +233,15 @@ class Archs4Dataset:
             A pandas DataFrame containing the gene expression data.
 
         """
+        if isinstance(gene_symbols, str):
+            gene_symbols=[gene_symbols] # ensure a list
         sample_dict = self.nosc_samples  # all samples (non sc)
         if samples is not None:
             sample_dict = {k: v for k, v in sample_dict.items() if k in samples}
-        row_encoding = "meta/genes/symbol"  # a4.data.get_encoding(file) # h5 path to expression data
-        # get gene indices
-        genes = np.array([x.decode("UTF-8") for x in np.array(self.file[row_encoding])])
         if gene_symbols is None:  # all genes
-            gene_idx = list(range(len(genes)))
+            gene_idx = list(range(len(self.genes)))
         else:
-            gene_idx = [i for i, g in enumerate(genes) if g in gene_symbols]
+            gene_idx = [i for i, g in enumerate(self.genes) if g in gene_symbols]
         # get batches
         dat = []
         dts = []
@@ -229,14 +250,19 @@ class Archs4Dataset:
             # see https://stackoverflow.com/questions/21766145/h5py-correct-way-to-slice-array-datasets
             dat.append(self.file["data/expression"][:, idx][gene_idx].T)
             if len(dat) == 10000:  # convert 10k rows to df
-                dts.append(pd.DataFrame(dat, columns=genes[gene_idx]))
+                if self.transcript_specific:
+                    dts.append(pd.DataFrame(dat, columns=self.tids[gene_idx]))
+                else:
+                    dts.append(pd.DataFrame(dat, columns=self.genes[gene_idx]))
                 dat = []
         if len(dat) > 0:  # convert remaining rows to df
-            dts.append(pd.DataFrame(dat, columns=genes[gene_idx]))
+                if self.transcript_specific:
+                    dts.append(pd.DataFrame(dat, columns=self.tids[gene_idx]))
+                else:
+                    dts.append(pd.DataFrame(dat, columns=self.genes[gene_idx]))
         df = pd.concat(dts)
         df.index = sample_dict.keys()
         return df
-
 
 #
 # # TODO: add tests

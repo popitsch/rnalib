@@ -1044,7 +1044,7 @@ class Transcriptome:
                         if feature_type == "gene":  # build gene object
                             # filter...
                             filtered, filter_message = self.feature_filter.filter(
-                                loc, info
+                                loc, info, feature_type
                             )
                             if filtered:
                                 self.log[
@@ -1095,7 +1095,7 @@ class Transcriptome:
                         if feature_type == "transcript":  # build tx object
                             # filter...
                             filtered, filter_message = self.feature_filter.filter(
-                                loc, info
+                                loc, info, feature_type
                             )
                             if filtered:
                                 self.log[
@@ -1231,7 +1231,7 @@ class Transcriptome:
                         ):  # supported feature types
                             # filter...
                             filtered, filter_message = self.feature_filter.filter(
-                                loc, info
+                                loc, info, feature_type
                             )
                             # feature types that are mapped to None are filtered (e.g., wormbase pseudogenic_transcript)
                             if filtered or feature_type is None:
@@ -1280,7 +1280,7 @@ class Transcriptome:
                             feature_type = info["feature_type"]
                             # filter...
                             filtered, filter_message = self.feature_filter.filter(
-                                loc, info
+                                loc, info, feature_type
                             )
                             if filtered:
                                 self.log[
@@ -2431,7 +2431,9 @@ class TranscriptFilter(AbstractFeatureFilter):
         if self.included_tids is not None:
             self.included_tids = set(self.included_tids)
 
-    def filter(self, loc, info):
+    def filter(self, loc, info, feature_type=None):
+        if feature_type is None:
+            feature_type = info.get("feature_type", None)
         # location filtering
         if (
                 self.included_chrom is not None
@@ -2449,24 +2451,14 @@ class TranscriptFilter(AbstractFeatureFilter):
         ):
             return True, "excluded_region"
         # feature type specific info field filtering
-        if "feature_type" not in info:
-            return False, "no_feature_type"
-        if (
-                self.excluded_ftypes is not None
-                and info["feature_type"] in self.excluded_ftypes
-        ):
-            return True, "excluded_ftypes"
-        if (
-                self.included_ftypes is not None
-                and info["feature_type"] not in self.included_ftypes
-        ):
-            return True, "included_ftypes"
-        if info["feature_type"] == "transcript" and self.included_tids is not None:
-            if (
-                    self.included_tids is not None
-                    and info["feature_type"] == "transcript"
-                    and info.get("transcript_id", None) not in self.included_tids
-            ):
+        if (self.excluded_ftypes is not None) or (self.included_ftypes is not None):
+            if feature_type in self.excluded_ftypes:
+                return True, "excluded_ftypes"
+            if feature_type not in self.included_ftypes:
+                return True, "included_ftypes"
+        # filter for ids
+        if feature_type == "transcript" and (self.included_tids is not None):
+            if info.get("transcript_id", "") not in self.included_tids:
                 return True, "not_in_id_list"
         included = get_config(
             self.config, [info["feature_type"], "included"], default_value=None

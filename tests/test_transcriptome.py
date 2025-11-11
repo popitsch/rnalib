@@ -481,8 +481,8 @@ def test_filter(default_testdata):
         without gene_type annotation) and drops genes outside the first 6 Mb of each chromosome.
         """
 
-        def filter(self, loc, info):  # -> bool, str:
-            if info.get("feature_type", "") == "gene":
+        def filter(self, loc, info, feature_type):  # -> bool, str:
+            if feature_type == "gene":
                 if info.get("gene_type", "protein_coding") != "protein_coding":
                     return True, "not_protein_coding"
                 if loc.end > 6000000:  # consider only first 6 Mb
@@ -493,6 +493,28 @@ def test_filter(default_testdata):
     t = Transcriptome(**config)
     assert all([f.end <= 6000000 for f, dat in t.iterator()])
 
+
+def test_filter_tidlist(default_testdata):
+    """test filtering by transcript id list only"""
+    t1 = Transcriptome(genome_fa = get_resource("ACTB+SOX2_genome", rnalib.__RNALIB_TESTDATA__),
+                       genome_offsets =  {"chr3": 181711825, "chr7": 5526309},
+                       annotation_gff= get_resource("gencode_gff", rnalib.__RNALIB_TESTDATA__),
+                       annotation_flavour ="gencode",
+                       feature_filter = TranscriptFilter().include_transcript_ids(["ENST00000417101.2"]))
+    assert len(t1.genes) == 1 and len(t1.transcripts) == 1
+
+def test_filter_tidlist2(default_testdata):
+    config = {
+        "genome_fa": get_resource("dmel_genome"),
+        "annotation_gff": get_resource("flybase_gtf"),
+        "annotation_flavour": "flybase",
+        "feature_filter": {"location": {"included": {"transcript_ids": ["FBtr0475186"]}}},
+        "copied_fields": ["gene_type"],
+        "load_sequence_data": True,
+    }
+    t1 = Transcriptome(**config)
+    assert len(t1.genes) == 1 and len(t1.transcripts) == 1
+    assert t1.transcripts[0].feature_id == "FBtr0475186"
 
 def test_triples(default_testdata):
     """TODO: more max_dist checks (same chrom)"""
