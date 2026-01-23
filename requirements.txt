@@ -1,5 +1,5 @@
 setuptools==70.0.0
-wheel==0.42.0
+wheel>=0.46.2
 bioframe==0.6.1
 biotite==0.39.0
 dill==0.3.7

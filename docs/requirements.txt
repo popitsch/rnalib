@@ -5,7 +5,7 @@ sphinx-autobuild==2024.2.4
 sphinx-copybutton==0.5.2
 sphinxcontrib-apidoc==0.5.0
 setuptools==70.0.0
-wheel==0.42.0
+wheel>=0.46.2
 bioframe==0.6.1
 biotite==0.39.0
 dill==0.3.7
