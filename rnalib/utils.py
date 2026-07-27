@@ -2059,7 +2059,7 @@ class BamWriter:
         self.out_file_bam = out_file_bam
         self.sort_and_index = sort_and_index
         self._stats = Counter()
-        print("Writing to ", out_file_bam)
+        #print("Writing to ", out_file_bam)
 
     def write(
             self,
